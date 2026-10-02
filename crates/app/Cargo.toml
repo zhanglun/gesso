@@ -14,9 +14,11 @@ gesso-core = { path = "../core" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-# gpui 0.2.2 自带平台后端（macOS/Metal、Windows/D3D11）；README 提到的
-# gpui_platform 是 Zed 仓库内未发布 crate（2026-02 核实：crates.io 404）
-gpui = "0.2"
+# gpui-kit 0.7（Apache-2.0，Longbridge Pro 生产验证）：钉定 gpui-pre =0.3.7 快照并 re-export gpui。
+# 事实链（2026-10 核实）：直接依赖 crates.io 的 gpui 0.2.2 与 kit 不兼容（不同 crate）；
+# 官方 gpui_platform 未发布，kit 用的是快照版 gpui-pre-platform；gpui-wry 同仓同版本（M0.5 用）。
+# ⚠️ gpui-pre 为周更快照通道，API 可变——升级必须整组快照一起动，且只在里程碑间隙做。
+gpui-kit = "0.7"
 
 # 平台依赖（贴壁层 §4；M1 起使用，先声明锁定版本）
 [target.'cfg(windows)'.dependencies]
