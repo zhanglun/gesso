@@ -135,7 +135,7 @@ impl ReportView {
                             // "打开快速面板" → 可见效果：切换壁纸窗口 webview 显隐
                             "panel" => {
                                 let (url_a, url_b) = spike_urls();
-                                let to_b = !SWAPPED.swap(true, Ordering::SeqCst);
+                                let to_b = !SWAPPED.fetch_xor(true, Ordering::SeqCst);
                                 this.host.update(cx, |host, cx| {
                                     host.webview.update(cx, |wv, _| {
                                         wv.load_url(if to_b { url_b } else { url_a });
