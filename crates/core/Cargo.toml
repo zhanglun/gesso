@@ -1,0 +1,13 @@
+[package]
+name = "gesso-core"
+description = "Gesso 纯领域逻辑：ContentSpec / 配置 / 内容库 / 会话状态机（零平台依赖，全量单测）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# 随机不可猜条目 ID（安全模型 §7：wallpaper:// 路径白名单依赖不可猜测性）
+getrandom = "0.3"

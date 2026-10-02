@@ -1,0 +1,31 @@
+[package]
+name = "gesso-app"
+description = "Gesso 桌面应用（GPUI）：管理窗口、壁纸窗口壳、贴壁层、事件桥、协议层"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gesso"
+path = "src/main.rs"
+
+[dependencies]
+gesso-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# gpui 0.2.2 自带平台后端（macOS/Metal、Windows/D3D11）；README 提到的
+# gpui_platform 是 Zed 仓库内未发布 crate（2026-02 核实：crates.io 404）
+gpui = "0.2"
+
+# 平台依赖（贴壁层 §4；M1 起使用，先声明锁定版本）
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Accessibility",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSWorkspace"] }

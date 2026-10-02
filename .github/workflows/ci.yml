@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: 核心逻辑 + 构建（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: 格式
+        run: cargo fmt --all --check
+      - name: 核心单测
+        run: cargo test -p gesso-core --locked
+      - name: Clippy（core，警告即失败）
+        run: cargo clippy -p gesso-core --all-targets -- -D warnings
+      - name: 应用可编译
+        run: cargo check -p gesso-app --locked
