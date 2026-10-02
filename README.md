@@ -12,15 +12,10 @@ crates/
 └── app/    # GPUI 应用：管理窗口、壁纸窗口壳、贴壁层、事件桥、协议层
 ```
 
-## 前置要求（macOS 构建机）
+## 前置要求
 
-GPUI 在构建期编译 Metal 着色器，需要**完整 Xcode**（Command Line Tools 不够）：
-
-```bash
-# 安装 Xcode（App Store 或 xcodes）后：
-sudo xcode-select -s /Applications/Xcode.app
-sudo xcodebuild -runFirstLaunch
-```
+- macOS：Command Line Tools 即可（gpui-kit 走 `runtime_shaders`：Metal 着色器运行时经驱动编译，构建期不调 `metal` 工具，无需完整 Xcode）
+- Windows：VS Build Tools（标准 Rust MSVC 工具链）
 
 ## 命令
 
