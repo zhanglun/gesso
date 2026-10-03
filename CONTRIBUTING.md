@@ -34,7 +34,7 @@ crates/app     the application:
   ├─ protocol.rs asset paths & the gesso:// scheme (currently file:// self-contained entries)
   ├─ session.rs  SessionManager — the single orchestrator
   ├─ engine.rs   AppState global + EngineAction queue
-  └─ ui/         manager window (gpui-kit): library / monitors / settings / first-run / quick panel
+  └─ ui/         manager window (gpui-kit): library / monitors / settings / first-run
 ```
 
 ## Pull request checklist
