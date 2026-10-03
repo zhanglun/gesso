@@ -135,7 +135,7 @@
   <header>
     <h1>Gesso 品牌图形</h1>
     <span class="chip">冻结 2026-10-03</span>
-    <span class="sub">概念「底色画布」— gesso 白画布上，壁纸的黎明色自底部涌起；图标层之下的产品事实</span>
+    <span class="sub">概念「底色画布 · 潮升」— gesso 白画布上，黎明大浪立起，半轮日出从浪后升起</span>
     <span class="theme"><button onclick="const q=new URLSearchParams(location.search);q.set('theme',document.documentElement.dataset.theme==='dark'?'light':'dark');location.search=q"
       style="all:unset;cursor:pointer;font-size:11.5px;color:var(--text2);border:1px solid var(--hairline);border-radius:6px;padding:3px 10px;">切换主题</button></span>
   </header>
@@ -153,14 +153,14 @@
           </div>
         </div>
         <div class="notes">
-          <div class="note"><span class="dot" style="background:#DCD8CF"></span>
-            <div><b>三枚圆点 · 桌面图标仍在</b><span>42px r12 #DCD8CF，右上列 = mac 桌面默认排列位</span></div></div>
+          <div class="note"><span class="dot" style="background:linear-gradient(180deg,#F8D9A8,#E88C4C)"></span>
+            <div><b>半轮日出 · 焦点</b><span>cx668 cy640 r98，浪盖下缘 → 半升；光晕 r140 50%</span></div></div>
           <div class="note"><span class="dot" style="background:linear-gradient(90deg,#316EF5,#7C5CE0,#E08A4E)"></span>
-            <div><b>黎明浪 · 壁纸活着</b><span>前层蓝主导，后层暖色 + 同源辉光；浪 = 内容本身</span></div></div>
+            <div><b>黎明大浪 · 壁纸活着</b><span>对角渐变峰在右，后层暖沿；浪 = 内容本身</span></div></div>
           <div class="note"><span class="dot" style="background:#F6F4EF;border:1px solid var(--hairline)"></span>
             <div><b>留白 · gesso 底料</b><span>#FDFCF9→#EFEBE3 暖调纵变；界面越安静，壁纸越出彩</span></div></div>
           <div class="note"><span class="dot" style="background:var(--accent-soft);border:1px solid var(--accent)"></span>
-            <div><b>装饰色禁令的语义例外</b><span>图标处「色 = 壁纸内容」，不违 DESIGN 用色纪律</span></div></div>
+            <div><b>二稿（用户反馈驱动）</b><span>移除一稿「图标点」（叙事未传达）；三案对比存档 drafts/</span></div></div>
         </div>
       </div>
     </section>
@@ -215,7 +215,7 @@
 
     <section class="card">
       <h2>尺寸阶梯</h2>
-      <div class="hint">≤32px 切换 compact 稿（浪位抬高 ≈35% 色带，去点/辉光/浪尖线）— Apple icns 惯例</div>
+      <div class="hint">≤32px 切换 compact 稿（浪位抬高 → 色带 ≈40%，去光晕/浪尖线，保留日出）— Apple icns 惯例</div>
       <span class="compact-tag">compact 稿区间</span>
       <div class="ladder">
         <div class="step"><img src="../../crates/app/assets/icons/src/app-icon@16.png" width="16" height="16"><span class="px num">16</span></div>
@@ -234,16 +234,23 @@
       <h2>渐变 token</h2>
       <div class="hint">色相恒定次序：蓝主导 → 紫 → 暖收边；gesso 白只做明度纵变</div>
       <div class="strip">
-        <div class="name">黎明 · 前层浪 <em>dawn</em></div>
+        <div class="name">日出 <em>半轮日 · 纵向</em></div>
+        <div class="grad" style="width:150px">
+          <div style="background:#F8D9A8"><span class="hex mono" style="color:#6B451C;text-shadow:none">#F8D9A8</span></div>
+          <div style="background:#E88C4C"><span class="hex mono">#E88C4C</span></div>
+        </div>
+      </div>
+      <div class="strip">
+        <div class="name">黎明 · 前层浪 <em>dawn（左下→右上）</em></div>
         <div class="grad">
-          <div style="background:#2E63E6"><span class="hex mono">#2E63E6</span></div>
+          <div style="background:#2450D6"><span class="hex mono">#2450D6</span></div>
           <div style="background:#316EF5"><span class="hex mono">#316EF5</span></div>
           <div style="background:#7C5CE0"><span class="hex mono">#7C5CE0</span></div>
           <div style="background:#E08A4E"><span class="hex mono">#E08A4E</span></div>
         </div>
       </div>
       <div class="strip">
-        <div class="name">后层暖 · 远浪/辉光 <em>dawnBack（辉光 = 其模糊复制，色相恒随浪）</em></div>
+        <div class="name">后层暖 · 远浪/暖沿 <em>dawnBack</em></div>
         <div class="grad">
           <div style="background:#7FA8F2"><span class="hex mono">#7FA8F2</span></div>
           <div style="background:#9C7BE8"><span class="hex mono">#9C7BE8</span></div>
@@ -258,39 +265,31 @@
           <div style="background:#EFEBE3"><span class="hex mono">#EFEBE3</span></div>
         </div>
       </div>
-      <div class="strip">
-        <div class="name">桌面图标点 <em>×3 · 42px r12</em></div>
-        <div class="grad" style="width:96px"><div style="background:#DCD8CF"><span class="hex mono" style="color:#6E6E73;text-shadow:none">#DCD8CF</span></div></div>
-      </div>
     </section>
 
     <section class="card">
       <h2>托盘字形构造</h2>
-      <div class="hint">24 网格 · 双层圆角矩形 · 读法：壁纸从前层（桌面）之下探出</div>
+      <div class="hint">24 网格 ·「屏中有浪」— 显示器 + 活的桌面</div>
       <div class="construct">
         <svg width="240" height="240" viewBox="-16 -16 56 56">
-          <rect x="0" y="0" width="24" height="24" fill="transparent"/>
-          <!-- 后层 -->
-          <rect x="9" y="3" width="11.5" height="9" rx="3" fill="#9B9BA1"/>
-          <!-- 留缝带（前层外扩 1.75） -->
-          <rect x="1.75" y="7" width="17" height="15.25" rx="5.25" fill="none"
-            stroke="#316EF5" stroke-width=".5" stroke-dasharray="1.4 1.1" opacity=".8"/>
-          <!-- 前层 -->
-          <rect x="3.5" y="8.75" width="13.5" height="11.75" rx="3.5" fill="#1D1D1F"/>
-          <!-- 标注置于画布外侧 + 引线 -->
-          <line x1="20.5" y1="5" x2="25.2" y2="5" stroke="#9B9BA1" stroke-width=".25"/>
-          <text x="26" y="5.8" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">11.5×9 r3</text>
-          <line x1="18.75" y1="12" x2="25.2" y2="12" stroke="#316EF5" stroke-width=".25"/>
-          <text x="26" y="12.8" font-size="2.6" fill="#316EF5" font-family="Menlo,monospace">缝 1.75</text>
-          <text x="1" y="28.6" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">13.5×11.75 r3.5</text>
-          <!-- 网格线 -->
-          <g stroke="#E5E5EA" stroke-width=".18" opacity=".55">
-            <line x1="0" y1="0" x2="0" y2="24"/><line x1="24" y1="0" x2="24" y2="24"/>
-            <line x1="0" y1="24" x2="24" y2="24"/><line x1="0" y1="0" x2="24" y2="0"/>
+          <!-- 屏:描边 2.2(随主题取 --text,暗色不隐身) -->
+          <rect x="3.7" y="4.7" width="16.6" height="14.6" rx="4" fill="none" stroke="var(--text)" stroke-width="2.2"/>
+          <!-- 内腔(clip) + 浪 -->
+          <clipPath id="ctr"><rect x="5.2" y="6.2" width="13.6" height="11.6" rx="2.6"/></clipPath>
+          <g clip-path="url(#ctr)">
+            <path d="M0,14.2 C4,12.6 7,15.4 11.5,14.2 C15,13.2 18,15.6 24,13.6 L24,24 L0,24 Z" fill="var(--text)"/>
           </g>
+          <!-- 标注:短线靠右,尺寸信息沉底,避免触边截断 -->
+          <line x1="20.3" y1="13.4" x2="25.2" y2="13.4" stroke="var(--accent)" stroke-width=".25"/>
+          <text x="26" y="14.2" font-size="2.6" fill="var(--accent)" font-family="Menlo,monospace">浪线</text>
+          <line x1="20.3" y1="4.7" x2="25.2" y2="4.7" stroke="#6E6E73" stroke-width=".25"/>
+          <text x="26" y="5.5" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">r4</text>
+          <text x="-8" y="28.6" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">屏 16.6×14.6 r4</text>
+          <text x="-8" y="33.2" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">描边 2.2 → 16px ≈ 1.5px</text>
         </svg>
         <ul class="spec">
-          <li><b>留缝</b><span class="num">前层外扩 1.75 → 16px 下不粘连</span></li>
+          <li><b>读法</b><span>显示器 + 活的桌面（浪在屏内，不在屏外叠层）</span></li>
+          <li><b>禁双矩形</b><span>macOS「屏幕镜像」即双圆角矩形 — 一稿踩过，永不回头</span></li>
           <li><b>macOS</b><span>黑字形 + template · 内嵌 44px@2x（22pt 约束，Retina 清晰）</span></li>
           <li><b>Windows</b><span>白字形 32px（深色任务栏）· 黑 32px 备浅色</span></li>
           <li><b>运行时</b><span class="mono">main.rs::tray_icon_rgba</span></li>
@@ -303,7 +302,8 @@
       <div class="hint">改图形先改 DESIGN.md §品牌图形 与源 SVG，再跑管线</div>
       <ul class="rules">
         <li class="no"><span class="mark">✕</span><span><b>托盘字形上色 / 加投影 / 带底板</b> — template 机制要求纯黑+alpha，系统负责亮暗</span></li>
-        <li class="no"><span class="mark">✕</span><span><b>用彩色应用图标缩充当托盘</b> — 16px 下色浪成噪点，双层矩形才可读</span></li>
+        <li class="no"><span class="mark">✕</span><span><b>用彩色应用图标来充当托盘</b> — 16px 下日出成噪点，单色字形才可读</span></li>
+        <li class="no"><span class="mark">✕</span><span><b>托盘用双/错位矩形</b> — macOS「屏幕镜像」系统字形即双圆角矩形，Gesso 常驻菜单栏必撞</span></li>
         <li class="no"><span class="mark">✕</span><span><b>旋转 / 重排渐变色相次序</b> — 蓝始终主导，暖只做收边（地平线在右）</span></li>
         <li class="yes"><span class="mark">✓</span><span><b>≤32px 一律 compact 稿</b> — 手改 PNG 禁止，一律 <span class="mono">tools/build.mjs</span> 产出</span></li>
         <li class="yes"><span class="mark">✓</span><span><b>产出随仓库提交</b> — 运行时只 include_bytes! 产物，不依赖 node 工具链</span></li>

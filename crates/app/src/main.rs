@@ -418,6 +418,14 @@ fn main() {
                                     engine::EngineAction::SetAutostart(enable) => {
                                         apply_autostart(enable);
                                     }
+                                    engine::EngineAction::Remove { entry_id } => {
+                                        println!("[engine] 从库移除 {entry_id}");
+                                        sm.remove_entry(&entry_id);
+                                    }
+                                    engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
+                                        println!("[engine] {monitor_id} fps = {fps}");
+                                        sm.set_fps(&monitor_id, fps);
+                                    }
                                     engine::EngineAction::FocusMainWindow => {
                                         // 需要 cx 的窗口操作：sm 借用结束后在同一闭包内处理
                                         deferred_window_actions.push(a);

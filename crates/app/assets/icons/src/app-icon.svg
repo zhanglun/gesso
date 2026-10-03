@@ -12,17 +12,22 @@
       <stop offset="0" stop-color="#3A3226" stop-opacity="0.10"/>
       <stop offset="1" stop-color="#3A3226" stop-opacity="0"/>
     </linearGradient>
-    <!-- 黎明渐变:蓝主导 → 紫 → 暖收边 -->
-    <linearGradient id="dawn" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#2E63E6"/>
-      <stop offset="0.42" stop-color="#316EF5"/>
-      <stop offset="0.72" stop-color="#7C5CE0"/>
+    <!-- 黎明渐变:蓝主导 → 紫 → 暖收边(浪体,左下→右上) -->
+    <linearGradient id="dawn" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2450D6"/>
+      <stop offset="0.38" stop-color="#316EF5"/>
+      <stop offset="0.7" stop-color="#7C5CE0"/>
       <stop offset="1" stop-color="#E08A4E"/>
     </linearGradient>
     <linearGradient id="dawnBack" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#7FA8F2"/>
       <stop offset="0.55" stop-color="#9C7BE8"/>
       <stop offset="1" stop-color="#F0B878"/>
+    </linearGradient>
+    <!-- 日出 -->
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F8D9A8"/>
+      <stop offset="1" stop-color="#E88C4C"/>
     </linearGradient>
     <!-- 浪尖高光 -->
     <linearGradient id="crest" x1="0" y1="0" x2="1" y2="0">
@@ -32,11 +37,11 @@
     </linearGradient>
     <!-- 浪体上缘的晨光水色 -->
     <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
-      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.2"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
-    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="26"/>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="40"/>
     </filter>
   </defs>
 
@@ -44,27 +49,19 @@
     <rect width="1024" height="1024" fill="url(#gesso)"/>
     <rect width="1024" height="150" fill="url(#topshade)"/>
 
-    
-    <!-- 桌面图标仍在(右上角一列,mac 桌面默认排列位) -->
-    <g fill="#DCD8CF">
-      <rect x="744" y="156" width="42" height="42" rx="12"/>
-      <rect x="744" y="232" width="42" height="42" rx="12"/>
-      <rect x="744" y="308" width="42" height="42" rx="12"/>
-    </g>
+    <!-- 日出光晕 + 半轮日(浪随后盖住下缘 → 半升) -->
+    <circle cx="668" cy="640" r="140" fill="#F0B878" opacity="0.5" filter="url(#soft)"/>
+    <circle cx="668" cy="640" r="98" fill="url(#sun)"/>
 
-    <!-- 辉光 = 后层浪的模糊复制,色相永远与浪一致(漫上画布的地平线光) -->
-    <use href="#back" transform="translate(0,-26)" filter="url(#soft)" opacity="0.5"/>
-    
+    <!-- 后层浪(远处的暖色,在浪峰右上方露出暖沿) -->
+    <path d="M100,700 C340,660 470,760 610,712 C700,682 760,600 840,606 C878,610 906,628 924,644 L924,924 L100,924 Z" fill="url(#dawnBack)" opacity="0.85"/>
 
-    <!-- 后层浪(远处的暖色) -->
-    <path id="back" d="M100,716 C320,688 430,730 580,710 C720,690 830,674 924,662 L924,924 L100,924 Z" fill="url(#dawnBack)"/>
-
-    <!-- 前层浪(黎明主体) -->
-    <path d="M100,752 C280,712 460,766 640,732 C770,708 862,720 924,696 L924,924 L100,924 Z" fill="url(#dawn)"/>
-    <path d="M100,752 C280,712 460,766 640,732 C770,708 862,720 924,696 L924,924 L100,924 Z" fill="url(#sheen)"/>
+    <!-- 前层浪(黎明主体,峰在右) -->
+    <path d="M100,742 C300,694 460,796 620,742 C720,708 790,632 870,642 C896,646 914,656 924,664 L924,924 L100,924 Z" fill="url(#dawn)"/>
+    <path d="M100,742 C300,694 460,796 620,742 C720,708 790,632 870,642 C896,646 914,656 924,664 L924,924 L100,924 Z" fill="url(#sheen)"/>
     
     <!-- 浪尖高光线 -->
-    <path d="M100,752 C280,712 460,766 640,732 C770,708 862,720 924,696" fill="none" stroke="url(#crest)" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
+    <path d="M100,742 C300,694 460,796 620,742 C720,708 790,632 870,642 C896,646 914,656 924,664" fill="none" stroke="url(#crest)" stroke-width="7" stroke-linecap="round" opacity="0.9"/>
     
   </g>
 </svg>

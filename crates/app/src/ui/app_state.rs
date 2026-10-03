@@ -1,4 +1,4 @@
-//! 窗口状态（M3 接入 core 前的演示内存态）。
+//! 窗口状态（全局唯一真源）。
 //!
 //! 形状按 技术方案 §3.8：持久状态唯一真源是一个 Global；UI Entity 只是投影。
 //! 所有变更走本模块的 `update`（唯一写入路径），完成后刷新窗口 —— 单向数据流。
@@ -8,7 +8,7 @@ use gpui_kit::{App, BorrowAppContext as _, Global, SharedString, Window};
 
 use super::data::{Kind, LibraryItem, MonitorEntry, PlayState, Settings};
 
-/// 筛选段控件的当前值（§4.3：单选段控件；WE 仅在已扫描时出现——演示恒可筛）。
+/// 筛选段控件的当前值。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Filter {
     All,

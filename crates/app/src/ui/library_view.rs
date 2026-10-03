@@ -244,23 +244,26 @@ impl LibraryView {
                     })
                 },
             )
-            .on_hover(cx.listener(move |_, hovering: &bool, window, cx| {
-                // signature #1：悬停点亮对应显示器 + 启动视频帧轮播
-                update(window, cx, |g| {
-                    g.hovered = if *hovering {
-                        Some(hover_id.clone())
-                    } else {
-                        None
-                    };
-                    if *hovering {
-                        g.hover_frame = 0;
+                        .on_hover(cx.listener({
+                let has_thumbs = !item.thumbs.is_empty();
+                move |_, hovering: &bool, window, cx| {
+                    // signature #1：悬停点亮对应显示器 + 启动视频帧轮播
+                    update(window, cx, |g| {
+                        g.hovered = if *hovering {
+                            Some(hover_id.clone())
+                        } else {
+                            None
+                        };
+                        if *hovering {
+                            g.hover_frame = 0;
+                        }
+                    });
+                    if *hovering && has_thumbs {
+                        start_hover_cycle(cx);
                     }
-                });
-                if *hovering {
-                    start_hover_cycle(cx);
                 }
             }))
-            .context_menu({
+.context_menu({
                 let id = item.id.clone();
                 let broken = item.broken;
                 move |menu, window, cx| card_context_menu(&id, broken, menu, window, cx)
@@ -528,7 +531,15 @@ fn card_context_menu(
         )
         .item(PopupMenuItem::new(MENU_DETAILS).on_click({
             let id = item_id.clone();
-            move |_, window, cx| update(window, cx, |g| g.selected = Some(id.clone()))
+            move |_, window, cx| {
+                let detail = state(cx)
+                    .library
+                    .iter()
+                    .find(|w| w.id.as_ref() == id.as_str())
+                    .map(|w| format!("{} · {} · {}", w.name, w.kind.label(), w.meta))
+                    .unwrap_or_default();
+                window.push_notification(Notification::info(detail), cx);
+            }
         }))
         .separator()
         .item(
@@ -577,6 +588,11 @@ fn remove_item(item_id: &str, window: &mut Window, cx: &mut App) {
         .find(|w| w.id.as_ref() == item_id)
         .map(|w| w.name.to_string())
         .unwrap_or_default();
+    // 走引擎（清单 + 显示器映射 + 会话一并拆）
+    crate::engine::enqueue(crate::engine::EngineAction::Remove {
+        entry_id: item_id.into(),
+    });
+    // UI 同步更新
     update(window, cx, |g| g.remove(item_id));
     window.push_notification(Notification::info(toast_removed(&name)), cx);
 }

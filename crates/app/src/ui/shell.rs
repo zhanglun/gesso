@@ -34,14 +34,6 @@ impl Tab {
         }
     }
 
-    fn key_hint(self) -> &'static str {
-        match self {
-            Tab::Library => "1",
-            Tab::Monitors => "2",
-            Tab::Settings => "3",
-        }
-    }
-
     fn next(self) -> Self {
         match self {
             Tab::Library => Tab::Monitors,
@@ -124,7 +116,6 @@ impl Shell {
                         .text_size(px(10.))
                         .text_color(t.text2)
                         .opacity(0.7)
-                        .child(tab.key_hint()),
                 ),
             )
             .into_any_element()

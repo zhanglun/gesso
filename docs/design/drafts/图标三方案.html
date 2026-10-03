@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Gesso 图标三方案</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#1E1E20; color:#EBEBED;
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+    -webkit-font-smoothing:antialiased; padding:36px 44px; }
+  h1 { font-size:20px; font-weight:600; }
+  .sub { color:#9B9BA1; margin:6px 0 26px; font-size:12.5px; }
+  .sub b { color:#5B8DEF; font-weight:500; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:22px; }
+  .card { background:#26262A; border:1px solid #3A3A3F; border-radius:14px; padding:24px; }
+  .tag { display:inline-block; font-size:11px; font-weight:600; color:#5B8DEF;
+    background:rgba(91,141,239,.16); border-radius:99px; padding:3px 12px; margin-bottom:10px; }
+  .card h2 { font-size:15px; font-weight:600; margin-bottom:2px; }
+  .card .en { font-size:11px; color:#9B9BA1; margin-bottom:16px; }
+  .hero { display:flex; justify-content:center; padding:8px 0 6px; }
+  .hero img { width:264px; height:264px; filter:drop-shadow(0 16px 36px rgba(0,0,0,.45)); }
+  .ladder { display:flex; align-items:flex-end; justify-content:center; gap:18px; padding:18px 0 20px;
+    border-bottom:1px solid #3A3A3F; }
+  .ladder .s { display:flex; flex-direction:column; align-items:center; gap:7px; }
+  .ladder .px { font-size:10px; color:#9B9BA1; font-variant-numeric:tabular-nums; }
+  .sec { font-size:11px; color:#9B9BA1; margin:16px 0 8px; }
+  .bar { height:30px; border-radius:7px; display:flex; align-items:center; gap:12px; padding:0 12px; margin-bottom:8px; }
+  .bar.light { background:#F5F5F7; }
+  .bar.dawn { background:linear-gradient(100deg,#2E2340,#4A2E52); }
+  .bar img { width:19px; height:19px; display:block; }
+  .bar .t { font-size:11.5px; font-weight:500; }
+  .bar.light .t { color:#1D1D1F; } .bar.dawn .t { color:#F2F0F7; }
+  .bar .clock { margin-left:auto; font-size:11px; opacity:.7; font-variant-numeric:tabular-nums; }
+  .why { margin-top:14px; color:#C6C6CC; font-size:12px; line-height:1.65; }
+  .why b { color:#EBEBED; }
+  .traywhy { background:#1E1E20; border:1px solid #3A3A3F; border-radius:8px; padding:10px 12px;
+    font-size:11.5px; color:#9B9BA1; margin-top:12px; line-height:1.6; }
+  .traywhy b { color:#5B8DEF; font-weight:500; }
+</style>
+</head>
+<body>
+  <h1>Gesso 图标 · 三方案</h1>
+  <p class="sub">回应上一版三个问题:<b>三个点叙事失败 → 移除</b>;<b>浪太腼腆 → 色彩占比提到 ~40%</b>;<b>托盘双矩形撞「屏幕镜像」→ 三案托盘全部重画</b>。黎明渐变(蓝主)沿用已定方向。</p>
+  <div class="grid">
+
+    <div class="card">
+      <span class="tag">方案 A</span>
+      <h2>潮升</h2>
+      <div class="en">Rising Tide · 现有 DNA 的胆量版</div>
+      <div class="hero"><img src="a-app-512.png" alt=""></div>
+      <div class="ladder">
+        <div class="s"><img src="a-app-64.png" width="64"><span class="px">64</span></div>
+        <div class="s"><img src="a-app-32.png" width="32"><span class="px">32</span></div>
+        <div class="s"><img src="a-app-16.png" width="16"><span class="px">16</span></div>
+      </div>
+      <div class="sec">托盘 · 亮 / 暗菜单栏</div>
+      <div class="bar light"><img src="a-tray-22.png"><span class="t">Gesso</span><span class="clock">周三 10:24</span></div>
+      <div class="bar dawn"><img src="a-tray-44-white.png"><span class="t">Gesso</span><span class="clock">周三 10:24</span></div>
+      <p class="why">白画布保留,<b>浪放大、浪峰立起来,半轮日出从浪后升起</b> —— 「动态壁纸的黎明」一句话讲完,16px 下仍有白+蓝+橙三段记忆点。</p>
+      <div class="traywhy"><b>屏中有浪:</b>圆角屏幕描边、底部实浪。读作「显示器 + 活的桌面」,与镜像(双错位矩形)彻底区分。</div>
+    </div>
+
+    <div class="card">
+      <span class="tag">方案 B</span>
+      <h2>色叠</h2>
+      <div class="en">Layered Sheets · 抽象色场,内容层叠</div>
+      <div class="hero"><img src="b-app-512.png" alt=""></div>
+      <div class="ladder">
+        <div class="s"><img src="b-app-64.png" width="64"><span class="px">64</span></div>
+        <div class="s"><img src="b-app-32.png" width="32"><span class="px">32</span></div>
+        <div class="s"><img src="b-app-16.png" width="16"><span class="px">16</span></div>
+      </div>
+      <div class="sec">托盘 · 亮 / 暗菜单栏</div>
+      <div class="bar light"><img src="b-tray-22.png"><span class="t">Gesso</span><span class="clock">周三 10:24</span></div>
+      <div class="bar dawn"><img src="b-tray-44-white.png"><span class="t">Gesso</span><span class="clock">周三 10:24</span></div>
+      <p class="why">墨蓝夜场上,<b>两张透明色纸错位叠放</b>(黎明渐变 × 玻璃白)= 内容的「层」。Dock 里最像宝石,暗色壁纸生态里最融入;留白最少,最「作品感」。</p>
+      <div class="traywhy"><b>分色方:</b>实心圆角方被一道对角透明缝分开 = 双纸的对角构成。单方形,无任何镜像联想。</div>
+    </div>
+
+    <div class="card">
+      <span class="tag">方案 C</span>
+      <h2>G 潮</h2>
+      <div class="en">Monogram · 字标方向</div>
+      <div class="hero"><img src="c-app-512.png" alt=""></div>
+      <div class="ladder">
+        <div class="s"><img src="c-app-64.png" width="64"><span class="px">64</span></div>
+        <div class="s"><img src="c-app-32.png" width="32"><span class="px">32</span></div>
+        <div class="s"><img src="c-app-16.png" width="16"><span class="px">16</span></div>
+      </div>
+      <div class="sec">托盘 · 亮 / 暗菜单栏</div>
+      <div class="bar light"><img src="c-tray-22.png"><span class="t">Gesso</span><span class="clock">周三 10:24</span></div>
+      <div class="bar dawn"><img src="c-tray-44-white.png"><span class="t">Gesso</span><span class="clock">周三 10:24</span></div>
+      <p class="why">墨场之上,<b>字标 G 的笔画下段化作黎明浪</b> —— 名字就是标志,剪影最强、小尺寸最稳;代价:隐喻最少,像一个「正常 app」。</p>
+      <div class="traywhy"><b>字标 G:</b>同款 G 直接做 template 字形,菜单栏里一封「签名」,与 Dock 图标血缘最强。</div>
+    </div>
+
+  </div>
+</body>
+</html>
