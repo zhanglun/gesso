@@ -66,7 +66,10 @@ fn apply_dock_icon() {
     let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
         return;
     };
-    NSApplication::sharedApplication(mtm).setApplicationIconImage(&image);
+    // SAFETY: 主线程（mtm）且 NSApplication 已由 GPUI 启动，官方约束满足
+    unsafe {
+        NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
+    }
 }
 
 fn bootstrap() -> (session::SessionManager, bool) {
@@ -345,12 +348,16 @@ fn main() {
             let icon = tray_icon::Icon::from_rgba(rgba, w, h).unwrap();
             let mut tray_builder = tray_icon::TrayIconBuilder::new()
                 .with_tooltip("Gesso")
-                .with_icon(icon)
                 .with_menu(Box::new(menu));
-            // macOS 菜单栏亮暗自适应（template 图）；Windows 白色字形常驻深色任务栏
+            // macOS：黑字形 + template 标志，随菜单栏亮暗自适应；
+            // Windows：白色字形常驻深色任务栏
             #[cfg(target_os = "macos")]
             {
-                tray_builder = tray_builder.with_icon_as_template(true);
+                tray_builder = tray_builder.with_icon_templated(icon);
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                tray_builder = tray_builder.with_icon(icon);
             }
             let tray = tray_builder
                 // 左/右键都弹菜单（§4.1，2026-10-03 决策：纯菜单形态）

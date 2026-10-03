@@ -5,3 +5,6 @@
 /gesso-app-lock
 /gesso-ui-*
 /gesso-ui-check*
+
+# 图标构建工具依赖
+/crates/app/assets/icons/tools/node_modules/

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gesso 品牌图形 · 底色画布</title>
+<style>
+  :root[data-theme="light"] {
+    --bg:#FFFFFF; --panel:#F5F5F7; --elevated:#FFFFFF;
+    --text:#1D1D1F; --text2:#6E6E73; --hairline:#E5E5EA;
+    --accent:#316EF5; --accent-soft:rgba(49,110,245,.12); --danger:#D33A3A;
+    --mockbar:#F5F5F7cc; --mocktask:#202020; --shadow:0 8px 28px rgba(0,0,0,.10);
+  }
+  :root[data-theme="dark"] {
+    --bg:#1E1E20; --panel:#26262A; --elevated:#303034;
+    --text:#EBEBED; --text2:#9B9BA1; --hairline:#3A3A3F;
+    --accent:#5B8DEF; --accent-soft:rgba(91,141,239,.18); --danger:#E5545B;
+    --mockbar:#16161899; --mocktask:#101012; --shadow:0 10px 32px rgba(0,0,0,.5);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:var(--bg); color:var(--text);
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI Variable","PingFang SC",sans-serif;
+    -webkit-font-smoothing:antialiased; }
+  .num { font-variant-numeric:tabular-nums; }
+  .mono { font:11px/1.4 "SF Mono",ui-monospace,Menlo,monospace; letter-spacing:.01em; }
+  .page { max-width:1968px; margin:0 auto; padding:32px 40px 28px; }
+
+  /* ── 头部 ── */
+  header { display:flex; align-items:baseline; gap:14px; padding-bottom:18px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.01em; }
+  .chip { font-size:11px; color:var(--accent); background:var(--accent-soft);
+    padding:3px 10px; border-radius:99px; font-weight:500; }
+  header .sub { color:var(--text2); font-size:12.5px; }
+  header .theme { margin-left:auto; }
+
+  /* ── 卡片 ── */
+  .card { background:var(--panel); border:1px solid var(--hairline); border-radius:12px;
+    padding:20px 22px; min-width:0; }
+  .card h2 { font-size:13px; font-weight:600; margin-bottom:4px; }
+  .card .hint { color:var(--text2); font-size:11.5px; margin-bottom:16px; }
+
+  .row1 { display:grid; grid-template-columns:1.25fr 1.5fr 1fr; gap:20px; margin-bottom:20px; }
+  .row2 { display:grid; grid-template-columns:1.25fr 1.5fr 1fr; gap:20px; margin-bottom:18px; }
+
+  /* ── 主视觉 ── */
+  .hero { display:flex; gap:18px; align-items:flex-start; }
+  .hero img.master { width:212px; height:212px; filter:drop-shadow(0 14px 30px rgba(0,0,0,.18)); }
+  .backdrops { display:flex; gap:10px; margin-top:14px; }
+  .backdrop { width:101px; height:64px; border-radius:8px; display:flex; align-items:center;
+    justify-content:center; }
+  .backdrop.lt { background:#F5F5F7; border:1px solid #E5E5EA; }
+  .backdrop.dk { background:#1E1E20; border:1px solid #3A3A3F; }
+  .backdrop img { width:44px; height:44px; }
+  .notes { flex:1; min-width:0; }
+  .note { display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--hairline); }
+  .note:last-child { border-bottom:none; }
+  .note .dot { width:8px; height:8px; border-radius:3px; margin-top:5px; flex:none; }
+  .note b { font-weight:600; font-size:12.5px; display:block; }
+  .note span { color:var(--text2); font-size:11.5px; }
+
+  /* ── 真机场景 ── */
+  .scene { margin-bottom:14px; }
+  .scene .lab { font-size:11px; color:var(--text2); margin-bottom:6px; }
+  .menubar { height:28px; border-radius:7px; display:flex; align-items:center; gap:14px;
+    padding:0 12px; font-size:11.5px; font-weight:500; position:relative; }
+  .menubar.light { background:#F5F5F7; border:1px solid var(--hairline); color:#1D1D1F; }
+  .menubar.dark  { background:#31233A; color:#F2F0F7;
+    background-image:linear-gradient(100deg,#31233Acc,#4A2E52B3),linear-gradient(#3A2A44,#2A2033); }
+  .menubar .glyph { width:18px; height:18px; display:block; }
+  .menubar .clock { margin-left:auto; }
+  .taskbar { height:52px; border-radius:7px; background:var(--mocktask);
+    display:flex; align-items:center; gap:16px; padding:0 14px; border:1px solid #00000055; }
+  .taskbar .ticon { width:26px; height:26px; border-radius:6px; background:#3A3D45; }
+  .taskbar .glyph { width:22px; height:22px; display:block; }
+  .taskbar .clock { margin-left:auto; color:#DADADA; font-size:11px; text-align:right; line-height:1.3; }
+  .dock { border-radius:12px; background:var(--mockbar); backdrop-filter:blur(8px);
+    border:1px solid var(--hairline); display:flex; align-items:flex-end; gap:12px;
+    padding:10px 12px 8px; width:fit-content; box-shadow:var(--shadow); }
+  .dock .app { width:44px; height:44px; border-radius:10px;
+    background:linear-gradient(160deg,#C9C9CE,#9C9CA3); }
+  .dock .app.g2 { background:linear-gradient(160deg,#B7C6E8,#7D95C9); }
+  .dock .app.g3 { background:linear-gradient(160deg,#D8CBBF,#B09B87); }
+  .dock img { width:44px; height:44px; }
+  .dock .run { width:4px; height:4px; border-radius:50%; background:var(--text2); margin:3px auto 0; }
+
+  /* ── 尺寸阶梯 ── */
+  .ladder { display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; }
+  .step { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .step img { display:block; }
+  .step .px { font-size:10.5px; color:var(--text2); }
+  .compact-tag { font-size:10px; color:var(--accent); background:var(--accent-soft);
+    border-radius:99px; padding:2px 8px; margin-bottom:12px; display:inline-block; }
+  .boundary { border-top:1px dashed var(--hairline); margin-top:14px; padding-top:10px;
+    color:var(--text2); font-size:11.5px; }
+
+  /* ── 渐变 token ── */
+  .strip { margin-bottom:14px; }
+  .strip .name { font-size:11.5px; font-weight:600; margin-bottom:6px; display:flex; gap:8px; align-items:baseline; }
+  .strip .name em { font-style:normal; color:var(--text2); font-weight:400; font-size:11px; }
+  .grad { display:flex; height:34px; border-radius:7px; overflow:hidden; border:1px solid var(--hairline); }
+  .grad div { flex:1; display:flex; align-items:flex-end; padding:0 6px 4px; }
+  .grad .hex { font-size:9px; color:#FFFFFFE6; text-shadow:0 1px 2px rgba(0,0,0,.4); }
+  .grad.gesso .hex { color:#6E6E73; text-shadow:none; }
+
+  /* ── 构造图 ── */
+  .construct { display:flex; gap:20px; align-items:center; }
+  .construct svg { flex:none; }
+  .spec { flex:1; }
+  .spec li { list-style:none; padding:7px 0; border-bottom:1px solid var(--hairline);
+    font-size:11.5px; color:var(--text2); display:flex; justify-content:space-between; gap:10px; }
+  .spec li:last-child { border-bottom:none; }
+  .spec b { color:var(--text); font-weight:500; }
+
+  /* ── 规则 ── */
+  .rules li { list-style:none; display:flex; gap:9px; padding:8px 0;
+    border-bottom:1px solid var(--hairline); font-size:12px; align-items:flex-start; }
+  .rules li:last-child { border-bottom:none; }
+  .rules .mark { flex:none; font-weight:700; font-size:12px; margin-top:1px; }
+  .rules .no .mark { color:var(--danger); }
+  .rules .yes .mark { color:var(--accent); }
+  .rules span { color:var(--text2); } .rules b { color:var(--text); font-weight:600; }
+
+  footer { display:flex; gap:18px; align-items:center; color:var(--text2); font-size:11.5px;
+    border-top:1px solid var(--hairline); padding-top:14px; }
+  footer .mono { color:var(--text2); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>Gesso 品牌图形</h1>
+    <span class="chip">冻结 2026-10-03</span>
+    <span class="sub">概念「底色画布」— gesso 白画布上，壁纸的黎明色自底部涌起；图标层之下的产品事实</span>
+    <span class="theme"><button onclick="const q=new URLSearchParams(location.search);q.set('theme',document.documentElement.dataset.theme==='dark'?'light':'dark');location.search=q"
+      style="all:unset;cursor:pointer;font-size:11.5px;color:var(--text2);border:1px solid var(--hairline);border-radius:6px;padding:3px 10px;">切换主题</button></span>
+  </header>
+
+  <div class="row1">
+    <section class="card">
+      <h2>应用图标 master</h2>
+      <div class="hint">1024 · 透明边距 100 · Big Sur 方圆角（superellipse n=5）</div>
+      <div class="hero">
+        <div>
+          <img class="master" src="../../crates/app/assets/icons/src/app-icon@1024.png" alt="Gesso 应用图标">
+          <div class="backdrops">
+            <div class="backdrop lt"><img src="../../crates/app/assets/icons/src/app-icon@1024.png" alt=""></div>
+            <div class="backdrop dk"><img src="../../crates/app/assets/icons/src/app-icon@1024.png" alt=""></div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="note"><span class="dot" style="background:#DCD8CF"></span>
+            <div><b>三枚圆点 · 桌面图标仍在</b><span>42px r12 #DCD8CF，右上列 = mac 桌面默认排列位</span></div></div>
+          <div class="note"><span class="dot" style="background:linear-gradient(90deg,#316EF5,#7C5CE0,#E08A4E)"></span>
+            <div><b>黎明浪 · 壁纸活着</b><span>前层蓝主导，后层暖色 + 同源辉光；浪 = 内容本身</span></div></div>
+          <div class="note"><span class="dot" style="background:#F6F4EF;border:1px solid var(--hairline)"></span>
+            <div><b>留白 · gesso 底料</b><span>#FDFCF9→#EFEBE3 暖调纵变；界面越安静，壁纸越出彩</span></div></div>
+          <div class="note"><span class="dot" style="background:var(--accent-soft);border:1px solid var(--accent)"></span>
+            <div><b>装饰色禁令的语义例外</b><span>图标处「色 = 壁纸内容」，不违 DESIGN 用色纪律</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>真机场景</h2>
+      <div class="hint">托盘字形为黑 template / 白字形两种产物；应用图标在 Dock 与任务栏的场景</div>
+      <div class="scene">
+        <div class="lab">macOS 菜单栏 · 22pt 约束 · template 随亮暗自适应</div>
+        <div class="menubar light" style="margin-bottom:8px">
+          <span></span><img class="glyph" src="../../crates/app/assets/icons/tray/trayTemplate.png" alt="">
+          <span class="clock num">周三 10:24</span>
+        </div>
+        <div class="menubar dark">
+          <span></span><img class="glyph" src="../../crates/app/assets/icons/tray/tray-white-32.png" alt="">
+          <span class="clock num">周三 10:24</span>
+        </div>
+      </div>
+      <div class="scene">
+        <div class="lab">macOS Dock（运行期 NSImage 设图标；打包后 bundle icns 接管）</div>
+        <div class="dock">
+          <div><div class="app g2"></div><div class="run"></div></div>
+          <div><div class="app"></div></div>
+          <img src="../../crates/app/assets/icons/src/app-icon@1024.png" alt="">
+          <div><div class="app g3"></div><div class="run"></div></div>
+          <div><div class="app g2"></div></div>
+        </div>
+      </div>
+      <div class="scene">
+        <div class="lab">Windows 11 任务栏 · 白字形常驻深色任务栏</div>
+        <div class="taskbar">
+          <div class="ticon"></div>
+          <img class="glyph" src="../../crates/app/assets/icons/tray/tray-white-32.png" alt="">
+          <div class="ticon"></div><div class="ticon" style="background:#4A4E58"></div>
+          <div class="clock num">10:24<br>2026/10/03</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>尺寸阶梯</h2>
+      <div class="hint">≤32px 切换 compact 稿（浪位抬高 ≈35% 色带，去点/辉光/浪尖线）— Apple icns 惯例</div>
+      <span class="compact-tag">compact 稿区间</span>
+      <div class="ladder">
+        <div class="step"><img src="../../crates/app/assets/icons/src/app-icon@16.png" width="16" height="16"><span class="px num">16</span></div>
+        <div class="step"><img src="../../crates/app/assets/icons/src/app-icon@24.png" width="24" height="24"><span class="px num">24</span></div>
+        <div class="step"><img src="../../crates/app/assets/icons/src/app-icon@32.png" width="32" height="32"><span class="px num">32</span></div>
+        <div class="step"><img src="../../crates/app/assets/icons/mac/icon.iconset/icon_32x32@2x.png" width="64" height="64"><span class="px num">64</span></div>
+        <div class="step"><img src="../../crates/app/assets/icons/mac/icon.iconset/icon_128x128.png" width="128" height="128"><span class="px num">128</span></div>
+        <div class="step"><img src="../../crates/app/assets/icons/mac/icon.iconset/icon_256x256.png" width="256" height="256"><span class="px num">256</span></div>
+      </div>
+      <div class="boundary">虚线上下两稿边界在 <b class="num">32→48px</b> 之间，属预期跳变；托盘/文件列表场景只会遇到 compact 稿。</div>
+    </section>
+  </div>
+
+  <div class="row2">
+    <section class="card">
+      <h2>渐变 token</h2>
+      <div class="hint">色相恒定次序：蓝主导 → 紫 → 暖收边；gesso 白只做明度纵变</div>
+      <div class="strip">
+        <div class="name">黎明 · 前层浪 <em>dawn</em></div>
+        <div class="grad">
+          <div style="background:#2E63E6"><span class="hex mono">#2E63E6</span></div>
+          <div style="background:#316EF5"><span class="hex mono">#316EF5</span></div>
+          <div style="background:#7C5CE0"><span class="hex mono">#7C5CE0</span></div>
+          <div style="background:#E08A4E"><span class="hex mono">#E08A4E</span></div>
+        </div>
+      </div>
+      <div class="strip">
+        <div class="name">后层暖 · 远浪/辉光 <em>dawnBack（辉光 = 其模糊复制，色相恒随浪）</em></div>
+        <div class="grad">
+          <div style="background:#7FA8F2"><span class="hex mono">#7FA8F2</span></div>
+          <div style="background:#9C7BE8"><span class="hex mono">#9C7BE8</span></div>
+          <div style="background:#F0B878"><span class="hex mono">#F0B878</span></div>
+        </div>
+      </div>
+      <div class="strip">
+        <div class="name">gesso 白 · 画布 <em>纵向</em></div>
+        <div class="grad gesso">
+          <div style="background:#FDFCF9"><span class="hex mono">#FDFCF9</span></div>
+          <div style="background:#F6F4EF"><span class="hex mono">#F6F4EF</span></div>
+          <div style="background:#EFEBE3"><span class="hex mono">#EFEBE3</span></div>
+        </div>
+      </div>
+      <div class="strip">
+        <div class="name">桌面图标点 <em>×3 · 42px r12</em></div>
+        <div class="grad" style="width:96px"><div style="background:#DCD8CF"><span class="hex mono" style="color:#6E6E73;text-shadow:none">#DCD8CF</span></div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>托盘字形构造</h2>
+      <div class="hint">24 网格 · 双层圆角矩形 · 读法：壁纸从前层（桌面）之下探出</div>
+      <div class="construct">
+        <svg width="240" height="240" viewBox="-14 -14 52 52">
+          <rect x="0" y="0" width="24" height="24" fill="transparent"/>
+          <!-- 后层 -->
+          <rect x="9" y="3" width="11.5" height="9" rx="3" fill="#9B9BA1"/>
+          <!-- 留缝带（前层外扩 1.75） -->
+          <rect x="1.75" y="7" width="17" height="15.25" rx="5.25" fill="none"
+            stroke="#316EF5" stroke-width=".5" stroke-dasharray="1.4 1.1" opacity=".8"/>
+          <!-- 前层 -->
+          <rect x="3.5" y="8.75" width="13.5" height="11.75" rx="3.5" fill="#1D1D1F"/>
+          <text x="21.4" y="6.4" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">11.5×9 r3</text>
+          <text x="17.6" y="21.6" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">13.5×11.75 r3.5</text>
+          <text x="19.2" y="10.4" font-size="2.6" fill="#316EF5" font-family="Menlo,monospace">缝 1.75</text>
+          <!-- 网格线 -->
+          <g stroke="#E5E5EA" stroke-width=".18" opacity=".55">
+            <line x1="0" y1="0" x2="0" y2="24"/><line x1="24" y1="0" x2="24" y2="24"/>
+            <line x1="0" y1="24" x2="24" y2="24"/><line x1="0" y1="0" x2="24" y2="0"/>
+          </g>
+        </svg>
+        <ul class="spec">
+          <li><b>留缝</b><span class="num">前层外扩 1.75 → 16px 下不粘连</span></li>
+          <li><b>macOS</b><span>黑字形 + template · 内嵌 44px@2x（22pt 约束，Retina 清晰）</span></li>
+          <li><b>Windows</b><span>白字形 32px（深色任务栏）· 黑 32px 备浅色</span></li>
+          <li><b>运行时</b><span class="mono">main.rs::tray_icon_rgba</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>使用规则</h2>
+      <div class="hint">改图形先改 DESIGN.md §品牌图形 与源 SVG，再跑管线</div>
+      <ul class="rules">
+        <li class="no"><span class="mark">✕</span><span><b>托盘字形上色 / 加投影 / 带底板</b> — template 机制要求纯黑+alpha，系统负责亮暗</span></li>
+        <li class="no"><span class="mark">✕</span><span><b>用彩色应用图标缩充当托盘</b> — 16px 下色浪成噪点，双层矩形才可读</span></li>
+        <li class="no"><span class="mark">✕</span><span><b>旋转 / 重排渐变色相次序</b> — 蓝始终主导，暖只做收边（地平线在右）</span></li>
+        <li class="yes"><span class="mark">✓</span><span><b>≤32px 一律 compact 稿</b> — 手改 PNG 禁止，一律 <span class="mono">tools/build.mjs</span> 产出</span></li>
+        <li class="yes"><span class="mark">✓</span><span><b>产出随仓库提交</b> — 运行时只 include_bytes! 产物，不依赖 node 工具链</span></li>
+      </ul>
+    </section>
+  </div>
+
+  <footer>
+    <span>产物 <span class="mono">crates/app/assets/icons/</span>：mac/Gesso.icns · win/gesso.ico · tray/*.png</span>
+    <span class="mono">再生成：cd crates/app/assets/icons/tools && npm i && node build.mjs</span>
+    <span style="margin-left:auto">Gesso · 跨平台动态壁纸引擎</span>
+  </footer>
+</div>
+<script>
+  const q = new URLSearchParams(location.search).get('theme');
+  document.documentElement.dataset.theme =
+    q ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+</script>
+</body>
+</html>

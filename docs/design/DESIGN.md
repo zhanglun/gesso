@@ -56,3 +56,20 @@ hover / focus(2px accent 环，永远可见) / active / disabled / selected / lo
 ## 主题化浏览器面
 
 选区色、滚动条、caret、焦点环全部走 token（原型已实现，GPUI 对应自绘）。
+
+## 品牌图形（2026-10-03 定稿，验收必测）
+
+**概念「底色画布」**：Gesso = 画布的底料层。应用图标 = gesso 白画布上，壁纸的黎明色自底部涌起，右上角一列桌面图标点仍在（钉在图标层之下的产品事实）。装饰性用色禁令在图标处让位于语义：**色 = 壁纸内容本身**，白 = gesso 底。
+
+**应用图标**（源 `crates/app/assets/icons/src/app-icon.svg`，1024，透明边距 100）
+
+- 形：Big Sur 方圆角（superellipse n=5，824/1024）+ 顶部内侧阴影 10%。
+- 底：gesso 白纵向 `#FDFCF9→#F6F4EF→#EFEBE3`。
+- 浪：前层黎明水平 `#2E63E6→#316EF5→#7C5CE0→#E08A4E` + 上缘白 sheen 22% + 浪尖高光线（`#AECBFA→#CDB9F4→#F6D3AC`）；后层暖 `#7FA8F2→#9C7BE8→#F0B878`；辉光 = 后层浪的模糊复制上移 26（色相恒随浪，不引入灰雾）。
+- 点：42px r12 `#DCD8CF` ×3，右上列（mac 桌面默认排列位）。
+- **小尺寸（≤32px）专用 compact 稿**：浪位抬高（色带 ≈35%），去点/辉光/浪尖线；icns/ico 混排两稿 = Apple 惯例。
+- 产出：`mac/Gesso.icns`（16→1024）、`win/gesso.ico`（16→256，PNG 直嵌）。
+
+**托盘字形**（`src/tray-*.svg`，24 网格）：双层圆角矩形 —— 前层 13.5×11.75 r3.5 盖后层 11.5×9 r3，缝 = 前层外扩 1.75（16px 不粘连）。读法：壁纸从前层（桌面）之下探出。macOS 黑字形 + `with_icon_templated`（菜单栏亮暗自适应），内嵌 44px@2x（tray-icon 约束 22pt，Retina 清晰）；Windows 白 32px。**禁止**：托盘字形上色 / 加投影 / 带底板 / 用彩色应用图标缩充当托盘。
+
+**再生成**：`cd crates/app/assets/icons/tools && npm i && node build.mjs`（sharp + iconutil）。改图形先改本节与源，再跑管线，产出随仓库提交；运行时只 `include_bytes!` 产出文件（`main.rs::tray_icon_rgba` / `apply_dock_icon`）。预览契约：`06-品牌图标.brand.html`（真机场景亮暗双主题）。
