@@ -25,6 +25,8 @@ single-instance = "0.3"
 rfd = "0.15"
 auto-launch = "0.5"
 tray-icon = "0.26.0"
+# 托盘图标 PNG 解码（内嵌 assets/icons/tray/*.png → RGBA）
+png = "0.17"
 
 # 平台依赖（贴壁层 §4；M1 起使用，先声明锁定版本）
 [target.'cfg(windows)'.dependencies]
@@ -36,7 +38,7 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSWorkspace", "NSScreen", "NSColor", "NSResponder"] }
-objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSDictionary", "NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSWindow", "NSWorkspace", "NSScreen", "NSColor", "NSResponder"] }
+objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSDictionary", "NSString"] }
 
 

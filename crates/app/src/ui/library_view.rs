@@ -115,8 +115,7 @@ impl LibraryView {
             .child(
                 Input::new(&self.search_input)
                     .cleanable(true)
-                    .prefix(Icon::new(IconName::Search).into_any_element())
-                    .with_size(px(36.)),
+                    .prefix(Icon::new(IconName::Search).into_any_element()),
             )
             .into_any_element();
 

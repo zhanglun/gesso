@@ -35,28 +35,38 @@ static MAIN_WINDOW: std::sync::OnceLock<gpui_kit::AnyWindowHandle> = std::sync::
 /// 托盘勾选镜像（自启翻转判定用；真源 = AppConfig.settings.autostart）。
 static AUTOSTART_HINT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn tray_icon_rgba() -> Vec<u8> {
-    let (w, h) = (32usize, 32usize);
-    let mut v = vec![0u8; w * h * 4];
-    for y in 0..h {
-        for x in 0..w {
-            let edge = x < 2 || y < 2 || x >= w - 2 || y >= h - 2;
-            let bar = (8..24).contains(&x) && (14..18).contains(&y);
-            let (r, g, b) = if edge {
-                (0x1E, 0x3B, 0x8F)
-            } else if bar {
-                (0xFF, 0xFF, 0xFF)
-            } else {
-                (0x31, 0x6E, 0xF5)
-            };
-            let i = (y * w + x) * 4;
-            v[i] = r;
-            v[i + 1] = g;
-            v[i + 2] = b;
-            v[i + 3] = 0xFF;
-        }
-    }
-    v
+/// 托盘图标源（黑 = macOS template，随菜单栏亮暗自适应；白 = Windows 深色任务栏）。
+/// 源文件与再生成见 assets/icons/tools/build.mjs（§DESIGN 品牌图形）。
+#[cfg(target_os = "macos")]
+const TRAY_PNG: &[u8] = include_bytes!("../assets/icons/tray/trayTemplate@2x.png");
+#[cfg(not(target_os = "macos"))]
+const TRAY_PNG: &[u8] = include_bytes!("../assets/icons/tray/tray-white-32.png");
+
+/// 解码内嵌 PNG 为托盘 RGBA。macOS 传 44px @2x：tray-icon 按菜单栏 22pt 约束尺寸，
+/// 位图仍为 44px → Retina 下清晰。
+fn tray_icon_rgba() -> (Vec<u8>, u32, u32) {
+    let decoder = png::Decoder::new(std::io::Cursor::new(TRAY_PNG));
+    let mut reader = decoder.read_info().expect("托盘 PNG 可解码");
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).expect("托盘 PNG 帧读取");
+    buf.truncate(info.buffer_size());
+    (buf, info.width, info.height)
+}
+
+/// cargo run 时让 Dock 显示真实应用图标（打包分发后由 bundle 的 Gesso.icns 接管）。
+#[cfg(target_os = "macos")]
+fn apply_dock_icon() {
+    use objc2::AnyThread as _;
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::{MainThreadMarker, NSData};
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = NSData::with_bytes(include_bytes!("../assets/icons/mac/Gesso.icns"));
+    let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
+        return;
+    };
+    NSApplication::sharedApplication(mtm).setApplicationIconImage(&image);
 }
 
 fn bootstrap() -> (session::SessionManager, bool) {
@@ -272,6 +282,8 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             ui::theme::init(cx);
+            #[cfg(target_os = "macos")]
+            apply_dock_icon();
 
             // 顺序关键：NSApplication 就绪后才能建 AppKit 壁纸窗口
             let (sm, first_run) = bootstrap();
@@ -329,11 +341,18 @@ fn main() {
                     _ => {}
                 }
             }));
-            let icon = tray_icon::Icon::from_rgba(tray_icon_rgba(), 32, 32).unwrap();
-            let tray = tray_icon::TrayIconBuilder::new()
+            let (rgba, w, h) = tray_icon_rgba();
+            let icon = tray_icon::Icon::from_rgba(rgba, w, h).unwrap();
+            let mut tray_builder = tray_icon::TrayIconBuilder::new()
                 .with_tooltip("Gesso")
                 .with_icon(icon)
-                .with_menu(Box::new(menu))
+                .with_menu(Box::new(menu));
+            // macOS 菜单栏亮暗自适应（template 图）；Windows 白色字形常驻深色任务栏
+            #[cfg(target_os = "macos")]
+            {
+                tray_builder = tray_builder.with_icon_as_template(true);
+            }
+            let tray = tray_builder
                 // 左/右键都弹菜单（§4.1，2026-10-03 决策：纯菜单形态）
                 .build()
                 .expect("托盘");
