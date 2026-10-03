@@ -3,7 +3,7 @@
 **A cross-platform dynamic wallpaper engine for Windows and macOS.**
 Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — written in Rust with [GPUI](https://gpui.rs).
 
-[简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [FAQ](docs/FAQ.md) · [Contributing](CONTRIBUTING.md)
+[AGENTS.md](AGENTS.md)（AI 会话指南） · [简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [FAQ](docs/FAQ.md) · [Contributing](CONTRIBUTING.md)
 
 > **Status: early development (0.1.x), macOS working, Windows in progress.**
 > Design and engineering decisions are documented in-repo; everything below is verified on real hardware unless marked otherwise.

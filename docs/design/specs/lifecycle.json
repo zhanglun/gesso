@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "壁纸会话运行时状态机",
+    "output": "03-运行时状态机.lifecycle.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1085,
+      640
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "主轨"
+    },
+    {
+      "id": "auto",
+      "label": "自动暂停与故障"
+    },
+    {
+      "id": "terminal",
+      "label": "终态"
+    }
+  ],
+  "states": [
+    {
+      "id": "idle",
+      "type": "start",
+      "label": "Idle 空闲",
+      "sublabel": "未指派壁纸",
+      "lane": "main",
+      "col": 0,
+      "step": "01"
+    },
+    {
+      "id": "loading",
+      "type": "active",
+      "label": "Loading 加载",
+      "sublabel": "宿主页装载内容",
+      "lane": "main",
+      "col": 1,
+      "step": "02",
+      "tag": "运行"
+    },
+    {
+      "id": "playing",
+      "type": "success",
+      "label": "Playing 播放中",
+      "sublabel": "60/30fps 自适应",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "tag": "常驻态"
+    },
+    {
+      "id": "paused_user",
+      "type": "waiting",
+      "label": "Paused 用户",
+      "sublabel": "托盘手动暂停",
+      "lane": "main",
+      "col": 3,
+      "step": "04",
+      "tag": "暂停"
+    },
+    {
+      "id": "error",
+      "type": "failure",
+      "label": "Error 加载失败",
+      "sublabel": "素材缺失 / 解码失败",
+      "lane": "auto",
+      "col": 0,
+      "tag": "可恢复"
+    },
+    {
+      "id": "autopause",
+      "type": "waiting",
+      "label": "Paused 自动",
+      "sublabel": "全屏应用 / 电池供电",
+      "lane": "auto",
+      "col": 1,
+      "tag": "事件驱动"
+    },
+    {
+      "id": "stopped",
+      "type": "neutral",
+      "label": "Stopped 停止",
+      "sublabel": "退出 / 卸载壁纸",
+      "lane": "terminal",
+      "col": 2,
+      "tag": "终态"
+    }
+  ],
+  "transitions": [
+    {
+      "from": "loading",
+      "to": "error",
+      "label": "素材缺失",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        340,
+        230
+      ]
+    },
+    {
+      "from": "error",
+      "to": "idle",
+      "label": "重选内容",
+      "variant": "dashed",
+      "route": "left-channel"
+    },
+    {
+      "from": "playing",
+      "to": "autopause",
+      "label": "全屏 / 电池",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          402,
+          216
+        ],
+        [
+          556,
+          216
+        ]
+      ],
+      "labelAt": [
+        468,
+        232
+      ]
+    },
+    {
+      "from": "autopause",
+      "to": "playing",
+      "label": "恢复",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          556,
+          540
+        ],
+        [
+          800,
+          540
+        ],
+        [
+          800,
+          110
+        ],
+        [
+          402,
+          110
+        ]
+      ],
+      "labelAt": [
+        800,
+        300
+      ]
+    },
+    {
+      "from": "paused_user",
+      "to": "stopped",
+      "label": "退出应用",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          556,
+          200
+        ],
+        [
+          710,
+          200
+        ]
+      ],
+      "labelAt": [
+        650,
+        184
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "单一常驻态",
+      "items": [
+        "Playing 是唯一满负荷状态",
+        "帧率按负载与设置自适应",
+        "主轨线性：空闲→加载→播放→暂停"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "暂停即省电",
+      "items": [
+        "全屏应用与电池供电触发自动暂停",
+        "手动暂停独立于自动暂停",
+        "全部由平台事件驱动恢复"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "失败可恢复",
+      "items": [
+        "素材错误回到 Idle 重选",
+        "不崩溃、不白屏",
+        "回退静态壁纸兜底"
+      ]
+    }
+  ]
+}

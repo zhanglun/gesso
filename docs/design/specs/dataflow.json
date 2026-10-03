@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Wallpaper Engine 素材导入管线",
+    "output": "04-WE素材导入.dataflow.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1070,
+      640
+    ]
+  },
+  "stages": [
+    {
+      "label": "发现与读取"
+    },
+    {
+      "label": "类型路由"
+    },
+    {
+      "label": "转换处理"
+    },
+    {
+      "label": "内容库"
+    },
+    {
+      "label": "渲染消费"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "workshop",
+      "type": "external",
+      "label": "Steam Workshop 目录",
+      "sublabel": "content/431960",
+      "stage": 0,
+      "row": 1,
+      "tag": "只读"
+    },
+    {
+      "id": "pkg_file",
+      "type": "external",
+      "label": ".pkg 文件",
+      "sublabel": "手动指定",
+      "stage": 0,
+      "row": 3,
+      "tag": "只读"
+    },
+    {
+      "id": "scan",
+      "type": "backend",
+      "label": "扫描与解析",
+      "sublabel": "project.json",
+      "stage": 1,
+      "row": 2,
+      "tag": "type / file"
+    },
+    {
+      "id": "route",
+      "type": "backend",
+      "label": "类型路由",
+      "sublabel": "按 type 字段分派",
+      "stage": 2,
+      "row": 2,
+      "tag": "决策"
+    },
+    {
+      "id": "video_in",
+      "type": "backend",
+      "label": "video 类型",
+      "sublabel": "mp4 零拷贝直引",
+      "stage": 3,
+      "row": 0
+    },
+    {
+      "id": "web_in",
+      "type": "frontend",
+      "label": "web 类型",
+      "sublabel": "HTML + WE API shim",
+      "stage": 3,
+      "row": 1
+    },
+    {
+      "id": "scene_in",
+      "type": "backend",
+      "label": "scene 类型",
+      "sublabel": "depkg 解包 → tex/png",
+      "stage": 3,
+      "row": 2,
+      "tag": "M7+"
+    },
+    {
+      "id": "reject",
+      "type": "security",
+      "label": "application 类型",
+      "sublabel": "明确拒绝并提示",
+      "stage": 3,
+      "row": 3,
+      "tag": "不支持"
+    },
+    {
+      "id": "library",
+      "type": "database",
+      "label": "内容库",
+      "sublabel": "ContentSpec 登记",
+      "stage": 4,
+      "row": 1,
+      "tag": "origin: we-*"
+    },
+    {
+      "id": "host",
+      "type": "frontend",
+      "label": "壁纸宿主页",
+      "sublabel": "按 kind 渲染",
+      "stage": 4,
+      "row": 3
+    }
+  ],
+  "flows": [
+    {
+      "from": "workshop",
+      "to": "scan",
+      "label": "遍历 <workshopid>/",
+      "variant": "emphasis"
+    },
+    {
+      "from": "pkg_file",
+      "to": "scan",
+      "label": "手动导入"
+    },
+    {
+      "from": "scan",
+      "to": "route",
+      "label": "type 路由",
+      "variant": "emphasis"
+    },
+    {
+      "from": "route",
+      "to": "video_in",
+      "label": "type=video",
+      "labelAt": [
+        600,
+        145
+      ]
+    },
+    {
+      "from": "route",
+      "to": "web_in",
+      "label": "type=web",
+      "labelAt": [
+        600,
+        250
+      ]
+    },
+    {
+      "from": "route",
+      "to": "scene_in",
+      "label": "type=scene",
+      "labelAt": [
+        600,
+        330
+      ]
+    },
+    {
+      "from": "route",
+      "to": "reject",
+      "label": "type=application",
+      "variant": "security",
+      "labelAt": [
+        580,
+        470
+      ]
+    },
+    {
+      "from": "video_in",
+      "to": "library",
+      "label": "直引登记",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "web_in",
+      "to": "library",
+      "label": "登记 + 注入 shim",
+      "route": "vertical-channel",
+      "labelAt": [
+        790,
+        315
+      ]
+    },
+    {
+      "from": "scene_in",
+      "to": "library",
+      "label": "资产清单",
+      "route": "vertical-channel",
+      "labelDy": 30
+    },
+    {
+      "from": "library",
+      "to": "host",
+      "label": "wallpaper:// 只读",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "来源只读",
+      "items": [
+        "只引用本机已订阅的工坊内容",
+        "不做下载器，不做素材再分发",
+        "video 类型零拷贝直引"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "类型路由清晰",
+      "items": [
+        "video / web 即时可用",
+        "web 壁纸注入 WE API 兼容层",
+        "application 类型明确拒绝"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "scene 是长跑",
+      "items": [
+        "depkg 解包为 M7 里程碑",
+        "先支持抽取图片资产降级",
+        "保证导入永不失败"
+      ]
+    }
+  ]
+}

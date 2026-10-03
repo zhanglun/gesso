@@ -2,7 +2,7 @@
 
 **跨平台动态壁纸引擎（Windows / macOS）**——视频、动图、Shader、网页，钉在桌面图标层**之下**。Rust + [GPUI](https://gpui.rs)。
 
-[English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [常见问题](docs/FAQ.md) · [参与开发](CONTRIBUTING.md)
+[AGENTS.md](AGENTS.md)（AI 会话指南） · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [常见问题](docs/FAQ.md) · [参与开发](CONTRIBUTING.md)
 
 > **状态：早期开发（0.1.x）——macOS 可用，Windows 进行中。**
 > 除标注外，下文所有能力均在真机验证过。

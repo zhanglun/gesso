@@ -1,6 +1,6 @@
 # 工程笔记（Gesso）
 
-> 常驻文档：**架构铁律 + 踩坑实录 + 关键路径**。设计真源在 `../gesso-design/`，引擎接口在 `crates/app/API.md`。
+> 常驻文档：**架构铁律 + 踩坑实录 + 关键路径**。设计真源在 [design/](design/)（随仓库版本化，后续迭代以本目录为准），引擎接口在 `crates/app/API.md`。
 > 每次新增踩坑请追加到 §2，别让知识随会话消失。
 
 ---
@@ -9,7 +9,7 @@
 
 1. **壁纸窗口不是 GPUI 窗口**：`pin/` 用纯 AppKit `NSWindow` + `lb-wry` 直挂（M1.5 定稿）。GPUI 只管管理窗口与托盘。任何把壁纸内容塞回 GPUI 窗口的做法都会重演 M1.5 失败——GPUI 窗口协调器会把窗口 `origin.y` 压到 `-菜单栏高`，外部强制会被它在同一通知循环内改回（150ms 轮询对抗打不赢，且方案本身错误）。
 2. **UI 不碰引擎内部**：只经 `crates/app/API.md`。写操作入队 `engine::EngineAction`（引擎 150ms 轮询执行，与托盘同一通道）；读操作走 `snapshot_ui(&sm)` 快照，且**必须保留 UI 本地状态**（`active_tab/selected/query/filter/import_counter`），否则用户输入每 150ms 被冲掉。
-3. **改界面先改规格与原型**（`gesso-design/界面与交互设计.md` + `prototype/index.html`），再改代码；token/组件/文案以 `gesso-design/DESIGN.md` 为准。
+3. **改界面先改规格与原型**（`docs/design/界面与交互设计.md` + `docs/design/prototype/index.html`），再改代码；token/组件/文案以 `docs/design/DESIGN.md` 为准。
 4. **提交前必须 `cargo check -p gesso-app` 通过**。UI 代码曾因从未编译积累 115 个错误。
 5. **导入 / 失效判定 / 宿主页 spec 三处必须共用同一函数**（`session::main_asset_name`）。三处各写一份"类型→扩展名"的映射，就会出现"能导入但被判失效"或"宿主页请求错文件名"。
 

@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gesso 代码模块关系",
+    "output": "05-代码模块关系.architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      950,
+      600
+    ]
+  },
+  "components": [
+    {
+      "id": "uimanager",
+      "type": "frontend",
+      "label": "管理窗口 ui/",
+      "sublabel": "GPUI 原生 UI · Entity 状态",
+      "pos": [
+        70,
+        40
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "uihost",
+      "type": "frontend",
+      "label": "壁纸宿主页 host/",
+      "sublabel": "wry webview · 零依赖 TS",
+      "tag": "沙箱",
+      "pos": [
+        330,
+        40
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "messagebus",
+      "label": "事件桥 bridge/",
+      "sublabel": "光标 / 全屏 / 电源 / 时间",
+      "pos": [
+        620,
+        40
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "sessionmgr",
+      "type": "backend",
+      "label": "会话管理器 session.rs",
+      "sublabel": "状态机驱动 · 窗口编排",
+      "tag": "唯一编排者",
+      "pos": [
+        330,
+        240
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "protocol",
+      "type": "security",
+      "label": "协议层 protocol.rs",
+      "sublabel": "wallpaper://（wry 协议）· CSP · MIME · 导航闸",
+      "pos": [
+        620,
+        240
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "core",
+      "type": "backend",
+      "label": "gesso-core",
+      "sublabel": "spec · config · library · 状态机",
+      "tag": "纯逻辑可单测",
+      "pos": [
+        70,
+        440
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "pin",
+      "type": "backend",
+      "label": "贴壁层 pin/",
+      "sublabel": "windows.rs / macos.rs · GPUI 窗口句柄",
+      "pos": [
+        330,
+        440
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "we",
+      "type": "backend",
+      "label": "WE 适配器 we/",
+      "sublabel": "project.json · shim 注入",
+      "tag": "M6+",
+      "pos": [
+        620,
+        440
+      ],
+      "size": [
+        180,
+        64
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "ui-session",
+      "from": "uimanager",
+      "to": "sessionmgr",
+      "label": "同进程调用",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          290,
+          72
+        ],
+        [
+          290,
+          272
+        ]
+      ],
+      "labelAt": [
+        290,
+        172
+      ]
+    },
+    {
+      "id": "session-pin",
+      "from": "sessionmgr",
+      "to": "pin",
+      "label": "贴壁指令",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        425,
+        372
+      ]
+    },
+    {
+      "id": "session-host",
+      "from": "sessionmgr",
+      "to": "uihost",
+      "label": "session:// 事件",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelAt": [
+        425,
+        170
+      ]
+    },
+    {
+      "id": "bridge-host",
+      "from": "bridge",
+      "to": "uihost",
+      "label": "bridge:// 事件",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelAt": [
+        570,
+        54
+      ]
+    },
+    {
+      "id": "session-core",
+      "from": "sessionmgr",
+      "to": "core",
+      "label": "状态转移 / 规格",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          560,
+          272
+        ],
+        [
+          560,
+          560
+        ],
+        [
+          30,
+          560
+        ],
+        [
+          30,
+          472
+        ]
+      ],
+      "labelAt": [
+        545,
+        410
+      ]
+    },
+    {
+      "id": "we-protocol",
+      "from": "we",
+      "to": "protocol",
+      "label": "挂载只读路径",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelAt": [
+        710,
+        372
+      ]
+    },
+    {
+      "id": "host-protocol",
+      "from": "uihost",
+      "to": "protocol",
+      "label": "wallpaper:// 取资产",
+      "fromSide": "top",
+      "toSide": "right",
+      "via": [
+        [
+          425,
+          16
+        ],
+        [
+          880,
+          16
+        ],
+        [
+          880,
+          272
+        ]
+      ],
+      "labelAt": [
+        880,
+        150
+      ]
+    },
+    {
+      "id": "we-core",
+      "from": "we",
+      "to": "core",
+      "label": "登记 ContentSpec",
+      "fromSide": "left",
+      "toSide": "bottom",
+      "via": [
+        [
+          585,
+          472
+        ],
+        [
+          585,
+          530
+        ],
+        [
+          160,
+          530
+        ]
+      ],
+      "labelAt": [
+        380,
+        517
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "两个 crate",
+      "items": [
+        "gesso-core：纯领域逻辑，零平台依赖，全量单测",
+        "gesso-app：GPUI 应用（管理 UI + 壁纸壳 + 编排）",
+        "依赖方向单向，编译期强制"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "单向依赖",
+      "items": [
+        "UI → 命令 → 会话 → core",
+        "pin / bridge / protocol / we 互不认识",
+        "一切编排只发生在 session.rs"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "沙箱在图上",
+      "items": [
+        "ui/host 零 IPC：只有入站事件",
+        "出站只有协议请求，过导航闸",
+        "CSP 与 MIME 在协议层注入"
+      ]
+    }
+  ]
+}

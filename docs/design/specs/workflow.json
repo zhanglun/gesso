@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "壁纸启动流程",
+    "output": "02-启动流程.workflow.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1085,
+      590
+    ]
+  },
+  "lanes": [
+    {
+      "id": "app",
+      "label": "应用进程"
+    },
+    {
+      "id": "pin",
+      "label": "贴壁与窗口"
+    },
+    {
+      "id": "render",
+      "label": "渲染层"
+    },
+    {
+      "id": "exc",
+      "label": "异常处理",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "boot",
+      "label": "启动",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "pinphase",
+      "label": "窗口与贴壁",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "ready",
+      "label": "就绪",
+      "fromCol": 5,
+      "toCol": 5
+    }
+  ],
+  "groups": [],
+  "mainPath": [
+    "launch",
+    "load_config",
+    "enum_monitors",
+    "pinwall",
+    "load_content",
+    "host_ready"
+  ],
+  "nodes": [
+    {
+      "id": "launch",
+      "lane": "app",
+      "col": 0,
+      "type": "frontend",
+      "label": "启动入口",
+      "sublabel": "开机自启 / 托盘"
+    },
+    {
+      "id": "load_config",
+      "lane": "app",
+      "col": 1,
+      "type": "backend",
+      "label": "读取配置",
+      "sublabel": "显示器→壁纸映射"
+    },
+    {
+      "id": "enum_monitors",
+      "lane": "pin",
+      "col": 2,
+      "type": "backend",
+      "label": "枚举显示器",
+      "sublabel": "EDID 稳定 ID"
+    },
+    {
+      "id": "pinwall",
+      "lane": "pin",
+      "col": 3,
+      "type": "backend",
+      "label": "建窗钉壁",
+      "sublabel": "WorkerW / NSWindow",
+      "tag": "平台分派"
+    },
+    {
+      "id": "load_content",
+      "lane": "render",
+      "col": 4,
+      "type": "backend",
+      "label": "解析规格",
+      "sublabel": "kind 路由"
+    },
+    {
+      "id": "host_ready",
+      "lane": "render",
+      "col": 5,
+      "type": "frontend",
+      "label": "宿主页就绪",
+      "sublabel": "video/shader/html"
+    },
+    {
+      "id": "fallback",
+      "lane": "exc",
+      "col": 5,
+      "type": "security",
+      "label": "回退静态壁纸",
+      "sublabel": "素材缺失兜底"
+    }
+  ],
+  "edges": [
+    {
+      "from": "launch",
+      "to": "load_config"
+    },
+    {
+      "from": "load_config",
+      "to": "enum_monitors",
+      "variant": "emphasis",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "enum_monitors",
+      "to": "pinwall"
+    },
+    {
+      "from": "pinwall",
+      "to": "load_content",
+      "role": "main",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "load_content",
+      "to": "host_ready",
+      "variant": "emphasis"
+    },
+    {
+      "from": "load_content",
+      "to": "fallback",
+      "label": "素材缺失",
+      "variant": "security",
+      "role": "error",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "fallback",
+      "to": "host_ready",
+      "variant": "dashed",
+      "role": "return",
+      "route": "straight",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "一条主路径",
+      "items": [
+        "启动到就绪全程无人工干预",
+        "配置先行，窗口与贴壁随后",
+        "贴壁完成再装载内容"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "显示器即会话",
+      "items": [
+        "每显示器独立建窗与指派",
+        "显示器用 EDID 哈希稳定标识",
+        "配置缺失时首启向导补齐"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "优雅降级",
+      "items": [
+        "素材缺失回退静态壁纸",
+        "壁纸层永不开天窗",
+        "失败路径与主路径同样清晰"
+      ]
+    }
+  ]
+}

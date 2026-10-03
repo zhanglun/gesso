@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gesso 系统架构",
+    "output": "01-系统架构.architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1100,
+      530
+    ]
+  },
+  "components": [
+    {
+      "id": "tray",
+      "type": "frontend",
+      "label": "托盘 + 管理窗口",
+      "sublabel": "GPUI 原生 UI",
+      "pos": [
+        70,
+        40
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "library",
+      "type": "backend",
+      "label": "内容库",
+      "sublabel": "ContentSpec · manifest",
+      "pos": [
+        330,
+        40
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "messagebus",
+      "label": "事件桥",
+      "sublabel": "光标 / 时间 / 电池",
+      "tag": "30Hz",
+      "pos": [
+        790,
+        40
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "session",
+      "type": "backend",
+      "label": "会话管理器",
+      "sublabel": "运行时状态机 · 多显示器",
+      "pos": [
+        70,
+        220
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "host",
+      "type": "frontend",
+      "label": "壁纸宿主页 × N",
+      "sublabel": "每显示器一窗 · 零 IPC",
+      "tag": "沙箱",
+      "pos": [
+        560,
+        220
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "weadapter",
+      "type": "backend",
+      "label": "WE 适配器",
+      "sublabel": "project.json · depkg",
+      "tag": "M6+",
+      "pos": [
+        790,
+        220
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "pin",
+      "type": "backend",
+      "label": "平台贴壁层",
+      "sublabel": "Win: WorkerW · mac: NSWindow",
+      "tag": "唯一平台代码",
+      "pos": [
+        70,
+        400
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "webview",
+      "type": "external",
+      "label": "系统 WebView",
+      "sublabel": "WebView2 / WKWebView",
+      "pos": [
+        560,
+        400
+      ],
+      "size": [
+        190,
+        60
+      ]
+    },
+    {
+      "id": "workshop",
+      "type": "external",
+      "label": "Steam Workshop 目录",
+      "sublabel": "workshop/content/431960",
+      "tag": "只读",
+      "pos": [
+        790,
+        400
+      ],
+      "size": [
+        180,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Gesso 应用进程（GPUI）",
+      "wraps": [
+        "tray",
+        "library",
+        "bridge",
+        "session",
+        "host",
+        "weadapter",
+        "pin"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "壁纸窗口沙箱（零 IPC · 只读协议）",
+      "wraps": [
+        "host"
+      ],
+      "pad": 8
+    }
+  ],
+  "connections": [
+    {
+      "id": "tray-session",
+      "from": "tray",
+      "to": "session",
+      "label": "直接调用",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        160,
+        158
+      ]
+    },
+    {
+      "id": "session-library",
+      "from": "session",
+      "to": "library",
+      "label": "取 ContentSpec",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          290,
+          252
+        ],
+        [
+          290,
+          72
+        ]
+      ],
+      "labelAt": [
+        290,
+        160
+      ]
+    },
+    {
+      "id": "library-host",
+      "from": "library",
+      "to": "host",
+      "label": "wallpaper:// 只读",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          540,
+          72
+        ],
+        [
+          540,
+          252
+        ]
+      ],
+      "labelAt": [
+        540,
+        160
+      ]
+    },
+    {
+      "id": "bridge-host",
+      "from": "bridge",
+      "to": "host",
+      "label": "bridge:// 事件",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right",
+      "via": [
+        [
+          770,
+          72
+        ],
+        [
+          770,
+          252
+        ]
+      ],
+      "labelAt": [
+        770,
+        150
+      ]
+    },
+    {
+      "id": "session-pin",
+      "from": "session",
+      "to": "pin",
+      "label": "SetParent / 压层",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        160,
+        336
+      ]
+    },
+    {
+      "id": "host-webview",
+      "from": "host",
+      "to": "webview",
+      "label": "video / WebGL2",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        655,
+        336
+      ]
+    },
+    {
+      "id": "weadapter-library",
+      "from": "weadapter",
+      "to": "library",
+      "label": "导入",
+      "fromSide": "right",
+      "toSide": "bottom",
+      "via": [
+        [
+          1015,
+          252
+        ],
+        [
+          1015,
+          470
+        ],
+        [
+          425,
+          470
+        ]
+      ],
+      "labelAt": [
+        700,
+        486
+      ]
+    },
+    {
+      "id": "weadapter-workshop",
+      "from": "weadapter",
+      "to": "workshop",
+      "label": "扫描 / 只读引用",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        880,
+        336
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "渲染一条管线",
+      "items": [
+        "四类内容统一经壁纸宿主页渲染",
+        "多显示器窗口共享系统 WebView 进程",
+        "贴壁层是唯一的平台特定代码"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "核心服务",
+      "items": [
+        "会话管理器驱动运行时状态机",
+        "内容库以 ContentSpec 为唯一契约",
+        "事件桥向壁纸层单向推送系统数据"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "安全与边界",
+      "items": [
+        "壁纸窗口零 IPC，仅接收事件",
+        "wallpaper:// 自定义只读协议",
+        "Workshop 目录只读引用，不做再分发"
+      ]
+    }
+  ]
+}
