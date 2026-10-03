@@ -9,6 +9,7 @@ use crate::{Result, WallpaperKind};
 /// 显示器→库条目映射；key 为 EDID 哈希稳定 ID（§4.3）。
 pub type MonitorMap = BTreeMap<String, String>;
 
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -57,8 +58,12 @@ pub enum StartupBehavior {
 pub struct AppConfig {
     /// 显示器稳定 ID → 库条目 ID。
     pub monitors: MonitorMap,
+    /// 显示器稳定 ID → 帧率上限（缺省用 settings.fps_cap_default）。
+    pub monitor_fps: MonitorFpsMap,
     pub settings: Settings,
 }
+
+pub type MonitorFpsMap = BTreeMap<String, u8>;
 
 /// 配置热更新 diff：会话管理器据此只重建受影响的壁纸窗口（§10）。
 #[derive(Debug, Clone, PartialEq, Default)]

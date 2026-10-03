@@ -10,7 +10,7 @@ pub mod library;
 pub mod session;
 pub mod spec;
 
-pub use config::{AppConfig, MonitorDiff, PausePolicy, Settings, StartupBehavior};
+pub use config::{AppConfig, MonitorDiff, MonitorFpsMap, PausePolicy, Settings, StartupBehavior};
 pub use error::{GessoError, Result};
 pub use library::{generate_id, LibraryEntry, LibraryManifest};
 pub use session::{transfer, SessionEvent, SessionState};

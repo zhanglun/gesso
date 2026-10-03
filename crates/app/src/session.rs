@@ -135,7 +135,8 @@ impl SessionManager {
                 }
             };
             let title = entry.title.clone();
-            match Self::build_session(m.clone(), entry) {
+            let fps = self.fps_for(&m.id);
+            match Self::build_session(m.clone(), entry, fps) {
                 Ok(s) => {
                     println!("[session] {} ← {}（{}）", m.id, s.entry_id, title);
                     self.sessions.insert(m.id, s);
@@ -161,13 +162,21 @@ impl SessionManager {
         )
     }
 
-    fn build_session(monitor: MonitorInfo, entry: LibraryEntry) -> gesso_core::Result<Session> {
+    fn fps_for(&self, monitor_id: &str) -> u8 {
+        self.config
+            .monitor_fps
+            .get(monitor_id)
+            .copied()
+            .unwrap_or(self.config.settings.fps_cap_default)
+    }
+
+    fn build_session(monitor: MonitorInfo, entry: LibraryEntry, fps: u8) -> gesso_core::Result<Session> {
         let mut window = pin::create_wallpaper_window(&monitor)?;
         let spec = ContentSpec {
             kind: entry.kind,
             source: entry_main_source(&entry),
             fit: gesso_core::Fit::Cover,
-            fps_cap: 60,
+            fps_cap: fps,
             audio: gesso_core::AudioPolicy::Muted,
             meta: gesso_core::SpecMeta {
                 title: entry.title.clone(),
@@ -246,6 +255,9 @@ impl SessionManager {
 
     /// 指派（换壁纸）：diff 式只重建目标会话。
     pub fn assign(&mut self, monitor_id: &str, entry_id: &str) {
+        // 先在不可变阶段提取全部所需数据，再进入可变操作
+        let entry = self.library.iter().find(|e| e.id == entry_id).cloned();
+        let fps = self.fps_for(monitor_id);
         self.config
             .monitors
             .insert(monitor_id.into(), entry_id.into());
@@ -253,14 +265,14 @@ impl SessionManager {
         if let Some(s) = self.sessions.get_mut(monitor_id) {
             // 状态机：暂停/错误态重新指派 → Loading → Playing
             s.state = transfer(s.state, SessionEvent::Assign);
-            if let Some(entry) = self.library.iter().find(|e| e.id == entry_id).cloned() {
+            if let Some(entry) = entry {
                 s.entry_id = entry_id.into();
                 if let Ok(mut w) = Self::build_window_only(&s.monitor) {
                     let spec = ContentSpec {
                         kind: entry.kind,
                         source: entry_main_source(&entry),
                         fit: gesso_core::Fit::Cover,
-                        fps_cap: 60,
+                        fps_cap: fps,
                         audio: gesso_core::AudioPolicy::Muted,
                         meta: gesso_core::SpecMeta {
                             title: entry.title.clone(),
@@ -289,6 +301,69 @@ impl SessionManager {
     pub fn update_settings(&mut self, settings: gesso_core::Settings) {
         self.config.settings = settings;
         let _ = self.save_config();
+    }
+
+    /// 单显示器帧率上限（§4.4 FPS 下拉）：写配置 + 热重载该会话宿主页。
+    pub fn set_fps(&mut self, monitor_id: &str, fps: u8) {
+        // 找到该显示器当前指派的条目 → 构建新 spec URL → 热重载宿主页
+        let Some(entry_id) = self.config.monitors.get(monitor_id) else {
+            return;
+        };
+        let entry_id = entry_id.clone();
+        let Some(entry) = self.library.iter().find(|e| e.id == entry_id) else {
+            return;
+        };
+        let entry = entry.clone();
+        let spec = ContentSpec {
+            kind: entry.kind,
+            source: entry_main_source(&entry),
+            fit: gesso_core::Fit::Cover,
+            fps_cap: fps,
+            audio: gesso_core::AudioPolicy::Muted,
+            meta: gesso_core::SpecMeta {
+                title: entry.title.clone(),
+                origin: entry.origin.clone(),
+            },
+        };
+        let url = format!(
+            "{}?spec={}",
+            Self::ensure_entry_host(&entry),
+            urlencode(&serde_json::to_string(&spec).expect("ContentSpec 序列化"))
+        );
+        // 落配置
+        self.config.monitor_fps.insert(monitor_id.into(), fps);
+        let _ = self.save_config();
+        // 热重载已建会话的宿主页（会话不存在则只留配置，下次 sync 生效）
+        if let Some(s) = self.sessions.get_mut(monitor_id) {
+            if let Some(w) = s.window.as_mut() {
+                w.load(&url);
+            }
+        }
+        println!("[session] {monitor_id} 帧率上限 = {fps} fps（热重载）");
+    }
+
+    /// 从库移除条目：清单 + 显示器映射 + 会话一并拆除（文件保留）。
+    pub fn remove_entry(&mut self, entry_id: &str) {
+        self.library.retain(|e| e.id != entry_id);
+        let affected: Vec<String> = self
+            .config
+            .monitors
+            .iter()
+            .filter(|(_, e)| e.as_str() == entry_id)
+            .map(|(m, _)| m.clone())
+            .collect();
+        for m in &affected {
+            self.config.monitors.remove(m);
+            self.sessions.remove(m);
+        }
+        let _ = self.save_config();
+        let p = crate::protocol::library_dir().join("library.json");
+        gesso_core::LibraryManifest {
+            entries: self.library.clone(),
+        }
+        .save(&p)
+        .map_err(|_| ())
+        .ok();
     }
 
     /// 导入结果的类型判定（UI 预检与引擎执行共用同一套规则）。
