@@ -99,6 +99,8 @@ Key rule: **wallpaper windows are native windows we own, not GPUI windows.** GPU
 | [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | Architecture rules, **15 verified pitfalls**, key paths, commands |
 | [crates/app/API.md](crates/app/API.md) | The only interface the UI may use |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones, current status, known gaps |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local development & debugging guide (logs, diagnostics, troubleshooting) |
+| [docs/design/技术方案.md](docs/design/技术方案.md) | Full engineering plan, 14 chapters (Chinese) |
 | [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) | Workshop asset compatibility plan and its legal boundary |
 | [docs/FAQ.md](docs/FAQ.md) | Linux? Xcode? telemetry? uninstall? |
 | [SPIKE-REPORT.md](SPIKE-REPORT.md) | Verified results of the three feasibility spikes |

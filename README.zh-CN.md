@@ -98,6 +98,8 @@ pkill -f "target/debug/gesso"             # 退出（有单实例锁）
 | [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | 架构铁律 + **15 条实测踩坑** + 关键路径 + 命令 |
 | [crates/app/API.md](crates/app/API.md) | UI 层唯一允许使用的引擎接口 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑、当前进度、已知缺口 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 本地开发与调试指南（日志/诊断/排查速查表） |
+| [docs/design/技术方案.md](docs/design/技术方案.md) | 完整工程方案（14 章） |
 | [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) | 工坊素材兼容方案与法律边界 |
 | [docs/FAQ.md](docs/FAQ.md) | 为什么不做 Linux？要 Xcode 吗？有遥测吗？怎么卸载？ |
 | [SPIKE-REPORT.md](SPIKE-REPORT.md) | 三项可行性 spike 的实测结论 |

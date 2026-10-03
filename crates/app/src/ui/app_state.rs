@@ -63,8 +63,9 @@ impl Global for GessoState {}
 impl Default for GessoState {
     fn default() -> Self {
         GessoState {
-            library: super::data::demo_library(),
-            monitors: super::data::demo_monitors(),
+            // 真源注入前的空态（绝不用演示数据伪装——显示器页曾因此显示幽灵双屏）
+            library: Vec::new(),
+            monitors: Vec::new(),
             settings: Settings::default(),
             active_tab: super::shell::Tab::Library,
             filter: Filter::All,
@@ -75,7 +76,7 @@ impl Default for GessoState {
             import_counter: 0,
             status_error: None,
             card_dragging: false,
-            demo: true,
+            demo: false,
         }
     }
 }

@@ -18,6 +18,7 @@ cargo run -p gesso-app                        # tray + manager window + wallpape
 1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** — 5 architecture rules + 15 verified pitfalls. The rules are binding; the pitfall table exists because each entry cost us a debugging session.
 2. **[crates/app/API.md](crates/app/API.md)** — the only interface UI code may use to talk to the engine.
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — what lives where and why.
+4. **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** — local dev & debugging guide (logging, diagnostics, troubleshooting table).
 
 The two rules that have caused the most rework historically:
 

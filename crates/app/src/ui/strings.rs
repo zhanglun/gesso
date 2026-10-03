@@ -4,7 +4,6 @@
 //! 现阶段以常量保证「文案只出现一处」的纪律。
 
 pub const APP_NAME: &str = "Gesso";
-pub const PROTO_TAG: &str = "原型 · 演示数据";
 
 // 页签
 pub const TAB_LIBRARY: &str = "壁纸库";

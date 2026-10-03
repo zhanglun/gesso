@@ -144,6 +144,12 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
 
     let monitors = sm.monitors();
     let states = sm.states();
+    println!(
+        "[snap] monitors={} states={} config_keys={:?}",
+        monitors.len(),
+        states.len(),
+        sm.config().monitors.keys().collect::<Vec<_>>()
+    );
     g.monitors = monitors
         .iter()
         .enumerate()

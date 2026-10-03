@@ -178,17 +178,6 @@ impl Shell {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.text1)
                             .child(APP_NAME),
-                    )
-                    .child(
-                        div()
-                            .px_1()
-                            .text_size(px(10.))
-                            .line_height(px(16.))
-                            .text_color(t.text2)
-                            .border_1()
-                            .border_color(t.hairline)
-                            .rounded(px(4.))
-                            .child(PROTO_TAG),
                     ),
             )
             .child(h_flex().ml_2().gap(px(2.)).children([
