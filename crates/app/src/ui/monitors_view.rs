@@ -194,13 +194,7 @@ impl MonitorsView {
             );
 
         let thumb = div().mb_2().child(match &item {
-            Some(item) => preview(
-                item.art,
-                Some(item.kind),
-                item.broken,
-                item.thumb.as_deref(),
-                cx,
-            ),
+            Some(item) => preview(item.art, Some(item.kind), item.broken, &item.thumbs, 0, cx),
             None => preview(
                 super::data::Art {
                     from: 0x26262A,
@@ -208,7 +202,8 @@ impl MonitorsView {
                 },
                 None,
                 false,
-                None,
+                &[],
+                0,
                 cx,
             ),
         });

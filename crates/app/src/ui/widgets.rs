@@ -52,15 +52,16 @@ pub fn kind_icon(kind: Kind) -> IconName {
 
 /// 16:9 预览区（撑满父容器宽度）。
 ///
-/// - `thumb` 有值：`img()` 加载真图（video = 导入时抽帧的 thumb.png；
-///   gif/webp = 素材本身，GPUI 自动多帧播放）
-/// - 否则：渐变占位 + 类型图标（shader/html 的 M4 前形态 / 加载失败兜底）
+/// - `thumbs` 非空：`img()` 加载 `thumbs[frame]`（video = 抽帧序列，悬停时
+///   由调用方推进 frame 实现轮播；gif = 素材本身，GPUI 自动多帧播放）
+/// - 空：渐变占位 + 类型图标（shader/html 的 M4 前形态 / 加载失败兜底）
 /// - `broken`：灰底问号（素材失效永不白屏）
 pub fn preview(
     art: Art,
     kind: Option<Kind>,
     broken: bool,
-    thumb: Option<&str>,
+    thumbs: &[String],
+    frame: usize,
     cx: &App,
 ) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
@@ -72,7 +73,7 @@ pub fn preview(
 
     // 真图路径（存在且未失效）
     if !broken {
-        if let Some(path) = thumb {
+        if let Some(path) = thumbs.get(frame).or_else(|| thumbs.first()) {
             if std::path::Path::new(path).exists() {
                 return div()
                     .w_full()
@@ -129,50 +130,6 @@ pub fn preview(
                 }),
         );
     frame.into_any_element()
-}
-
-/// 视频/动图缩略图路径：条目目录 thumb.png（不存在时惰性生成）。
-/// 生成用系统 qlmanage（macOS 自带 QuickLook，无第三方依赖）；
-/// 失败静默回退渐变占位（预览失败不该打扰用户）。
-pub fn ensure_thumb(source_dir: &str, kind: Kind) -> Option<String> {
-    let dir = std::path::Path::new(source_dir);
-    let thumb = dir.join("thumb.png");
-    if thumb.exists() {
-        return Some(thumb.display().to_string());
-    }
-    // gif/webp 素材本身就是图，直接用原文件
-    if matches!(kind, Kind::Gif) {
-        let src = dir.join("index.gif");
-        if src.exists() {
-            return Some(src.display().to_string());
-        }
-        return None;
-    }
-    if kind != Kind::Video {
-        return None; // shader/html 无首帧概念（M4 换截图序列）
-    }
-    let src = dir.join("index.mp4");
-    if !src.exists() {
-        return None;
-    }
-    let out = std::process::Command::new("/usr/bin/qlmanage")
-        .args(["-t", "-s", "480", "-o", &dir.display().to_string()])
-        .arg(&src)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .ok()?;
-    if !out.success() {
-        return None;
-    }
-    // qlmanage 产物名 = <源文件名>.png → 统一改名 thumb.png
-    let produced = dir.join("index.mp4.png");
-    if produced.exists() {
-        std::fs::rename(&produced, &thumb).ok()?;
-        Some(thumb.display().to_string())
-    } else {
-        None
-    }
 }
 
 /// 运行状态 →（图标，文案，颜色）：§5 跨屏状态矩阵的视图投影。

@@ -197,6 +197,11 @@ impl LibraryView {
             .into_any_element();
 
         let hover_id = item.id.clone();
+        let hover_frame = if state(cx).hovered.as_ref() == Some(&item.id) {
+            state(cx).hover_frame
+        } else {
+            0
+        };
         let mut card = div()
             .id(SharedString::from(format!("card-{}", item.id)))
             .w(px(CARD_W))
@@ -247,14 +252,20 @@ impl LibraryView {
                 },
             )
             .on_hover(cx.listener(move |_, hovering: &bool, window, cx| {
-                // signature #1：悬停库卡片 → 对应显示器边框点亮
+                // signature #1：悬停点亮对应显示器 + 启动视频帧轮播
                 update(window, cx, |g| {
                     g.hovered = if *hovering {
                         Some(hover_id.clone())
                     } else {
                         None
                     };
+                    if *hovering {
+                        g.hover_frame = 0;
+                    }
                 });
+                if *hovering {
+                    start_hover_cycle(cx);
+                }
             }))
             .context_menu({
                 let id = item.id.clone();
@@ -267,7 +278,8 @@ impl LibraryView {
                 item.art,
                 Some(item.kind),
                 broken,
-                item.thumb.as_deref(),
+                &item.thumbs,
+                hover_frame,
                 cx,
             ))
             .child(
@@ -683,7 +695,7 @@ impl Render for CardGhost {
             .shadow_lg()
             .opacity(0.9)
             .bg(t.panel)
-            .child(preview(self.art, None, false, None, cx))
+            .child(preview(self.art, None, false, &[], 0, cx))
             .child(
                 div()
                     .px_3()
@@ -693,4 +705,39 @@ impl Render for CardGhost {
                     .child(self.name.to_string()),
             )
     }
+}
+
+/// 悬停轮播驱动：125ms/帧（~8fps）推进 `hover_frame`，悬停离开即停。
+/// 单一全局循环：每次进入新悬停都会先停旧循环（通过 hovered 校验）。
+fn start_hover_cycle(cx: &mut gpui_kit::gpui::Context<LibraryView>) {
+    cx.spawn(async move |this, cx| loop {
+        cx.background_executor()
+            .timer(std::time::Duration::from_millis(125))
+            .await;
+        let still_hovering = this
+            .update(cx, |_, cx| {
+                let g = cx.global::<GessoState>();
+                let alive = g.hovered.is_some();
+                if alive {
+                    let len = g
+                        .library
+                        .iter()
+                        .find(|w| Some(&w.id) == g.hovered.as_ref())
+                        .map(|w| w.thumbs.len())
+                        .unwrap_or(0);
+                    if len > 0 {
+                        cx.update_global::<GessoState, _>(|g, _| {
+                            g.hover_frame = (g.hover_frame + 1) % len;
+                        });
+                        cx.notify();
+                    }
+                }
+                alive
+            })
+            .unwrap_or(false);
+        if !still_hovering {
+            break;
+        }
+    })
+    .detach();
 }

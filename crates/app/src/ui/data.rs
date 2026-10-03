@@ -59,9 +59,12 @@ pub struct LibraryItem {
     pub broken: bool,
     /// 真实库条目（gesso-core LibraryEntry）。
     pub real: bool,
+    /// 素材根目录（缩略帧序列的惰性生成键）。
+    pub source_dir: String,
     pub art: Art,
-    /// 预览图绝对路径（video = 抽帧 thumb.png；gif = 素材本身；None = 渐变占位）。
-    pub thumb: Option<String>,
+    /// 预览帧序列（video = 抽帧 thumb.png + thumb-1..7.png；gif = 素材本身；
+    /// 空 = 渐变占位）。悬停时 UI 轮播这些帧。
+    pub thumbs: Vec<String>,
 }
 
 /// 运行状态（技术方案 §9 状态机的视图投影）。

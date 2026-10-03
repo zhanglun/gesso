@@ -46,6 +46,8 @@ pub struct GessoState {
     pub selected: Option<SharedString>,
     /// 悬停中的库卡片（signature #1：对应显示器边框点亮）。
     pub hovered: Option<SharedString>,
+    /// 悬停轮播相位（所有卡片共用 tick；hover 时推进）。
+    pub hover_frame: usize,
     /// 「检测到新显示器」提示条可见性。
     pub pending_new_monitor: bool,
     /// 顶栏手动主题切换后的模式提示（None = 跟随系统）。
@@ -72,6 +74,7 @@ impl Default for GessoState {
             query: String::new(),
             selected: None,
             hovered: None,
+            hover_frame: 0,
             pending_new_monitor: false,
             import_counter: 0,
             status_error: None,

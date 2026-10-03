@@ -7,7 +7,18 @@ mod engine;
 mod pin;
 mod protocol;
 mod session;
+#[cfg(target_os = "macos")]
 mod thumb;
+#[cfg(not(target_os = "macos"))]
+mod thumb {
+    // Windows（M1）落地的占位：缩略图抽帧走平台 API，当前仅 macOS 实现
+    pub fn existing_frames(_source_dir: &str) -> Vec<String> {
+        Vec::new()
+    }
+    pub fn extract_frames(_source_dir: &str) -> Vec<String> {
+        Vec::new()
+    }
+}
 mod ui;
 
 use std::time::Duration;
@@ -125,8 +136,6 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 WallpaperKind::Shader => ui::data::Kind::Shader,
                 WallpaperKind::Html => ui::data::Kind::Web,
             };
-            // 惰性抽帧（qlmanage ~50ms/条目；已有缓存直接复用）
-            let thumb = ui::widgets::ensure_thumb(&e.source_dir, kind);
             ui::data::LibraryItem {
                 id: e.id.clone().into(),
                 name: e.title.clone().into(),
@@ -141,7 +150,8 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 broken: session::main_asset_name(&e.source_dir, e.kind).is_none(),
                 real: true,
                 art: kind_art(e.kind),
-                thumb,
+                source_dir: e.source_dir.clone(),
+                thumbs: thumb::existing_frames(&e.source_dir),
             }
         })
         .collect();
@@ -428,6 +438,29 @@ fn main() {
                     if tick.is_multiple_of(13) {
                         cx.update(|cx| cx.global_mut::<engine::AppState>().sm.sync_monitors());
                         refresh_ui = true;
+                    }
+                    // 缩略帧序列后台补齐（~30s 一轮；只处理缺帧的视频条目）
+                    if tick.is_multiple_of(200) {
+                        let targets: Vec<String> = cx.update(|cx| -> Vec<String> {
+                            cx.global::<GessoState>()
+                                .library
+                                .iter()
+                                .filter(|w| w.kind == ui::data::Kind::Video && w.thumbs.len() < 2)
+                                .map(|w| w.source_dir.to_string())
+                                .collect()
+                        });
+                        if !targets.is_empty() {
+                            for dir in targets {
+                                cx.background_executor()
+                                    .spawn(async move {
+                                        thumb::extract_frames(&dir);
+                                    })
+                                    .detach();
+                            }
+                            // 给生成留 ~2s，随后常规回灌把新帧带回 UI
+                            cx.background_executor().timer(Duration::from_secs(2)).await;
+                            refresh_ui = true;
+                        }
                     }
                     if refresh_ui {
                         // 会话 → UI 单向回灌（托盘/界面动作 / 显示器热插拔后的跨面同步）
