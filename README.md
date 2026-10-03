@@ -12,10 +12,10 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 
 ## What it does
 
-- **Pinned behind the icons** — the wallpaper window sits *below* the desktop icon layer, so icons stay visible and clickable (click-through). Nothing is drawn on top of your work.
+- **Pinned behind the icons** — the wallpaper window sits *below* the desktop icon layer: your icons stay visible, stay clickable, and keep working.
 - **One host pipeline, four content kinds** — video (`mp4`/`webm`), animated images (`gif`/`webp`), shaders (`glsl`, Shadertoy-style) and web pages (`html`). The host page is the single contract; renderers are pluggable.
 - **Real pause** — pausing stops the JS render loop and video decoding, not just the visuals. Full-screen apps and battery mode will pause automatically (see [Roadmap](docs/ROADMAP.md)).
-- **Tray-first UX** — pause/resume, switch wallpapers and open a quick panel from the menu bar; the manager window is for content, not for daily use.
+- **Tray-first UX** — pause/resume and switch wallpapers from the menu bar; open the manager window only when you want to manage content.
 - **No IPC into the app** — wallpaper content is treated as untrusted: it runs in a webview sandbox and can only read its own asset folder.
 
 ## Platform status
@@ -29,14 +29,13 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 | Feature | Status |
 |---|---|
 | Video wallpaper, pinned & full-screen | ✅ |
-| Pause / resume from tray (真停帧) | ✅ |
+| Pause / resume from tray (stops decoding, not just visuals) | ✅ |
 | Config persistence (restores on launch) | ✅ |
 | Monitor enumeration with stable IDs (`cg-<display-id>`) | ✅ |
 | Manager UI (library / monitors / settings) | ✅ |
 | Import files (dialog + drag & drop) | ✅ |
 | Settings persistence, autostart | ✅ |
 | First-run wizard | ✅ |
-| Quick panel from tray (left click) | ✅ |
 | Shader / HTML renderers | 🚧 planned (M4) |
 | System data bridge (cursor / power / fullscreen / audio) | 🚧 planned (M5) |
 | Wallpaper Engine workshop assets (read-only) | 🚧 planned (M6) — see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
@@ -71,7 +70,7 @@ cargo clippy -p gesso-core --all-targets -- -D warnings
 pkill -f "target/debug/gesso"             # quit (single-instance lock)
 ```
 
-## Architecture in one screen
+## Architecture at a glance
 
 ```
 tray + manager window ── GPUI ──────────┐
@@ -89,7 +88,7 @@ tray + manager window ── GPUI ──────────┐
               └───────────────────────────────────────────┘
 ```
 
-Key rule: **wallpaper windows are native windows we own, not GPUI windows.** GPUI manages the manager window and tray only — this was the decisive finding of our macOS layering spike (GPUI's window coordinator fights desktop-level full-screen geometry). Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · engine API: [crates/app/API.md](crates/app/API.md) · engineering rules & pitfalls: [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md).
+Key rule: **wallpaper windows are native windows we own, not GPUI windows.** GPUI manages the manager window and tray only — the macOS layering spike showed GPUI's window coordinator keeps rewriting desktop-level fullscreen window geometry, so wallpaper windows bypass it entirely. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · engine API: [crates/app/API.md](crates/app/API.md) · engineering rules & pitfalls: [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md).
 
 ## Documentation
 

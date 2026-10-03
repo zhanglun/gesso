@@ -1,6 +1,6 @@
 # Contributing to Gesso
 
-Thanks for your interest! Gesso is a young project — the fastest way to help is checking the [roadmap](docs/ROADMAP.md) for `help wanted` items and reading the rules below before your first PR. 中文交流完全没问题（issues / PR / 代码注释均可）。
+Thanks for your interest! Gesso is a young project — the fastest way to help is picking an unchecked item from the [roadmap](docs/ROADMAP.md) and reading the rules below before your first PR. 中文交流完全没问题（issues / PR / 代码注释均可）。
 
 ## Getting started
 
@@ -50,7 +50,7 @@ Commit style: short imperative subject, body explains *why* if non-obvious. One 
 
 ## Design changes
 
-The UI's visual contract is a frozen interaction spec + prototype (tokens, six-state components, copy rules). If you don't have access to the design archive, describe the intended behavior in the issue/PR and a maintainer will confirm against the spec. Don't re-derive visual design from source alone.
+The UI's visual contract is a frozen interaction spec + prototype (tokens, six-state components, copy rules). If you don't have access to the design archive, describe the intended behavior in the issue/PR and a maintainer will confirm it against the spec.
 
 ## Reporting bugs
 

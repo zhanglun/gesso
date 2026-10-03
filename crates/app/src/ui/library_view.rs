@@ -199,7 +199,6 @@ impl LibraryView {
         let hover_id = item.id.clone();
         let mut card = div()
             .id(SharedString::from(format!("card-{}", item.id)))
-            .group("card")
             .w(px(CARD_W))
             .rounded(px(12.))
             .bg(t.panel)
@@ -268,7 +267,6 @@ impl LibraryView {
                 item.art,
                 Some(item.kind),
                 broken,
-                !broken,
                 item.thumb.as_deref(),
                 cx,
             ))
@@ -685,7 +683,7 @@ impl Render for CardGhost {
             .shadow_lg()
             .opacity(0.9)
             .bg(t.panel)
-            .child(preview(self.art, None, false, false, None, cx))
+            .child(preview(self.art, None, false, None, cx))
             .child(
                 div()
                     .px_3()

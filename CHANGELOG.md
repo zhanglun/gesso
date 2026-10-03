@@ -13,12 +13,12 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Wallpaper host pipeline: self-contained `file://` entries (host page copied per entry, relative media paths), `ContentSpec` query contract, `__gesso.pause/resume` JS API.
 - Session manager: per-monitor sessions driven by the core state machine (`Idle→Loading→Playing→Paused…`), monitor diff sync, config + library persistence, single-instance lock.
 - Import flow: extension validation (`mp4/webm/gif/webp/glsl/html`; `mkv`/HEVC rejected with actionable copy), source-extension preservation, random unguessable entry IDs.
-- Tray: full menu (pause-all / cycle / manager / autostart / quit) + left-click quick panel (GPUI `PopUp` window).
+- Tray: full menu (pause-all / cycle / manager / autostart / quit).
 - First-run wizard wired to the real library; autostart via `auto-launch`.
 
 **UI (manager window, gpui-kit)**
 
-- Library page (filter segments, search, cards, status bar, drag-to-monitor assignment overlay), monitors page (topology, per-monitor controls), settings page (persisted, applied live), quick panel.
+- Library page (filter segments, search, cards, status bar, drag-to-monitor assignment overlay), monitors page (topology, per-monitor controls), settings page (persisted, applied live).
 - Unified engine bridge: `AppState` global + `EngineAction` queue; snapshots preserve UI-local state.
 
 **Project / docs**

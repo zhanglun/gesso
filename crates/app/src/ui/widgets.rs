@@ -8,8 +8,8 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::Icon;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::gpui::{
-    div, linear_color_stop, linear_gradient, px, rgb, rgba, App, FontFeatures, Hsla,
-    InteractiveElement as _, IntoElement, ParentElement, Styled,
+    div, linear_color_stop, linear_gradient, px, rgb, App, FontFeatures, Hsla, IntoElement,
+    ParentElement, Styled,
 };
 
 use super::data::{Art, Kind, PlayState};
@@ -60,37 +60,39 @@ pub fn preview(
     art: Art,
     kind: Option<Kind>,
     broken: bool,
-    chip: bool,
     thumb: Option<&str>,
     cx: &App,
 ) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
-    let base = if broken { t.preview_frame } else { t.preview_bg };
+    let base = if broken {
+        t.preview_frame
+    } else {
+        t.preview_bg
+    };
 
     // 真图路径（存在且未失效）
     if !broken {
         if let Some(path) = thumb {
             if std::path::Path::new(path).exists() {
-                let mut frame = div()
+                return div()
                     .w_full()
                     .aspect_ratio(16. / 9.)
                     .overflow_hidden()
                     .relative()
-                    .bg(base)
-                    .child(
-                        {
-                            use gpui_kit::gpui::StyledImage as _;
-                            gpui_kit::gpui::img(path)
-                                .size_full()
-                                .object_fit(gpui_kit::gpui::ObjectFit::Cover)
-                        }
-                    );
-                frame = if chip {
-                    frame.child(play_chip())
-                } else {
-                    frame
-                };
-                return frame.into_any_element();
+                    // 预览位于卡片顶部：上侧两角随卡片圆角（GPUI 的 img 不吃父级裁剪）
+                    .rounded_t(px(12.))
+                    .child({
+                        use gpui_kit::gpui::StyledImage as _;
+                        // ⚠️ img(&str) 把非 URL 字符串当「应用内置资源」名（Embedded），
+                        // 本地文件必须显式 Resource::Path 才走 fs::read。
+                        let source = gpui_kit::gpui::ImageSource::Resource(
+                            gpui_kit::gpui::Resource::Path(std::path::PathBuf::from(path).into()),
+                        );
+                        gpui_kit::gpui::img(source)
+                            .size_full()
+                            .object_fit(gpui_kit::gpui::ObjectFit::Cover)
+                    })
+                    .into_any_element();
             }
         }
     }
@@ -105,6 +107,7 @@ pub fn preview(
         .aspect_ratio(16. / 9.)
         .overflow_hidden()
         .relative()
+        .rounded_t(px(12.))
         .bg(linear_gradient(
             135.,
             linear_color_stop(from, 0.),
@@ -125,11 +128,6 @@ pub fn preview(
                     (false, None) => div().into_any_element(),
                 }),
         );
-    let frame = if chip {
-        frame.child(play_chip())
-    } else {
-        frame
-    };
     frame.into_any_element()
 }
 
@@ -175,25 +173,6 @@ pub fn ensure_thumb(source_dir: &str, kind: Kind) -> Option<String> {
     } else {
         None
     }
-}
-
-/// 悬停时的播放角标（play-chip：24×24 黑底圆角，卡片悬停时浮现）。
-pub fn play_chip() -> gpui_kit::gpui::AnyElement {
-    div()
-        .absolute()
-        .right_2()
-        .bottom_2()
-        .size(px(24.))
-        .rounded(px(6.))
-        .bg(rgba(0x0000008Cu32)) // .55
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_color(rgba(0xFFFFFFFFu32))
-        .opacity(0.)
-        .group_hover("card", |s| s.opacity(1.))
-        .child(Icon::new(IconName::Play).size_3())
-        .into_any_element()
 }
 
 /// 运行状态 →（图标，文案，颜色）：§5 跨屏状态矩阵的视图投影。

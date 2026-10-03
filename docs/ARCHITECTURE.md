@@ -7,7 +7,7 @@ This document describes how Gesso actually works. Everything below was verified 
 ```
 ┌─ UI layer (gpui-kit, GPUI) ──────────────────────────────┐
 │  manager window (library / monitors / settings / wizard)  │
-│  tray menus + quick panel                                 │
+│  tray menus                                               │
 ├─ engine bridge ──────────────────────────────────────────┤
 │  AppState global · EngineAction queue · snapshot_ui       │
 ├─ core services ──────────────────────────────────────────┤
@@ -70,7 +70,7 @@ Pure function `transfer(state, event)`; every transition is unit-tested. Session
 
 ## 5. Engine ↔ UI data flow
 
-- **Writes**: UI/tray enqueue `EngineAction` (`Assign`, `PauseOne`, `PauseAll`, `Import`, `UpdateSettings`, `SetAutostart`, `CycleMain`, `SyncMonitors`, `ToggleQuickPanel`, `FocusMainWindow`). One poller (150 ms) executes them against the `SessionManager` — single writer, no UI-side optimistic updates (a failed assign must run the engine's fallback path).
+- **Writes**: UI/tray enqueue `EngineAction` (`Assign`, `PauseOne`, `PauseAll`, `Import`, `UpdateSettings`, `SetAutostart`, `CycleMain`, `SyncMonitors`, `FocusMainWindow`). One poller (150 ms) executes them against the `SessionManager` — single writer, no UI-side optimistic updates (a failed assign must run the engine's fallback path).
 - **Reads**: `snapshot_ui(&sm)` projects engine state into the UI global after any action and on monitor changes (~2 s diff poll for hot-plug).
 - Menu/tray events arrive on handlers without GPUI context — everything funnels through the queue. (Toggling booleans in handlers must use `fetch_xor`, not `swap(true)`: see pitfalls.)
 

@@ -9,7 +9,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M0.5  GPUI integration spike (tray × GPUI loop, native handles, theme tokens)
 ✅ M1.5  macOS desktop layering spike (pin below icons, click-through, all-spaces)
 ✅ M2    video wallpaper end-to-end (pin + pause/resume + persistence)
-✅ M3    sessions/config/UI engine + UI↔engine actions + import + settings + first-run + quick panel
+✅ M3    sessions/config/UI engine + UI↔engine actions + import + settings + first-run
 🚧 M4    renderer completeness — shader (WebGL2) + HTML renderers
 ⬜ M5    system data bridge — fullscreen/battery auto-pause, cursor/time/weather feeds
 ⬜ M1    Windows pinning (needs a Windows machine)
