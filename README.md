@@ -28,6 +28,8 @@ cargo clippy -p gesso-core --all-targets -- -D warnings
 ## 里程碑（节选，全文见技术方案 §12）
 
 - [x] M0 骨架：workspace + 三页签空壳 + CI
-- [ ] **M0.5 GPUI 集成 spike（判定点0）**：gpui-wry 壁纸窗口 / tray-icon 事件循环 / 窗口原生句柄
-- [ ] M1 Windows 贴壁（判定点1）
+- [x] **M0.5 GPUI 集成 spike（判定点0）** ✅ 四连验全过（无 Xcode，runtime_shaders）
+- [x] M2 视频壁纸端到端 ✅（钉桌面 + 暂停/恢复 + 配置持久化验证）
+- [ ] M3 会话/配置/UI（引擎侧完成，UI 细节见 HANDOFF.md）
+- [ ] M1 Windows 贴壁（判定点1，需 Windows 机器）
 - [x] M1.5 macOS 压层 spike（全过：纯 AppKit 壁纸窗口架构定型，level=-2147483604）
