@@ -138,10 +138,6 @@ pub fn apply(mode: ThemeMode, cx: &mut App) {
         c.list_hover = t.accent_soft;
         c.list_active = t.accent_soft;
         c.list_active_border = t.accent;
-        // 排版与圆角（§1.2：13 基准；radius-ctl 6 / 弹层 8）
-        theme.font_size = px(14.);
-        theme.radius = px(6.);
-        theme.radius_lg = px(8.);
     });
 }
 
