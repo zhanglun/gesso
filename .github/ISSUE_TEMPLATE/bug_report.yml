@@ -1,0 +1,52 @@
+name: Bug 报告
+description: 出问题了——帮我复现它
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先扫一眼 [docs/FAQ.md](../docs/FAQ.md)（截图权限、HEVC/mkv 拒绝等已知行为）与 [docs/ROADMAP.md](../docs/ROADMAP.md) 的 Known gaps。
+  - type: input
+    id: version
+    attributes:
+      label: Gesso 版本 / 提交
+      placeholder: "commit hash 或 tag"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 系统
+      options:
+        - macOS（请附版本：菜单  → 关于本机）
+        - Windows（请附版本）
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 壁纸类型
+      options:
+        - video（mp4/webm）
+        - 动图（gif/webp）
+        - shader（glsl）
+        - html
+        - 未指派 / 与内容无关
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么 / 期望是什么
+      placeholder: "具体步骤、现象、期望行为"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与数据
+      description: "终端运行 `cargo run -p gesso-app 2>&1 | tee /tmp/gesso.log` 后附上输出；性能问题附活动监视器里 Gesso / WindowServer / GPU 进程的 CPU 与内存"
+      placeholder: "粘贴日志……"
+  - type: textarea
+    id: perf
+    attributes:
+      label: （性能问题专用）素材规格
+      placeholder: "分辨率 · 帧率 · 时长；显示器数量与缩放"

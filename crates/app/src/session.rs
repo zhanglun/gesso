@@ -425,7 +425,6 @@ fn entry_main_source(entry: &LibraryEntry) -> String {
         .unwrap_or_else(|| format!("index.{}", default_ext(entry.kind)))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,11 +433,23 @@ mod tests {
     #[test]
     fn import_ext_preserves_source_extension() {
         // webm/webp 不能被改名成 mp4/gif（WKWebView 按扩展名判定类型）
-        assert_eq!(import_ext(Path::new("/tmp/a.webm"), WallpaperKind::Video), "webm");
-        assert_eq!(import_ext(Path::new("/tmp/a.webp"), WallpaperKind::Image), "webp");
-        assert_eq!(import_ext(Path::new("/tmp/a.MP4"), WallpaperKind::Video), "mp4");
+        assert_eq!(
+            import_ext(Path::new("/tmp/a.webm"), WallpaperKind::Video),
+            "webm"
+        );
+        assert_eq!(
+            import_ext(Path::new("/tmp/a.webp"), WallpaperKind::Image),
+            "webp"
+        );
+        assert_eq!(
+            import_ext(Path::new("/tmp/a.MP4"), WallpaperKind::Video),
+            "mp4"
+        );
         // 无扩展名 → 类型默认
-        assert_eq!(import_ext(Path::new("/tmp/noext"), WallpaperKind::Html), "html");
+        assert_eq!(
+            import_ext(Path::new("/tmp/noext"), WallpaperKind::Html),
+            "html"
+        );
     }
 
     #[test]
@@ -447,7 +458,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         // 空目录 → None（失效判定依赖它）
-        assert_eq!(main_asset_name(&dir.display().to_string(), WallpaperKind::Video), None);
+        assert_eq!(
+            main_asset_name(&dir.display().to_string(), WallpaperKind::Video),
+            None
+        );
 
         // 只有 index.webm → 命中（类型默认缺失时用任意 index.*）
         std::fs::write(dir.join("index.webm"), b"x").unwrap();

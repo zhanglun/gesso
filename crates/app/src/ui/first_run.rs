@@ -227,7 +227,7 @@ impl FirstRun {
                     div()
                         .text_size(px(13.))
                         .text_color(t.text2)
-                        .child(PANEL_EMPTY),
+                        .child(WIZARD_EMPTY_LIBRARY),
                 )
             })
             .into_any_element()

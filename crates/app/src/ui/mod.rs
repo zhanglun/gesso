@@ -11,13 +11,14 @@
 //! - `monitors_view`显示器页（拓扑 + 投放指派）
 //! - `settings_view`设置页（分组表单，即时生效）
 //! - `first_run`    首启向导（独立小窗）
+//!
+//! 托盘为纯原生菜单（muda，左/右键同菜单）——2026-10-03 用户决策撤销快速面板。
 
 pub mod app_state;
 pub mod data;
 pub mod first_run;
 pub mod library_view;
 pub mod monitors_view;
-pub mod quick_panel;
 pub mod settings_view;
 pub mod shell;
 pub mod strings;

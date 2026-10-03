@@ -47,8 +47,6 @@ pub enum EngineAction {
     UpdateSettings(Settings),
     /// 开机自启开关（auto-launch，随设置页/托盘勾选项）。
     SetAutostart(bool),
-    /// 托盘左键：开/关快速面板（signature #3）。
-    ToggleQuickPanel,
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
 }

@@ -61,3 +61,4 @@ GESSO_LOCK=dev ./target/debug/gesso      # 开发期多实例并存（用完记�
 
 - `crates/app/examples/m05.rs`：GPUI 窗口内嵌 webview 的 spike。结论已入 `SPIKE-REPORT.md`，该路线被 M1.5 否决。
 - `HANDOFF.md`：一次性交接清单，任务完成后其耐久部分已并入本文档 §1–§4。
+- `crates/app/src/ui/quick_panel.rs`（托盘左键快速面板）：**2026-10-03 用户决策撤销**——浮动小窗不锚定托盘图标，观感突兀；同类产品（WE/Plash）均为纯菜单形态。规格 §4.1/DESIGN.md signature（×3→×2）/原型已同步改版；勿以「signature #3」名义再引入。

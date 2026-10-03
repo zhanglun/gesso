@@ -9,7 +9,6 @@ mod protocol;
 mod session;
 mod ui;
 
-use std::sync::Mutex;
 use std::time::Duration;
 
 use gesso_core::{AppConfig, LibraryEntry, SessionState, StartupBehavior, WallpaperKind};
@@ -21,8 +20,6 @@ use ui::app_state::GessoState;
 static TRAY_PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// 主窗口句柄（托盘「管理窗口…」激活用）。
 static MAIN_WINDOW: std::sync::OnceLock<gpui_kit::AnyWindowHandle> = std::sync::OnceLock::new();
-/// 快速面板句柄（toggle 开/关）。
-static PANEL_WINDOW: Mutex<Option<gpui_kit::AnyWindowHandle>> = Mutex::new(None);
 /// 托盘勾选镜像（自启翻转判定用；真源 = AppConfig.settings.autostart）。
 static AUTOSTART_HINT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -227,43 +224,6 @@ fn kind_art(kind: WallpaperKind) -> ui::data::Art {
     }
 }
 
-/// 托盘左键：开/关快速面板（360×280，主屏右上角，PopUp 窗口）。
-fn toggle_quick_panel(cx: &mut gpui_kit::gpui::App) {
-    if let Some(handle) = PANEL_WINDOW.lock().expect("面板句柄").take() {
-        if handle
-            .update(cx, |_: gpui_kit::gpui::AnyView, window, _| {
-                window.remove_window();
-            })
-            .is_ok()
-        {
-            return;
-        }
-        // 句柄已失效（面板被外部关闭）→ 落到重新打开
-    }
-    const W: f32 = 360.;
-    const H: f32 = 280.;
-    let b = cx.primary_display().map(|d| d.bounds()).unwrap_or_default();
-    let origin = gpui_kit::gpui::point(
-        b.right() - gpui_kit::px(W) - gpui_kit::px(12.),
-        b.top() + gpui_kit::px(44.),
-    );
-    let options = gpui_kit::WindowOptions {
-        window_bounds: Some(gpui_kit::WindowBounds::Windowed(gpui_kit::Bounds {
-            origin,
-            size: gpui_kit::size(gpui_kit::px(W), gpui_kit::px(H)),
-        })),
-        titlebar: None,
-        kind: gpui_kit::gpui::WindowKind::PopUp,
-        ..Default::default()
-    };
-    if let Ok((handle, _)) = gpui_kit::open_window(options, cx, |window, cx| {
-        use gpui_kit::AppContext as _;
-        cx.new(|cx| ui::quick_panel::QuickPanel::new(window, cx))
-    }) {
-        *PANEL_WINDOW.lock().expect("面板句柄") = Some(handle);
-    }
-}
-
 /// 开机自启（auto-launch：macOS LaunchAgent / Win 注册表 Run 键）。
 fn apply_autostart(enable: bool) {
     let exe = std::env::current_exe().unwrap_or_default();
@@ -339,7 +299,8 @@ fn main() {
                     "pause" => {
                         // fetch_xor 翻转并返回旧值（swap(true) 会永远读到同一个旧值 →
                         // 该项变成"只暂停不恢复"，M0.5 踩过同款坑）
-                        let paused = !TRAY_PAUSED.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
+                        let paused =
+                            !TRAY_PAUSED.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
                         engine::enqueue(EngineAction::PauseAll(paused));
                     }
                     "cycle" => engine::enqueue(EngineAction::CycleMain),
@@ -356,25 +317,13 @@ fn main() {
             }));
             let icon = tray_icon::Icon::from_rgba(tray_icon_rgba(), 32, 32).unwrap();
             let tray = tray_icon::TrayIconBuilder::new()
-                .with_tooltip("Gesso（左键：快速面板）")
+                .with_tooltip("Gesso")
                 .with_icon(icon)
                 .with_menu(Box::new(menu))
-                .with_menu_on_left_click(false) // 左键留给快速面板（§4.1）
+                // 左/右键都弹菜单（§4.1，2026-10-03 决策：纯菜单形态）
                 .build()
                 .expect("托盘");
             Box::leak(Box::new(tray));
-            tray_icon::TrayIconEvent::set_event_handler(Some(|e: tray_icon::TrayIconEvent| {
-                if matches!(
-                    e,
-                    tray_icon::TrayIconEvent::Click {
-                        button: tray_icon::MouseButton::Left,
-                        button_state: tray_icon::MouseButtonState::Up,
-                        ..
-                    }
-                ) {
-                    engine::enqueue(engine::EngineAction::ToggleQuickPanel);
-                }
-            }));
 
             cx.spawn(async move |cx| {
                 let mut tick: u32 = 0;
@@ -429,32 +378,25 @@ fn main() {
                                     engine::EngineAction::SetAutostart(enable) => {
                                         apply_autostart(enable);
                                     }
-                                    engine::EngineAction::ToggleQuickPanel
-                                    | engine::EngineAction::FocusMainWindow => {
+                                    engine::EngineAction::FocusMainWindow => {
                                         // 需要 cx 的窗口操作：sm 借用结束后在同一闭包内处理
                                         deferred_window_actions.push(a);
                                     }
                                 }
                             }
                             for a in deferred_window_actions {
-                                match a {
-                                    engine::EngineAction::ToggleQuickPanel => {
-                                        toggle_quick_panel(cx);
+                                if let engine::EngineAction::FocusMainWindow = a {
+                                    if let Some(h) = MAIN_WINDOW.get() {
+                                        let _ = h.update(
+                                            cx,
+                                            |_: gpui_kit::gpui::AnyView,
+                                             window,
+                                             cx: &mut gpui_kit::gpui::App| {
+                                                window.activate_window();
+                                                cx.activate(true);
+                                            },
+                                        );
                                     }
-                                    engine::EngineAction::FocusMainWindow => {
-                                        if let Some(h) = MAIN_WINDOW.get() {
-                                            let _ = h.update(
-                                                cx,
-                                                |_: gpui_kit::gpui::AnyView,
-                                                 window,
-                                                 cx: &mut gpui_kit::gpui::App| {
-                                                    window.activate_window();
-                                                    cx.activate(true);
-                                                },
-                                            );
-                                        }
-                                    }
-                                    _ => {}
                                 }
                             }
                         });

@@ -54,12 +54,6 @@ pub fn import_err_io() -> String {
     "导入失败：文件复制出错（磁盘空间或权限问题）".into()
 }
 
-// 快速面板（§4.1）
-pub const PANEL_MONITORS: &str = "显示器";
-pub const PANEL_RECENT: &str = "最近使用";
-pub const PANEL_ALL: &str = "全部 →";
-pub const PANEL_EMPTY: &str = "库里还没有壁纸——去主窗口导入或拖入文件";
-
 /// 「已将「…」指派到…」——模板在文案层拼装，调用处不拼中文。
 pub fn toast_assign(name: &str, target: &str) -> String {
     format!("已将「{name}」指派到{target}")
@@ -138,3 +132,5 @@ pub const WIZARD_DONE_TITLE: &str = "已应用到主显示器";
 pub const WIZARD_ANOTHER: &str = "再配一块屏幕";
 pub const WIZARD_FINISH: &str = "完成";
 pub const WIZARD_SAMPLE_TAG: &str = "样例";
+pub const WIZARD_EMPTY_LIBRARY: &str =
+    "库里还没有壁纸——点下方「导入自己的文件…」或稍后从主窗口拖入";

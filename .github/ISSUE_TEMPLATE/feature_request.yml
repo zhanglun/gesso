@@ -1,0 +1,28 @@
+name: 功能建议
+description: 想要一个新能力
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题？
+      description: "先说场景与痛点，再说方案——我们会先对照冻结的交互规格判断它是否改变既有契约"
+      placeholder: "当我……的时候，我希望能……"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 归属区域
+      options:
+        - 壁纸内容（渲染器 / 素材格式）
+        - 贴壁 / 多显示器
+        - 管理窗口 UI
+        - 托盘 / 快速面板
+        - 性能 / 电源
+        - Wallpaper Engine 兼容
+        - 其他
+  - type: textarea
+    id: context
+    attributes:
+      label: 补充（草图、参考产品、规格引用）

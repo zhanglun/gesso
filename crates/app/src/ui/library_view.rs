@@ -218,7 +218,8 @@ impl LibraryView {
             .on_click(cx.listener(move |_, click: &ClickEvent, window, cx| {
                 if click.click_count() >= 2 {
                     // 双击 = 设为主显示器（托盘气泡确认）；经桥写入真会话
-                    match super::app_state::bridge_assign(window, cx, 0, &id) {
+                    let main_idx = state(cx).main_monitor();
+                    match super::app_state::bridge_assign(window, cx, main_idx, &id) {
                         Ok(name) => {
                             window.push_notification(
                                 Notification::success(toast_apply_main(&name)),
