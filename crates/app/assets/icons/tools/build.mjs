@@ -34,7 +34,15 @@ const SQ = squirclePath(512, 512, 412);
 
 // ---------- 应用图标 master(1024,含透明边距;Windows 直接复用) ----------
 // 概念「底色画布」:gesso 白画布上,壁纸的黎明色自底部涌起;右上角几点桌面图标仍可见。
-const APP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+// compact = ≤32px 用的小尺寸简化稿:浪位抬高、去点/辉光/浪尖线(仿 Apple 小尺寸专用稿)。
+function appSvg(compact) {
+  const front = compact
+    ? "M100,668 C280,628 460,682 640,648 C770,624 862,636 924,612"
+    : "M100,752 C280,712 460,766 640,732 C770,708 862,720 924,696";
+  const back = compact
+    ? "M100,636 C320,608 430,650 580,630 C720,610 830,594 924,582"
+    : "M100,716 C320,688 430,730 580,710 C720,690 830,674 924,662";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <clipPath id="sq"><path d="${SQ}"/></clipPath>
     <!-- gesso 白:暖调,上亮下沉,像打好底料的画布 -->
@@ -66,18 +74,13 @@ const APP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="10
       <stop offset="0.7" stop-color="#CDB9F4"/>
       <stop offset="1" stop-color="#F6D3AC"/>
     </linearGradient>
-    <!-- 色彩漫上画布的辉光 -->
-    <linearGradient id="glow" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0" stop-color="#6E86EE" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#6E86EE" stop-opacity="0"/>
-    </linearGradient>
     <!-- 浪体上缘的晨光水色 -->
     <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
       <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
     <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="30"/>
+      <feGaussianBlur stdDeviation="26"/>
     </filter>
   </defs>
 
@@ -85,30 +88,31 @@ const APP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="10
     <rect width="1024" height="1024" fill="url(#gesso)"/>
     <rect width="1024" height="150" fill="url(#topshade)"/>
 
+    ${compact ? "" : `
     <!-- 桌面图标仍在(右上角一列,mac 桌面默认排列位) -->
-    <g fill="#D9D5CC">
-      <rect x="742" y="152" width="46" height="46" rx="13"/>
-      <rect x="742" y="228" width="46" height="46" rx="13"/>
-      <rect x="742" y="304" width="46" height="46" rx="13"/>
+    <g fill="#DCD8CF">
+      <rect x="744" y="156" width="42" height="42" rx="12"/>
+      <rect x="744" y="232" width="42" height="42" rx="12"/>
+      <rect x="744" y="308" width="42" height="42" rx="12"/>
     </g>
 
-    <!-- 辉光:壁纸的光漫过地平线 -->
-    <ellipse cx="512" cy="742" rx="470" ry="120" fill="url(#glow)" filter="url(#soft)"/>
+    <!-- 辉光 = 后层浪的模糊复制,色相永远与浪一致(漫上画布的地平线光) -->
+    <use href="#back" transform="translate(0,-26)" filter="url(#soft)" opacity="0.5"/>
+    `}
 
     <!-- 后层浪(远处的暖色) -->
-    <path d="M100,734 C320,706 430,748 580,728 C720,708 830,692 924,682 L924,924 L100,924 Z"
-      fill="url(#dawnBack)" opacity="0.9"/>
+    <path id="back" d="${back} L924,924 L100,924 Z" fill="url(#dawnBack)"/>
 
     <!-- 前层浪(黎明主体) -->
-    <path id="w1" d="M100,768 C280,730 450,782 630,750 C760,726 856,736 924,712 L924,924 L100,924 Z"
-      fill="url(#dawn)"/>
-    <path d="M100,768 C280,730 450,782 630,750 C760,726 856,736 924,712 L924,924 L100,924 Z"
-      fill="url(#sheen)"/>
+    <path d="${front} L924,924 L100,924 Z" fill="url(#dawn)"/>
+    <path d="${front} L924,924 L100,924 Z" fill="url(#sheen)"/>
+    ${compact ? "" : `
     <!-- 浪尖高光线 -->
-    <path d="M100,768 C280,730 450,782 630,750 C760,726 856,736 924,712"
-      fill="none" stroke="url(#crest)" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
+    <path d="${front}" fill="none" stroke="url(#crest)" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
+    `}
   </g>
 </svg>`;
+}
 
 // ---------- 托盘字形(viewBox 24,双层矩形:后层壁纸从前层桌面之下探出) ----------
 // 纯黑+alpha = macOS template;白色版供 Windows 深色任务栏。
@@ -117,12 +121,12 @@ function traySvg(fill) {
   <defs>
     <mask id="gap">
       <rect width="24" height="24" fill="white"/>
-      <!-- 前层外扩 1.25 的留缝,保证 16px 下两层不粘连 -->
-      <rect x="2.25" y="7.25" width="16" height="14.5" rx="4.75" fill="black"/>
+      <!-- 前层外扩 1.75 的留缝,保证 16px 下两层不粘连 -->
+      <rect x="1.75" y="7" width="17" height="15.25" rx="5.25" fill="black"/>
     </mask>
   </defs>
-  <rect x="9.25" y="3.5" width="11.25" height="9.5" rx="3" fill="${fill}" mask="url(#gap)"/>
-  <rect x="3.5" y="8.5" width="13.5" height="12" rx="3.5" fill="${fill}"/>
+  <rect x="9" y="3" width="11.5" height="9" rx="3" fill="${fill}" mask="url(#gap)"/>
+  <rect x="3.5" y="8.75" width="13.5" height="11.75" rx="3.5" fill="${fill}"/>
 </svg>`;
 }
 
@@ -156,8 +160,13 @@ function packIco(entries) {
 
 // ---------- 主流程 ----------
 console.log("→ 渲染应用图标…");
-const master1024 = await render(APP_SVG, 1024, join(SRC, "app-icon@1024.png"));
-writeFileSync(join(SRC, "app-icon.svg"), APP_SVG);
+const STD = appSvg(false), SMALL = appSvg(true);
+const master1024 = await render(STD, 1024, join(SRC, "app-icon@1024.png"));
+writeFileSync(join(SRC, "app-icon.svg"), STD);
+writeFileSync(join(SRC, "app-icon-compact.svg"), SMALL);
+// >32 从 master 缩(边缘一致);≤32 用简化稿直出
+const fromMaster = async (s) =>
+  sharp(master1024).resize(s, s, { kernel: "lanczos3" }).png().toBuffer();
 
 console.log("→ macOS iconset + icns…");
 const iconset = [
@@ -168,16 +177,16 @@ const iconset = [
   ["icon_512x512.png", 512], ["icon_512x512@2x.png", 1024],
 ];
 for (const [name, size] of iconset) {
-  const png = await sharp(master1024).resize(size, size, { kernel: "lanczos3" }).png().toBuffer();
-  writeFileSync(join(MAC, name), png);
+  const png = size <= 32
+    ? await render(SMALL, size, join(MAC, name))
+    : await fromMaster(size).then(b => { writeFileSync(join(MAC, name), b); return b; });
 }
 execSync(`iconutil -c icns "${MAC}" -o "${join(ROOT, "mac", "Gesso.icns")}"`);
 
 console.log("→ Windows ico…");
-const icoSizes = [16, 20, 24, 32, 48, 64, 128, 256];
 const icoEntries = [];
-for (const s of icoSizes) {
-  const png = await sharp(master1024).resize(s, s, { kernel: "lanczos3" }).png().toBuffer();
+for (const s of [16, 20, 24, 32, 48, 64, 128, 256]) {
+  const png = s <= 32 ? await render(SMALL, s, join(SRC, `app-icon@${s}.png`)) : await fromMaster(s);
   icoEntries.push([s, png]);
 }
 writeFileSync(join(WIN, "gesso.ico"), packIco(icoEntries));

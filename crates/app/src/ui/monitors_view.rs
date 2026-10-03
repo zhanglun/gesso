@@ -267,7 +267,7 @@ impl MonitorsView {
             .map(|s| {
                 div()
                     .w(px(96.))
-                    .child(Select::new(s).appearance(true).with_size(gpui_kit::gpui::px(36.)))
+                    .child(Select::new(s).appearance(true).with_size(px(36.)).with_size(gpui_kit::gpui::px(36.)))
                     .into_any_element()
             })
             .unwrap_or_else(|| div().into_any_element());
