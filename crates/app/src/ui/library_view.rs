@@ -264,7 +264,14 @@ impl LibraryView {
             });
 
         card = card
-            .child(preview(item.art, Some(item.kind), broken, !broken, cx))
+            .child(preview(
+                item.art,
+                Some(item.kind),
+                broken,
+                !broken,
+                item.thumb.as_deref(),
+                cx,
+            ))
             .child(
                 div()
                     .relative()
@@ -609,12 +616,7 @@ fn empty_library(cx: &App) -> AnyElement {
                         .label(BTN_IMPORT_FILE)
                         .primary()
                         .on_click(|_, window, cx| {
-                            let name = cx.update_global::<GessoState, _>(|g, _| g.import_demo());
-                            window.refresh();
-                            window.push_notification(
-                                Notification::success(toast_imported(&name)),
-                                cx,
-                            );
+                            super::app_state::import_with_dialog(window, cx);
                         }),
                 )
                 .child(
@@ -622,12 +624,9 @@ fn empty_library(cx: &App) -> AnyElement {
                         .label(BTN_BROWSE_SAMPLES)
                         .secondary()
                         .on_click(|_, window, cx| {
-                            let name = cx.update_global::<GessoState, _>(|g, _| g.import_demo());
-                            window.refresh();
-                            window.push_notification(
-                                Notification::success(format!("已应用内置样例「{name}」（演示）")),
-                                cx,
-                            );
+                            // 内置样例已由 bootstrap 注册；此钮跳到显示器页指派
+                            crate::engine::enqueue(crate::engine::EngineAction::FocusMainWindow);
+                            update(window, cx, |g| g.active_tab = super::shell::Tab::Monitors);
                         }),
                 ),
         )
@@ -686,7 +685,7 @@ impl Render for CardGhost {
             .shadow_lg()
             .opacity(0.9)
             .bg(t.panel)
-            .child(preview(self.art, None, false, false, cx))
+            .child(preview(self.art, None, false, false, None, cx))
             .child(
                 div()
                     .px_3()

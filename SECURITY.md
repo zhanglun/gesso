@@ -20,7 +20,7 @@ Gesso renders **untrusted content by design** — imported HTML/shader files are
 
 1. **Webview sandbox** — wallpaper content runs in a WKWebView/WebView2 child view of a window we own. It has **no IPC into the Rust process** (the manager UI and wallpaper windows have disjoint capability scopes; wallpaper windows receive push events only).
 2. **Filesystem** — wallpaper content is served from its own self-contained entry directory (`library/<random-id>/`). The intended end-state is a read-only custom scheme (`gesso://`) with path-traversal protection, CSP header injection and a navigation allow-list.
-   - **Current known gap (being tracked):** entries are currently loaded via `file://` from the library directory while the custom-scheme handler is non-functional on our current webview stack ([docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) pitfall list). Treat this as a hardening item, not a broken promise: content still cannot call into the app.
+   - **Current known gap (being tracked):** entries are currently loaded via `file://` from the library directory while the custom-scheme handler is non-functional on our current webview stack ([docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) pitfall list). This is tracked as a hardening task; wallpaper content still cannot call into the app.
 3. **Network** — wallpaper pages are expected to be local; remote-content wallpapers are not supported at this stage.
 4. **Wallpaper Engine assets** — only ever read from the local workshop directory of a Steam installation the user already has. No downloader, no redistribution (see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md)).
 

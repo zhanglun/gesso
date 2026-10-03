@@ -1,6 +1,6 @@
 # Gesso
 
-**跨平台动态壁纸引擎（Windows / macOS）**——视频、动图、Shader、网页，钉在桌面图标层**之下**。Rust + [GPUI](https://gpui.rs)。
+**跨平台动态壁纸引擎（Windows / macOS）**——视频、动图、Shader、网页，钉在桌面图标层之下。Rust + [GPUI](https://gpui.rs)。
 
 [AGENTS.md](AGENTS.md)（AI 会话指南） · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [常见问题](docs/FAQ.md) · [参与开发](CONTRIBUTING.md)
 
@@ -13,7 +13,7 @@
 
 - **钉在图标层之下**：壁纸窗口位于桌面图标层下方，图标可见、可点（点击穿透），不遮挡任何工作内容。
 - **一套宿主管线，四类内容**：视频（`mp4`/`webm`）、动图（`gif`/`webp`）、Shader（`glsl`，Shadertoy 风格）、网页（`html`）。宿主页是唯一契约，渲染器可插拔。
-- **安静为默认**：暂停是**真的停**——JS 层停渲染循环、停视频解码；全屏应用与电池模式将自动暂停（见[路线图](docs/ROADMAP.md)）。
+- **暂停是真停**：暂停时 JS 渲染循环停止、视频解码停止，画面定格而非淡出；全屏应用与电池模式下会自动暂停（见[路线图](docs/ROADMAP.md)）。
 - **托盘优先**：暂停/恢复、换壁纸、快速面板都在菜单栏；管理窗口只用来管内容。
 - **壁纸内容零 IPC**：壁纸内容按不可信代码对待，运行在 webview 沙箱里，只能读自己的素材目录。
 
@@ -28,7 +28,7 @@
 | 能力 | 状态 |
 |---|---|
 | 视频壁纸：钉桌面 + 铺满全屏 | ✅ |
-| 托盘暂停/恢复（真停帧） | ✅ |
+| 托盘暂停/恢复 | ✅ |
 | 配置持久化（重启自动恢复） | ✅ |
 | 显示器枚举（稳定 ID `cg-<display-id>`） | ✅ |
 | 管理窗口（壁纸库 / 显示器 / 设置） | ✅ |
@@ -88,14 +88,14 @@ pkill -f "target/debug/gesso"             # 退出（有单实例锁）
               └───────────────────────────────────────────┘
 ```
 
-铁律：**壁纸窗口是自有原生窗口，不是 GPUI 窗口**。GPUI 只管管理窗口与托盘——这是 macOS 压层 spike 的决定性结论（GPUI 窗口协调器会与桌面级全屏几何打架）。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · 引擎接口 [crates/app/API.md](crates/app/API.md) · 工程规则与踩坑 [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)。
+关键限制：**壁纸窗口是自有原生窗口，不是 GPUI 窗口**。实测发现 GPUI 的窗口协调器会反复改写桌面级全屏窗口的位置，两者合不来。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · 引擎接口 [crates/app/API.md](crates/app/API.md) · 工程规则与踩坑 [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)。
 
 ## 文档索引
 
 | 文档 | 内容 |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、窗口模型、贴壁参数、内容管线、状态机、安全模型 |
-| [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | 架构铁律 + **15 条实测踩坑** + 关键路径 + 命令 |
+| [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | 架构规则 + 15 条实测踩坑 + 常用路径 |
 | [crates/app/API.md](crates/app/API.md) | UI 层唯一允许使用的引擎接口 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑、当前进度、已知缺口 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 本地开发与调试指南（日志/诊断/排查速查表） |

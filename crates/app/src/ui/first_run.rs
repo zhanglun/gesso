@@ -114,7 +114,7 @@ impl FirstRun {
                     .w(px(132.))
                     .gap_1()
                     .items_center()
-                    .child(preview(sample_art(k), Some(k), false, false, cx))
+                    .child(preview(sample_art(k), Some(k), false, false, None, cx))
                     .child(
                         div()
                             .text_size(px(12.))
@@ -160,7 +160,14 @@ impl FirstRun {
                             }
                         }
                     }))
-                    .child(preview(w.art, Some(w.kind), false, false, cx))
+                    .child(preview(
+                        w.art,
+                        Some(w.kind),
+                        false,
+                        false,
+                        w.thumb.as_deref(),
+                        cx,
+                    ))
                     .child(
                         h_flex()
                             .items_center()

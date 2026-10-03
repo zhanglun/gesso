@@ -9,7 +9,7 @@ Gesso：跨平台（Windows/macOS）动态壁纸引擎——视频/动图/Shader
 
 ## 必读文档（按顺序）
 
-1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 5 条架构铁律 + 15 条实测踩坑。**违反任何一条都是返工**，先读它。
+1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 5 条架构规则 + 15 条实测踩坑，改代码前先读。
 2. **[crates/app/API.md](crates/app/API.md)** —— UI 层唯一允许调用的引擎接口。
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** —— 分层、窗口模型、贴壁参数、状态机。
 4. **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 当前进度与已知缺口。
@@ -19,7 +19,7 @@ Gesso：跨平台（Windows/macOS）动态壁纸引擎——视频/动图/Shader
 
 1. **壁纸窗口是 `pin/` 里的纯 AppKit/Win32 窗口，绝不是 GPUI 窗口。** GPUI 的窗口协调器会重置桌面级全屏几何（M1.5 实测：origin 被压到 -30 并持续回写）。
 2. **UI 只走 `crates/app/API.md` 的接口**；写操作入队 `EngineAction`，读操作走快照，快照合并必须保留 UI 本地状态（tab/query/selected/filter）。
-3. **改界面行为先改 `docs/design/` 的规格与原型，再改代码**——设计文档随仓库迭代，是活的真源。
+3. **改界面行为先改 `docs/design/` 的规格与原型，再改代码**——设计文档随仓库迭代，随设计迭代更新。
 4. **提交前必须**：`cargo check -p gesso-app` 通过 + `cargo test -p gesso-core` 全绿；改了行为要在实机跑对应路径。
 5. **原子提交**：一次提交一个逻辑变更；不把别人的未完成文件 `git add -A` 进来（本仓库曾有双会话并行，先 `git status` 确认归属）。
 

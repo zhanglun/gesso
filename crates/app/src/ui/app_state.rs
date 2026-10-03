@@ -162,29 +162,6 @@ impl GessoState {
         self.pending_new_monitor = true;
     }
 
-    /// 演示导入：向库中追加一个条目并选中（M3 换 rfd + core import）。
-    pub fn import_demo(&mut self) -> String {
-        self.import_counter += 1;
-        let n = self.import_counter;
-        let name = format!("Imported Sample {n}");
-        self.library.push(LibraryItem {
-            id: format!("imported-{n}").into(),
-            name: name.clone().into(),
-            kind: Kind::Video,
-            we: false,
-            meta: "1080p · 8s".into(),
-            assigned: None,
-            broken: false,
-            real: false,
-            art: super::data::Art {
-                from: 0x2A4A3E,
-                to: 0x0E0F13,
-            },
-        });
-        self.selected = Some(format!("imported-{n}").into());
-        name
-    }
-
     /// 主显示器下标（0 = 主；多显示器时即第一块）。
     pub fn main_monitor(&self) -> usize {
         0

@@ -1,6 +1,6 @@
 # Roadmap
 
-Status is honest and verified-first: an item is ✅ only after real-machine verification. Estimates assume spare-time pace.
+Status reflects what actually runs on hardware: ✅ means it was verified on a real machine. Time estimates assume spare-time pace.
 
 ## Where we are
 

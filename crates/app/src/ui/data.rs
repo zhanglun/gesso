@@ -1,8 +1,7 @@
-//! 演示数据与领域视图类型。
+//! 领域视图类型（真源在 gesso-core；本模块只保留 UI 投影与常量）。
 //!
-//! M3 接入 gesso-core 前，库/显示器/设置全部为页内合成的演示数据
-//! （PRODUCT.md「Evidence on Hand」约定：演示数据须显式标注）。
-//! 类型形状按 技术方案 §3.6 的内部 API 语义设计，接入 core 时仅替换来源。
+//! 演示数据已随「真数据接入」删除——空态就是空态，不用假数据伪装
+//! （显示器页曾因默认兜底演示双屏而出现幽灵显示器）。
 
 use gpui_kit::SharedString;
 
@@ -37,7 +36,7 @@ impl Kind {
     }
 }
 
-/// 演示预览的渐变配色（真实实现 = 导入时预生成的抽帧序列，界面与交互设计 §6）。
+/// 预览配色渐变（M4 起换抽帧真图；shader/html 保留图标占位）。
 #[derive(Clone, Copy)]
 pub struct Art {
     pub from: u32,
@@ -58,9 +57,11 @@ pub struct LibraryItem {
     pub assigned: Option<usize>,
     /// 素材失效（文件已移除）——danger 只表真故障。
     pub broken: bool,
-    /// 真实库条目（gesso-core LibraryEntry）；false = 页内演示条目，不桥接会话。
+    /// 真实库条目（gesso-core LibraryEntry）。
     pub real: bool,
     pub art: Art,
+    /// 预览图绝对路径（video = 抽帧 thumb.png；gif = 素材本身；None = 渐变占位）。
+    pub thumb: Option<String>,
 }
 
 /// 运行状态（技术方案 §9 状态机的视图投影）。
@@ -84,7 +85,6 @@ impl PlayState {
 #[derive(Clone)]
 pub struct MonitorEntry {
     pub name: SharedString,
-    /// 真实显示器 ID（pin 层 cg-<id>）；空串 = 演示数据，不桥接会话。
     pub real_id: String,
     /// 托盘/状态行用的短名（"→ 主屏"）。
     pub short: SharedString,
@@ -115,7 +115,7 @@ impl SuspendPolicy {
     }
 }
 
-/// 设置项（全部即时生效；持久化在 core config.json，此处为演示内存态）。
+/// 设置项（全部即时生效；真源 = core AppConfig.settings，快照映射注入）。
 #[derive(Clone)]
 pub struct Settings {
     pub fps_cap: u32,
@@ -128,10 +128,25 @@ pub struct Settings {
     pub weather_key: String,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            fps_cap: 60,
+            fullscreen: SuspendPolicy::Pause,
+            battery: SuspendPolicy::Pause,
+            idle_downclock: true,
+            autolaunch: true,
+            startup_random: false,
+            weather_custom_key: false,
+            weather_key: String::new(),
+        }
+    }
+}
+
 impl Settings {
     /// UI 投影 → core 真源（设置页写回经 EngineAction::UpdateSettings 落盘）。
     pub fn to_core_settings(&self) -> gesso_core::Settings {
-        let policy = |p: super::data::SuspendPolicy| match p {
+        let policy = |p: SuspendPolicy| match p {
             SuspendPolicy::Pause => gesso_core::PausePolicy::Pause,
             SuspendPolicy::Downclock => gesso_core::PausePolicy::Downscale,
             SuspendPolicy::Ignore => gesso_core::PausePolicy::Ignore,
@@ -151,164 +166,4 @@ impl Settings {
     }
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            fps_cap: 60,
-            fullscreen: SuspendPolicy::Pause,
-            battery: SuspendPolicy::Pause,
-            idle_downclock: true,
-            autolaunch: true,
-            startup_random: false,
-            weather_custom_key: false,
-            weather_key: String::new(),
-        }
-    }
-}
-
 pub const FPS_OPTIONS: [u32; 4] = [60, 30, 15, 5];
-
-/// 演示数据：与冻结原型 (prototype/index.html) 的 LIB/MONOS 逐条对应。
-pub fn demo_library() -> Vec<LibraryItem> {
-    vec![
-        LibraryItem {
-            id: "nebula".into(),
-            name: "Nebula Drift".into(),
-            kind: Kind::Video,
-            we: false,
-            meta: "4K · 12s".into(),
-            assigned: Some(0),
-            broken: false,
-            real: false,
-            art: Art {
-                from: 0x24345C,
-                to: 0x0E0F13,
-            },
-        },
-        LibraryItem {
-            id: "waves".into(),
-            name: "Waves".into(),
-            kind: Kind::Shader,
-            we: false,
-            meta: "1080p · 60fps".into(),
-            assigned: Some(1),
-            broken: false,
-            real: false,
-            art: Art {
-                from: 0x1C4A5E,
-                to: 0x0E0F13,
-            },
-        },
-        LibraryItem {
-            id: "clock".into(),
-            name: "极简时钟".into(),
-            kind: Kind::Web,
-            we: false,
-            meta: "自适应".into(),
-            assigned: None,
-            broken: false,
-            real: false,
-            art: Art {
-                from: 0x2A2A30,
-                to: 0x101012,
-            },
-        },
-        LibraryItem {
-            id: "sakura".into(),
-            name: "Sakura Night".into(),
-            kind: Kind::Video,
-            we: true,
-            meta: "4K · 24s".into(),
-            assigned: None,
-            broken: false,
-            real: false,
-            art: Art {
-                from: 0x4A2C48,
-                to: 0x120B12,
-            },
-        },
-        LibraryItem {
-            id: "rain".into(),
-            name: "Rain Streaks".into(),
-            kind: Kind::Gif,
-            we: false,
-            meta: "720p · GIF".into(),
-            assigned: None,
-            broken: false,
-            real: false,
-            art: Art {
-                from: 0x2E3E50,
-                to: 0x0E0F13,
-            },
-        },
-        LibraryItem {
-            id: "plasma".into(),
-            name: "Plasma Field".into(),
-            kind: Kind::Shader,
-            we: false,
-            meta: "1440p · 60fps".into(),
-            assigned: None,
-            broken: false,
-            real: false,
-            art: Art {
-                from: 0x3E2A5E,
-                to: 0x0E0F13,
-            },
-        },
-        // 演示「素材失效」态：预览降级灰底 + 信息条红字「文件已移除」。
-        LibraryItem {
-            id: "fuji".into(),
-            name: "Mount Fuji".into(),
-            kind: Kind::Video,
-            we: false,
-            meta: "4K · 36s".into(),
-            assigned: None,
-            broken: true,
-            real: false,
-            art: Art {
-                from: 0x26262A,
-                to: 0x26262A,
-            },
-        },
-        LibraryItem {
-            id: "matrix".into(),
-            name: "Digital Rain".into(),
-            kind: Kind::Web,
-            we: true,
-            meta: "1080p".into(),
-            assigned: None,
-            broken: false,
-            real: false,
-            art: Art {
-                from: 0x1E3A2E,
-                to: 0x0A0F0C,
-            },
-        },
-    ]
-}
-
-/// 演示显示器：主屏播放中；副屏全屏暂停（§5 跨屏状态矩阵的两种常态）。
-pub fn demo_monitors() -> Vec<MonitorEntry> {
-    vec![
-        MonitorEntry {
-            name: "主显示器".into(),
-            real_id: String::new(),
-            short: "主屏".into(),
-            label: "27″ · 3840×2160".into(),
-            rect: (0., 0., 2560., 1440.),
-            wallpaper: Some("nebula".into()),
-            state: PlayState::Playing,
-            fps: 60,
-        },
-        MonitorEntry {
-            name: "副显示器".into(),
-            real_id: String::new(),
-            short: "副屏".into(),
-            label: "24″ · 1920×1080".into(),
-            rect: (2560., 360., 1920., 1080.),
-            wallpaper: Some("waves".into()),
-            state: PlayState::FullscreenPaused,
-            fps: 30,
-        },
-    ]
-}

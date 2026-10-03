@@ -14,7 +14,7 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 
 - **Pinned behind the icons** — the wallpaper window sits *below* the desktop icon layer, so icons stay visible and clickable (click-through). Nothing is drawn on top of your work.
 - **One host pipeline, four content kinds** — video (`mp4`/`webm`), animated images (`gif`/`webp`), shaders (`glsl`, Shadertoy-style) and web pages (`html`). The host page is the single contract; renderers are pluggable.
-- **Quiet by default** — pausing really stops work: the JS layer halts its render loop and video decoding. Full-screen apps and battery mode will pause automatically (see [Roadmap](docs/ROADMAP.md)).
+- **Real pause** — pausing stops the JS render loop and video decoding, not just the visuals. Full-screen apps and battery mode will pause automatically (see [Roadmap](docs/ROADMAP.md)).
 - **Tray-first UX** — pause/resume, switch wallpapers and open a quick panel from the menu bar; the manager window is for content, not for daily use.
 - **No IPC into the app** — wallpaper content is treated as untrusted: it runs in a webview sandbox and can only read its own asset folder.
 
@@ -96,8 +96,8 @@ Key rule: **wallpaper windows are native windows we own, not GPUI windows.** GPU
 | Doc | Contents |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers, window model, pinning parameters, content pipeline, state machine, security |
-| [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | Architecture rules, **15 verified pitfalls**, key paths, commands |
-| [crates/app/API.md](crates/app/API.md) | The only interface the UI may use |
+| [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | Architecture rules, 15 verified pitfalls, key paths, commands |
+| [crates/app/API.md](crates/app/API.md) | The interface UI code uses to talk to the engine |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones, current status, known gaps |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local development & debugging guide (logs, diagnostics, troubleshooting) |
 | [docs/design/技术方案.md](docs/design/技术方案.md) | Full engineering plan, 14 chapters (Chinese) |

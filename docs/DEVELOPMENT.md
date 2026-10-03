@@ -1,7 +1,7 @@
 # 本地开发与调试指南
 
 > 面向：要在本机构建、运行、调试 Gesso 的开发者。
-> 配套阅读：[ARCHITECTURE.md](ARCHITECTURE.md)（架构）· [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md)（铁律与踩坑）· [../design/技术方案.md](design/技术方案.md)（完整工程方案）· [../crates/app/API.md](../crates/app/API.md)（引擎接口）
+> 配套阅读：[ARCHITECTURE.md](ARCHITECTURE.md)（架构）· [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md)（架构规则与踩坑）· [../design/技术方案.md](design/技术方案.md)（完整工程方案）· [../crates/app/API.md](../crates/app/API.md)（引擎接口）
 
 ---
 
@@ -106,6 +106,6 @@ cargo build --release -p gesso-app
 |------|------|
 | [design/技术方案.md](design/技术方案.md) | **完整工程方案**（14 章：选型/架构/贴壁/渲染/数据桥/安全/WE 兼容/节奏/风险） |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 架构提炼（英文） |
-| [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | 铁律 + 踩坑实录（**改代码前必读**） |
+| [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | 架构规则 + 踩坑实录（**改代码前必读**） |
 | [../crates/app/API.md](../crates/app/API.md) | UI 层唯一允许调用的引擎接口 |
 | [design/界面与交互设计.md](design/界面与交互设计.md) | 冻结的界面交互规格 v1.0 |

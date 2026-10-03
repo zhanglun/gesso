@@ -194,7 +194,14 @@ impl MonitorsView {
             );
 
         let thumb = div().mb_2().child(match &item {
-            Some(item) => preview(item.art, Some(item.kind), item.broken, false, cx),
+            Some(item) => preview(
+                item.art,
+                Some(item.kind),
+                item.broken,
+                false,
+                item.thumb.as_deref(),
+                cx,
+            ),
             None => preview(
                 super::data::Art {
                     from: 0x26262A,
@@ -203,6 +210,7 @@ impl MonitorsView {
                 None,
                 false,
                 false,
+                None,
                 cx,
             ),
         });
@@ -309,32 +317,49 @@ impl MonitorsView {
             .map(|m| m.rect.1 * scale + FRAME_CHROME + m.rect.2 * scale * 9. / 16.)
             .fold(0.0f32, f32::max);
 
+        // 单屏时工作区原点即窗口原点（0,0）——直接流式布局居中；
+        // 多屏按工作区坐标绝对排布（保留物理相对位置）
+        let single = monitors.len() == 1;
         let frames: Vec<AnyElement> = monitors
             .iter()
             .enumerate()
             .map(|(i, m)| {
                 let w = m.rect.2 * scale;
-                div()
-                    .absolute()
-                    .left(px(m.rect.0 * scale))
-                    .top(px(m.rect.1 * scale))
-                    .child(self.monitor_frame(i, m, Some(w), cx))
-                    .into_any_element()
+                let frame = self.monitor_frame(i, m, Some(w), cx);
+                if single {
+                    div().child(frame).into_any_element()
+                } else {
+                    div()
+                        .absolute()
+                        .left(px(m.rect.0 * scale))
+                        .top(px(m.rect.1 * scale))
+                        .child(frame)
+                        .into_any_element()
+                }
             })
             .collect();
 
-        div()
-            .mx_auto()
-            .relative()
-            .p(px(18.))
-            .border_1()
-            .border_color(t.hairline)
-            .rounded(px(12.))
-            .bg(t.panel)
-            .h(px(max_bottom + 36.))
-            .w(px(max_right + 36.))
-            .children(frames)
-            .into_any_element()
+        let topo_box = if single {
+            div()
+                .p(px(18.))
+                .border_1()
+                .border_color(t.hairline)
+                .rounded(px(12.))
+                .bg(t.panel)
+                .children(frames)
+        } else {
+            div()
+                .relative()
+                .p(px(18.))
+                .border_1()
+                .border_color(t.hairline)
+                .rounded(px(12.))
+                .bg(t.panel)
+                .h(px(max_bottom + 36.))
+                .w(px(max_right + 36.))
+                .children(frames)
+        };
+        topo_box.into_any_element()
     }
 
     fn notice(&self, cx: &mut Context<Self>) -> Option<AnyElement> {

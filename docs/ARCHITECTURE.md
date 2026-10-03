@@ -1,6 +1,6 @@
 # Architecture
 
-This is the engineering truth of the system, distilled from the design archive and the spike reports. Numbers and behaviors below are **verified on real hardware** unless marked *planned*.
+This document describes how Gesso actually works. Everything below was verified on macOS; items marked *planned* are not implemented yet.
 
 ## 1. Layers
 
@@ -22,7 +22,7 @@ This is the engineering truth of the system, distilled from the design archive a
 - `gesso-core` is **pure domain logic** (ContentSpec, config diffing, library manifest, state machine) — no platform or UI dependencies, fully unit-tested.
 - `gesso-app` contains everything else. The **UI never touches engine internals** ([crates/app/API.md](../crates/app/API.md)): writes are queued as `EngineAction`s, reads come from `snapshot_ui`, and the snapshot merge preserves UI-local state (tab/query/selection/filter).
 
-## 2. Window model — the one rule that matters most
+## 2. Window model
 
 **Wallpaper windows are native windows owned by the pin layer, not GPUI windows.**
 
@@ -34,7 +34,7 @@ On macOS the wallpaper window is a plain `NSWindow` created with:
 | level | `-2147483604` — strictly between the desktop picture and the icon layer (verified; values within the band behave identically, the desktop-picture level itself has non-deterministic ordering) |
 | collection behavior | `CanJoinAllSpaces \| Stationary \| FullScreenAuxiliary \| IgnoresCycle` |
 | mouse | `ignoresMouseEvents = true` (click-through to icons) |
-| background | non-opaque + clear color → hiding the webview reveals the system desktop (the "fall back to static wallpaper" semantic) |
+| background | non-opaque + clear color → hiding the webview reveals the system desktop (this is how "fall back to the system wallpaper" works) |
 | geometry | full screen frame including the menu-bar band |
 
 The webview (`lb-wry`, the gpui-kit ecosystem fork of wry) is attached as a child of the window's content view and sized by us (no layout system involved).
@@ -52,8 +52,8 @@ LibraryEntry (library/<random-id>/index.html + index.<ext>)
    → wallpaper webview
 ```
 
-- Each library entry is **self-contained**: the host page is copied into the entry directory at startup (dev behavior; frozen per-entry later) and media is referenced relatively. This sidesteps the currently-broken custom scheme (see pitfalls) and mirrors the Wallpaper Engine project model.
-- The **source extension is preserved on import** (`webm` stays `webm`): webviews type media by extension, so normalizing to `index.mp4` breaks playback. Import, validity checking and host-spec generation share one `main_asset_name` helper — this is a binding rule, not a suggestion.
+- Each library entry is **self-contained**: the host page is copied into the entry directory at startup (dev behavior; frozen per-entry later) and media is referenced relatively. This sidesteps the currently-broken custom scheme (see pitfalls) and matches how Wallpaper Engine structures its projects.
+- The **source extension is preserved on import** (`webm` stays `webm`): webviews type media by extension, so normalizing to `index.mp4` breaks playback. Import, validity checking and host-spec generation all call this `main_asset_name` helper — keep it that way.
 - The host page exposes `window.__gesso.{pause, resume}`; the engine pauses via `evaluate_script` — pause is a **JS-level frame stop**, the window and webview stay resident.
 - Renderer coverage today: video, image (gif/webp). Shader (WebGL2) and HTML (sandboxed iframe) are planned (M4).
 

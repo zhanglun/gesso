@@ -124,6 +124,8 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 WallpaperKind::Shader => ui::data::Kind::Shader,
                 WallpaperKind::Html => ui::data::Kind::Web,
             };
+            // 惰性抽帧（qlmanage ~50ms/条目；已有缓存直接复用）
+            let thumb = ui::widgets::ensure_thumb(&e.source_dir, kind);
             ui::data::LibraryItem {
                 id: e.id.clone().into(),
                 name: e.title.clone().into(),
@@ -138,6 +140,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 broken: session::main_asset_name(&e.source_dir, e.kind).is_none(),
                 real: true,
                 art: kind_art(e.kind),
+                thumb,
             }
         })
         .collect();

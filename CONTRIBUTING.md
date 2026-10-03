@@ -39,7 +39,7 @@ crates/app     the application:
 
 ## Pull request checklist
 
-- [ ] `cargo check -p gesso-app` passes (this should go without saying; it once didn't)
+- [ ] `cargo check -p gesso-app` passes
 - [ ] `cargo test -p gesso-core -p gesso-app` passes; new logic ships with a test (assert-based, no framework)
 - [ ] `cargo clippy -p gesso-core --all-targets -- -D warnings` passes
 - [ ] UI changes don't call anything outside `crates/app/API.md`
