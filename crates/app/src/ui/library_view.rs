@@ -111,6 +111,7 @@ impl LibraryView {
 
         let search = div()
             .w(px(220.))
+            .h(px(36.))
             .child(
                 Input::new(&self.search_input)
                     .cleanable(true)

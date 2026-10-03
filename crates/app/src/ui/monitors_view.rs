@@ -249,7 +249,7 @@ impl MonitorsView {
                 let real_id = m.real_id.clone();
                 move |_, window, cx| {
                     if real_id.is_empty() {
-                        // 演示数据：无真实会话，仅切换投影
+                        // 切换 UI 投影状态
                         update(window, cx, |g| g.toggle_pause(i));
                     } else {
                         // 真源：引擎 pause_one（≤150ms 执行，快照回灌刷新状态行）

@@ -81,7 +81,7 @@ pub fn preview(
                     .overflow_hidden()
                     .relative()
                     // 预览位于卡片顶部：上侧两角随卡片圆角（GPUI 的 img 不吃父级裁剪）
-                    .rounded_t(px(12.))
+                    .rounded_t(px(11.))
                     .child({
                         use gpui_kit::gpui::StyledImage as _;
                         // ⚠️ img(&str) 把非 URL 字符串当「应用内置资源」名（Embedded），
@@ -92,6 +92,7 @@ pub fn preview(
                         gpui_kit::gpui::img(source)
                             .size_full()
                             .object_fit(gpui_kit::gpui::ObjectFit::Cover)
+                            .rounded_t(px(11.))
                     })
                     .into_any_element();
             }
@@ -108,7 +109,7 @@ pub fn preview(
         .aspect_ratio(16. / 9.)
         .overflow_hidden()
         .relative()
-        .rounded_t(px(12.))
+        .rounded_t(px(11.))
         .bg(linear_gradient(
             135.,
             linear_color_stop(from, 0.),
@@ -166,7 +167,7 @@ pub fn set_row(
         );
     }
     h_flex()
-        .min_h(px(34.))
+        .min_h(px(40.))
         .gap_3()
         .items_center()
         .child(left)

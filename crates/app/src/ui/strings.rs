@@ -33,8 +33,8 @@ pub const MENU_ALL_MONITORS: &str = "全部";
 pub const MENU_OPEN_FOLDER: &str = "打开所在目录";
 pub const MENU_DETAILS: &str = "查看详情";
 pub const MENU_REMOVE: &str = "从库中移除";
-pub const TOAST_SCAN_FOUND: &str = "扫描 Steam 工坊：找到 2 个可导入项（演示）";
-pub const TOAST_OPEN_FOLDER: &str = "已在访达中显示（演示）";
+pub const TOAST_SCAN_FOUND: &str = "扫描 Steam 工坊：未找到 Wallpaper Engine";
+pub const TOAST_OPEN_FOLDER: &str = "已在访达中显示";
 
 /// 导入失败文案（§7：失败文案带原因和出路）。
 pub fn import_err_unsupported() -> String {
@@ -116,7 +116,7 @@ pub const BTN_OPEN: &str = "打开";
 pub const SET_RESET: &str = "重置全部设置";
 pub const BTN_RESET: &str = "重置…";
 pub const BTN_RESET_CONFIRM: &str = "确认重置？";
-pub const TOAST_LOG_DIR: &str = "已打开日志目录（演示）";
+pub const TOAST_LOG_DIR: &str = "已打开配置目录";
 pub const TOAST_RESET: &str = "设置已恢复默认";
 
 // 向导
