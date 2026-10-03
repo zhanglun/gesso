@@ -126,13 +126,6 @@ impl LibraryView {
             .on_click(|_, window, cx| {
                 super::app_state::import_with_dialog(window, cx);
             });
-        let scan = Button::new("btn-scan")
-            .label(BTN_SCAN_WORKSHOP)
-            .secondary()
-            .icon(Icon::new(IconName::Scan))
-            .on_click(|_, window, cx| {
-                window.push_notification(Notification::info(TOAST_SCAN_FOUND), cx);
-            });
 
         h_flex()
             .flex_none()
@@ -146,7 +139,6 @@ impl LibraryView {
             .child(search)
             .child(div().flex_1())
             .child(import)
-            .child(scan)
             .into_any_element()
     }
 
@@ -527,8 +519,11 @@ fn card_context_menu(
     menu.item(PopupMenuItem::submenu(MENU_SET_WALLPAPER, sub))
         .separator()
         .item(
-            PopupMenuItem::new(MENU_OPEN_FOLDER).on_click(|_, window, cx| {
-                window.push_notification(Notification::info(TOAST_OPEN_FOLDER), cx);
+            PopupMenuItem::new(MENU_OPEN_FOLDER).on_click({
+                let dir_path = crate::protocol::library_dir().join(item_id.as_ref());
+                move |_, _, _| {
+                    let _ = std::process::Command::new("open").arg(&*dir_path).spawn();
+                }
             }),
         )
         .item(PopupMenuItem::new(MENU_DETAILS).on_click({

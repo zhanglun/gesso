@@ -1,0 +1,8 @@
+{
+  "name": "gesso-icons-build",
+  "private": true,
+  "type": "module",
+  "description": "Gesso 产品图标构建管线(源 SVG → icns/ico/托盘 PNG)",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": { "sharp": "^0.34.0" }
+}

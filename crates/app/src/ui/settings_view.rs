@@ -8,6 +8,7 @@ use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::IndexPath;
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::{h_flex, v_flex, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
@@ -278,8 +279,9 @@ impl Render for SettingsView {
         let log_btn = Button::new("open-log")
             .label(BTN_OPEN)
             .secondary()
-            .on_click(|_, window, cx| {
-                window.push_notification(Notification::info(TOAST_LOG_DIR), cx);
+            .on_click(|_, _, _| {
+                let dir = crate::protocol::config_dir();
+                let _ = std::process::Command::new("open").arg(&dir).spawn();
             });
         let armed = self.reset_armed;
         // 红字文字按钮（kit 无 danger 文字变体；§4.5 红字 + danger-soft 悬停底）

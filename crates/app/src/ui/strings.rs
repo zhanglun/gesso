@@ -33,7 +33,7 @@ pub const MENU_ALL_MONITORS: &str = "全部";
 pub const MENU_OPEN_FOLDER: &str = "打开所在目录";
 pub const MENU_DETAILS: &str = "查看详情";
 pub const MENU_REMOVE: &str = "从库中移除";
-pub const TOAST_SCAN_FOUND: &str = "扫描 Steam 工坊：未找到 Wallpaper Engine";
+pub const TOAST_SCAN_FOUND: &str = "未检测到 Wallpaper Engine（需要 Steam 版）";
 pub const TOAST_OPEN_FOLDER: &str = "已在访达中显示";
 
 /// 导入失败文案（§7：失败文案带原因和出路）。
@@ -67,7 +67,7 @@ pub fn toast_removed(name: &str) -> String {
 }
 
 pub fn toast_imported(name: &str) -> String {
-    format!("已导入「{name}」（演示）")
+    format!("已导入「{name}」")
 }
 
 // 拖拽投放区

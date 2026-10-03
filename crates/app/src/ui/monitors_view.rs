@@ -7,6 +7,7 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::IndexPath;
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
@@ -266,7 +267,7 @@ impl MonitorsView {
             .map(|s| {
                 div()
                     .w(px(96.))
-                    .child(Select::new(s).appearance(true))
+                    .child(Select::new(s).appearance(true).with_size(gpui_kit::gpui::px(36.)))
                     .into_any_element()
             })
             .unwrap_or_else(|| div().into_any_element());

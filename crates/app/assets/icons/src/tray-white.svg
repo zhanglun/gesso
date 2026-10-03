@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <defs>
+    <mask id="gap">
+      <rect width="24" height="24" fill="white"/>
+      <!-- 前层外扩 1.25 的留缝,保证 16px 下两层不粘连 -->
+      <rect x="2.25" y="7.25" width="16" height="14.5" rx="4.75" fill="black"/>
+    </mask>
+  </defs>
+  <rect x="9.25" y="3.5" width="11.25" height="9.5" rx="3" fill="#FFFFFF" mask="url(#gap)"/>
+  <rect x="3.5" y="8.5" width="13.5" height="12" rx="3.5" fill="#FFFFFF"/>
+</svg>
