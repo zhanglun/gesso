@@ -4,11 +4,12 @@
 
 use std::sync::Arc;
 
-use gpui_kit::component::icon::{Icon, IconName};
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::Icon;
+use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::gpui::{
-    App, FontFeatures, Hsla, IntoElement, ParentElement, Pixels, Styled, div, linear_color_stop,
-    linear_gradient, px, rgba,
+    div, linear_color_stop, linear_gradient, px, rgb, rgba, App, FontFeatures, Hsla,
+    InteractiveElement as _, IntoElement, ParentElement, Styled,
 };
 
 use super::data::{Art, Kind, PlayState};
@@ -59,9 +60,16 @@ pub fn preview(
     cx: &App,
 ) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
-    let base = if broken { t.preview_frame } else { t.preview_bg };
-    let from = if broken { base } else { rgb_hsla(art.from).into() };
-    let to = base;
+    let base = if broken {
+        t.preview_frame
+    } else {
+        t.preview_bg
+    };
+    let (from, to) = if broken {
+        (base, base)
+    } else {
+        (rgb(art.from).into(), rgb(art.to).into())
+    };
     let frame = div()
         .w_full()
         .aspect_ratio(16. / 9.)
@@ -120,11 +128,7 @@ pub fn play_state_visual(state: PlayState, cx: &App) -> (IconName, &'static str,
     match state {
         PlayState::Playing => (IconName::Play, super::strings::ST_PLAYING, t.accent),
         PlayState::UserPaused => (IconName::Pause, super::strings::ST_PAUSED, t.text2),
-        PlayState::FullscreenPaused => (
-            IconName::Maximize,
-            super::strings::ST_FULLSCREEN,
-            t.text2,
-        ),
+        PlayState::FullscreenPaused => (IconName::Maximize, super::strings::ST_FULLSCREEN, t.text2),
         PlayState::BatteryPaused => (IconName::Zap, super::strings::ST_BATTERY, t.text2),
     }
 }
@@ -175,8 +179,4 @@ pub fn empty_art(icon: IconName, cx: &App) -> gpui_kit::gpui::AnyElement {
         .text_color(t.text2)
         .child(Icon::new(icon).size_7())
         .into_any_element()
-}
-
-fn rgb_hsla(hex: u32) -> gpui_kit::gpui::Rgb {
-    gpui_kit::gpui::rgb(hex)
 }

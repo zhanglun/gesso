@@ -34,12 +34,25 @@ pub const MENU_ALL_MONITORS: &str = "全部";
 pub const MENU_OPEN_FOLDER: &str = "打开所在目录";
 pub const MENU_DETAILS: &str = "查看详情";
 pub const MENU_REMOVE: &str = "从库中移除";
-pub const TOAST_ASSIGN: &str = "已将「{}」指派到{}";
-pub const TOAST_APPLY_MAIN: &str = "已将「{}」应用到主显示器";
-pub const TOAST_IMPORT_DIALOG: &str = "已打开文件选择（演示）";
 pub const TOAST_SCAN_FOUND: &str = "扫描 Steam 工坊：找到 2 个可导入项（演示）";
 pub const TOAST_OPEN_FOLDER: &str = "已在访达中显示（演示）";
-pub const TOAST_REMOVED: &str = "已从库中移除「{}」（文件未删除）";
+
+/// 「已将「…」指派到…」——模板在文案层拼装，调用处不拼中文。
+pub fn toast_assign(name: &str, target: &str) -> String {
+    format!("已将「{name}」指派到{target}")
+}
+
+pub fn toast_apply_main(name: &str) -> String {
+    format!("已将「{name}」应用到主显示器")
+}
+
+pub fn toast_removed(name: &str) -> String {
+    format!("已从库中移除「{name}」（文件未删除）")
+}
+
+pub fn toast_imported(name: &str) -> String {
+    format!("已导入「{name}」（演示）")
+}
 
 // 拖拽投放区
 pub const DZ_HINT: &str = "拖到目标显示器上放手";

@@ -3,7 +3,7 @@
 //! 形状按 技术方案 §3.8：持久状态唯一真源是一个 Global；UI Entity 只是投影。
 //! 所有变更走本模块的 `update`（唯一写入路径），完成后刷新窗口 —— 单向数据流。
 
-use gpui_kit::{App, Global, SharedString, Window};
+use gpui_kit::{App, BorrowAppContext as _, Global, SharedString, Window};
 
 use super::data::{Kind, LibraryItem, MonitorEntry, PlayState, Settings};
 
@@ -30,12 +30,15 @@ impl Filter {
 pub struct CardDrag {
     pub item_id: SharedString,
     pub item_name: SharedString,
+    pub art: super::data::Art,
 }
 
 pub struct GessoState {
     pub library: Vec<LibraryItem>,
     pub monitors: Vec<MonitorEntry>,
     pub settings: Settings,
+    /// 当前页签（Shell 的三页签状态也归真源管）。
+    pub active_tab: super::shell::Tab,
     pub filter: Filter,
     pub query: String,
     /// 单击选中（状态条显示 meta 详情）。
@@ -46,6 +49,8 @@ pub struct GessoState {
     pub pending_new_monitor: bool,
     /// 顶栏手动主题切换后的模式提示（None = 跟随系统）。
     pub import_counter: usize,
+    /// false = 页面数据来自真会话快照（main.rs 装配）；true = 纯演示数据。
+    pub demo: bool,
 }
 
 impl Global for GessoState {}
@@ -56,20 +61,20 @@ impl Default for GessoState {
             library: super::data::demo_library(),
             monitors: super::data::demo_monitors(),
             settings: Settings::default(),
+            active_tab: super::shell::Tab::Library,
             filter: Filter::All,
             query: String::new(),
             selected: None,
             hovered: None,
             pending_new_monitor: false,
             import_counter: 0,
+            demo: true,
         }
     }
 }
 
 pub fn state(cx: &App) -> &GessoState {
-    cx.try_global::<GessoState>()
-        .map(|g| &g.0)
-        .expect("GessoState 未初始化")
+    cx.try_global::<GessoState>().expect("GessoState 未初始化")
 }
 
 /// 唯一写入路径；改完即整窗刷新（M3 换 Entity observe 精细化重绘）。
@@ -91,8 +96,9 @@ impl GessoState {
                     Filter::We => w.we,
                     Filter::Kind(k) => w.kind == k,
                 };
-                let query_ok =
-                    q.is_empty() || w.name.to_lowercase().contains(&q) || w.id.to_lowercase().contains(&q);
+                let query_ok = q.is_empty()
+                    || w.name.to_lowercase().contains(&q)
+                    || w.id.to_lowercase().contains(&q);
                 kind_ok && query_ok
             })
             .map(|(i, _)| i)
@@ -100,11 +106,11 @@ impl GessoState {
     }
 
     /// 指派（§3.6 set_wallpaper 语义）：该屏旧壁纸置为未指派；失效素材拒绝指派。
-    pub fn assign(&mut self, monitor_idx: usize, item_id: &str) -> Result<&'static str, &'static str> {
-        let Some(item) = self.library.iter_mut().find(|w| w.id.as_ref() == item_id) else {
+    pub fn assign(&mut self, monitor_idx: usize, item_id: &str) -> Result<String, &'static str> {
+        let Some(pos) = self.library.iter().position(|w| w.id.as_ref() == item_id) else {
             return Err("找不到该壁纸");
         };
-        if item.broken {
+        if self.library[pos].broken {
             return Err("素材失效，无法指派");
         }
         for w in &mut self.library {
@@ -112,18 +118,22 @@ impl GessoState {
                 w.assigned = None;
             }
         }
-        item.assigned = Some(monitor_idx);
+        self.library[pos].assigned = Some(monitor_idx);
         if let Some(m) = self.monitors.get_mut(monitor_idx) {
-            m.wallpaper = Some(item.id.clone());
+            m.wallpaper = Some(item_id.into());
             m.state = PlayState::Playing; // 指派即恢复（原型行为）
         }
-        Ok(item.name.as_ref())
+        Ok(self.library[pos].name.to_string())
     }
 
     /// 从库中移除（只出库，永不删文件 —— §7 用词纪律）。
     pub fn remove(&mut self, item_id: &str) {
         self.library.retain(|w| w.id.as_ref() != item_id);
-        if self.selected.as_ref().is_some_and(|s| s.as_ref() == item_id) {
+        if self
+            .selected
+            .as_ref()
+            .is_some_and(|s| s.as_ref() == item_id)
+        {
             self.selected = None;
         }
     }
@@ -157,7 +167,11 @@ impl GessoState {
             meta: "1080p · 8s".into(),
             assigned: None,
             broken: false,
-            art: super::data::Art { from: 0x2A4A3E, to: 0x0E0F13 },
+            real: false,
+            art: super::data::Art {
+                from: 0x2A4A3E,
+                to: 0x0E0F13,
+            },
         });
         self.selected = Some(format!("imported-{n}").into());
         name
@@ -175,4 +189,39 @@ impl GessoState {
             .map(|m| m.name.to_string())
             .unwrap_or_else(|| "未知显示器".into())
     }
+}
+
+/// UI 指派（API.md §4）：UI 立即更新投影并触发刷新；引擎写操作经动作队列
+/// 由引擎轮询执行（真源），失败由下一次快照回灌自愈（不做乐观承诺）。
+/// 返回 Ok(条目名) / Err(原因)。
+pub fn bridge_assign(
+    window: &mut Window,
+    cx: &mut App,
+    monitor_idx: usize,
+    item_id: &str,
+) -> Result<String, String> {
+    let (name, real_monitor, real_item, demo) = cx.update_global::<GessoState, _>(|g, _| {
+        let out = g.assign(monitor_idx, item_id);
+        (
+            out,
+            g.monitors
+                .get(monitor_idx)
+                .map(|m| m.real_id.clone())
+                .unwrap_or_default(),
+            g.library
+                .iter()
+                .find(|w| w.id.as_ref() == item_id)
+                .map(|w| w.real),
+            g.demo,
+        )
+    });
+    let name = name.map_err(|e| e.to_string())?;
+    if !demo && real_item.unwrap_or(false) && !real_monitor.is_empty() {
+        crate::engine::enqueue(crate::engine::EngineAction::Assign {
+            monitor_id: real_monitor,
+            entry_id: item_id.into(),
+        });
+    }
+    update(window, cx, |g| g.selected = Some(item_id.into()));
+    Ok(name)
 }

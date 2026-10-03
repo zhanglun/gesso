@@ -4,7 +4,7 @@
 //! （PRODUCT.md「Evidence on Hand」约定：演示数据须显式标注）。
 //! 类型形状按 技术方案 §3.6 的内部 API 语义设计，接入 core 时仅替换来源。
 
-use gpui_kit::{SharedString, px};
+use gpui_kit::SharedString;
 
 /// 壁纸内容类型（§1 能力：video / image(GIF·WebP) / shader / html）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -58,6 +58,8 @@ pub struct LibraryItem {
     pub assigned: Option<usize>,
     /// 素材失效（文件已移除）——danger 只表真故障。
     pub broken: bool,
+    /// 真实库条目（gesso-core LibraryEntry）；false = 页内演示条目，不桥接会话。
+    pub real: bool,
     pub art: Art,
 }
 
@@ -67,6 +69,8 @@ pub enum PlayState {
     Playing,
     UserPaused,
     FullscreenPaused,
+    /// 电池供电自动暂停（§5 状态矩阵；数据桥接入前的预留态）。
+    #[allow(dead_code)]
     BatteryPaused,
 }
 
@@ -80,6 +84,8 @@ impl PlayState {
 #[derive(Clone)]
 pub struct MonitorEntry {
     pub name: SharedString,
+    /// 真实显示器 ID（pin 层 cg-<id>）；空串 = 演示数据，不桥接会话。
+    pub real_id: String,
     /// 托盘/状态行用的短名（"→ 主屏"）。
     pub short: SharedString,
     /// "27″ · 3840×2160"（tabular）。
@@ -150,7 +156,11 @@ pub fn demo_library() -> Vec<LibraryItem> {
             meta: "4K · 12s".into(),
             assigned: Some(0),
             broken: false,
-            art: Art { from: 0x24345C, to: 0x0E0F13 },
+            real: false,
+            art: Art {
+                from: 0x24345C,
+                to: 0x0E0F13,
+            },
         },
         LibraryItem {
             id: "waves".into(),
@@ -160,7 +170,11 @@ pub fn demo_library() -> Vec<LibraryItem> {
             meta: "1080p · 60fps".into(),
             assigned: Some(1),
             broken: false,
-            art: Art { from: 0x1C4A5E, to: 0x0E0F13 },
+            real: false,
+            art: Art {
+                from: 0x1C4A5E,
+                to: 0x0E0F13,
+            },
         },
         LibraryItem {
             id: "clock".into(),
@@ -170,7 +184,11 @@ pub fn demo_library() -> Vec<LibraryItem> {
             meta: "自适应".into(),
             assigned: None,
             broken: false,
-            art: Art { from: 0x2A2A30, to: 0x101012 },
+            real: false,
+            art: Art {
+                from: 0x2A2A30,
+                to: 0x101012,
+            },
         },
         LibraryItem {
             id: "sakura".into(),
@@ -180,7 +198,11 @@ pub fn demo_library() -> Vec<LibraryItem> {
             meta: "4K · 24s".into(),
             assigned: None,
             broken: false,
-            art: Art { from: 0x4A2C48, to: 0x120B12 },
+            real: false,
+            art: Art {
+                from: 0x4A2C48,
+                to: 0x120B12,
+            },
         },
         LibraryItem {
             id: "rain".into(),
@@ -190,7 +212,11 @@ pub fn demo_library() -> Vec<LibraryItem> {
             meta: "720p · GIF".into(),
             assigned: None,
             broken: false,
-            art: Art { from: 0x2E3E50, to: 0x0E0F13 },
+            real: false,
+            art: Art {
+                from: 0x2E3E50,
+                to: 0x0E0F13,
+            },
         },
         LibraryItem {
             id: "plasma".into(),
@@ -200,7 +226,11 @@ pub fn demo_library() -> Vec<LibraryItem> {
             meta: "1440p · 60fps".into(),
             assigned: None,
             broken: false,
-            art: Art { from: 0x3E2A5E, to: 0x0E0F13 },
+            real: false,
+            art: Art {
+                from: 0x3E2A5E,
+                to: 0x0E0F13,
+            },
         },
         // 演示「素材失效」态：预览降级灰底 + 信息条红字「文件已移除」。
         LibraryItem {
@@ -211,7 +241,11 @@ pub fn demo_library() -> Vec<LibraryItem> {
             meta: "4K · 36s".into(),
             assigned: None,
             broken: true,
-            art: Art { from: 0x26262A, to: 0x26262A },
+            real: false,
+            art: Art {
+                from: 0x26262A,
+                to: 0x26262A,
+            },
         },
         LibraryItem {
             id: "matrix".into(),
@@ -221,7 +255,11 @@ pub fn demo_library() -> Vec<LibraryItem> {
             meta: "1080p".into(),
             assigned: None,
             broken: false,
-            art: Art { from: 0x1E3A2E, to: 0x0A0F0C },
+            real: false,
+            art: Art {
+                from: 0x1E3A2E,
+                to: 0x0A0F0C,
+            },
         },
     ]
 }
@@ -231,6 +269,7 @@ pub fn demo_monitors() -> Vec<MonitorEntry> {
     vec![
         MonitorEntry {
             name: "主显示器".into(),
+            real_id: String::new(),
             short: "主屏".into(),
             label: "27″ · 3840×2160".into(),
             rect: (0., 0., 2560., 1440.),
@@ -240,6 +279,7 @@ pub fn demo_monitors() -> Vec<MonitorEntry> {
         },
         MonitorEntry {
             name: "副显示器".into(),
+            real_id: String::new(),
             short: "副屏".into(),
             label: "24″ · 1920×1080".into(),
             rect: (2560., 360., 1920., 1080.),
@@ -250,20 +290,6 @@ pub fn demo_monitors() -> Vec<MonitorEntry> {
     ]
 }
 
-/// 新显示器提示（拔插检测的演示态）。
-pub const NEW_MONITOR_NAME: &str = "DELL U2723QE";
-
-/// 拓扑图可用绘图区尺寸（原型等比缩放的简化：固定框内适配）。
-pub fn topo_fit(monitor_rects: &[(f32, f32, f32, f32)]) -> (f32, f32, f32, f32, f32, f32) {
-    let min_x = monitor_rects.iter().map(|r| r.0).fold(f32::MAX, f32::min);
-    let min_y = monitor_rects.iter().map(|r| r.1).fold(f32::MAX, f32::min);
-    let max_x = monitor_rects.iter().map(|r| r.0 + r.2).fold(f32::MIN, f32::max);
-    let max_y = monitor_rects.iter().map(|r| r.1 + r.3).fold(f32::MIN, f32::max);
-    let w = max_x - min_x;
-    let h = max_y - min_y;
-    (min_x, min_y, w, h, 0., 0.)
-}
-
 /// 供向导第②步复用的内置样例描述（3 视频 + 3 Shader + 2 网页时钟）。
 pub struct SampleEntry {
     pub name: &'static str,
@@ -272,17 +298,68 @@ pub struct SampleEntry {
 }
 
 pub const WIZARD_SAMPLES: [SampleEntry; 8] = [
-    SampleEntry { name: "星云漂移", kind: Kind::Video, art: Art { from: 0x24345C, to: 0x0E0F13 } },
-    SampleEntry { name: "极光夜", kind: Kind::Video, art: Art { from: 0x1E4A3C, to: 0x0C110E } },
-    SampleEntry { name: "海浪", kind: Kind::Video, art: Art { from: 0x1C4A5E, to: 0x0E0F13 } },
-    SampleEntry { name: "正弦波场", kind: Kind::Shader, art: Art { from: 0x2E2A5E, to: 0x0E0F13 } },
-    SampleEntry { name: "等离子场", kind: Kind::Shader, art: Art { from: 0x3E2A5E, to: 0x0E0F13 } },
-    SampleEntry { name: "粒子星系", kind: Kind::Shader, art: Art { from: 0x14304A, to: 0x0A0D12 } },
-    SampleEntry { name: "极简时钟", kind: Kind::Web, art: Art { from: 0x2A2A30, to: 0x101012 } },
-    SampleEntry { name: "翻页日历", kind: Kind::Web, art: Art { from: 0x3A2E26, to: 0x12100C } },
+    SampleEntry {
+        name: "星云漂移",
+        kind: Kind::Video,
+        art: Art {
+            from: 0x24345C,
+            to: 0x0E0F13,
+        },
+    },
+    SampleEntry {
+        name: "极光夜",
+        kind: Kind::Video,
+        art: Art {
+            from: 0x1E4A3C,
+            to: 0x0C110E,
+        },
+    },
+    SampleEntry {
+        name: "海浪",
+        kind: Kind::Video,
+        art: Art {
+            from: 0x1C4A5E,
+            to: 0x0E0F13,
+        },
+    },
+    SampleEntry {
+        name: "正弦波场",
+        kind: Kind::Shader,
+        art: Art {
+            from: 0x2E2A5E,
+            to: 0x0E0F13,
+        },
+    },
+    SampleEntry {
+        name: "等离子场",
+        kind: Kind::Shader,
+        art: Art {
+            from: 0x3E2A5E,
+            to: 0x0E0F13,
+        },
+    },
+    SampleEntry {
+        name: "粒子星系",
+        kind: Kind::Shader,
+        art: Art {
+            from: 0x14304A,
+            to: 0x0A0D12,
+        },
+    },
+    SampleEntry {
+        name: "极简时钟",
+        kind: Kind::Web,
+        art: Art {
+            from: 0x2A2A30,
+            to: 0x101012,
+        },
+    },
+    SampleEntry {
+        name: "翻页日历",
+        kind: Kind::Web,
+        art: Art {
+            from: 0x3A2E26,
+            to: 0x12100C,
+        },
+    },
 ];
-
-/// 空状态/向导里的 16:9 缩略占位尺寸。
-pub fn thumb_height(width: f32) -> gpui_kit::gpui::Pixels {
-    px(width * 9. / 16.)
-}

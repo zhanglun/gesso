@@ -13,13 +13,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use objc2::rc::Retained;
-use objc2_app_kit::{
-    NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
-};
+use objc2_app_kit::{NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
 use objc2_foundation::MainThreadMarker;
-use raw_window_handle::{
-    AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle,
-};
+use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
 
 /// 图标层下缘之下一档（spike v1 定稿）
 const PIN_LEVEL: isize = -2147483604;
@@ -59,9 +55,12 @@ impl HasWindowHandle for DesktopViewHandle {
     fn window_handle(
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        let ns_view = std::ptr::NonNull::new(self.0 as *mut core::ffi::c_void).expect("NSView 指针非空");
+        let ns_view =
+            std::ptr::NonNull::new(self.0 as *mut core::ffi::c_void).expect("NSView 指针非空");
         // SAFETY: 借用期内 contentView 由 NSWindow 持有
-        Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::AppKit(AppKitWindowHandle::new(ns_view))) })
+        Ok(unsafe {
+            WindowHandle::borrow_raw(RawWindowHandle::AppKit(AppKitWindowHandle::new(ns_view)))
+        })
     }
 }
 
@@ -81,8 +80,8 @@ fn create_wallpaper_window(mtm: MainThreadMarker) -> (Retained<NSWindow>, lb_wry
             | NSWindowCollectionBehavior::IgnoresCycle,
     );
     window.setIgnoresMouseEvents(true); // 点击穿透到图标
-    // 透明底：webview 隐藏时透出系统壁纸（= 产品「回退静态壁纸」语义），
-    // 而不是露出窗口默认白底
+                                        // 透明底：webview 隐藏时透出系统壁纸（= 产品「回退静态壁纸」语义），
+                                        // 而不是露出窗口默认白底
     window.setOpaque(false);
     // SAFETY: clearColor 类方法，主线程调用
     let clear = unsafe { objc2_app_kit::NSColor::clearColor() };
@@ -102,7 +101,8 @@ fn create_wallpaper_window(mtm: MainThreadMarker) -> (Retained<NSWindow>, lb_wry
     webview
         .set_bounds(lb_wry::Rect {
             size: lb_wry::dpi::Size::Logical(lb_wry::dpi::LogicalSize::new(
-                frame.size.width, frame.size.height,
+                frame.size.width,
+                frame.size.height,
             )),
             position: lb_wry::dpi::Position::Logical(lb_wry::dpi::LogicalPosition::new(0., 0.)),
         })
@@ -125,9 +125,18 @@ fn tray_icon_rgba() -> Vec<u8> {
         for x in 0..w {
             let edge = x < 2 || y < 2 || x >= w - 2 || y >= h - 2;
             let bar = (8..24).contains(&x) && (14..18).contains(&y);
-            let (r, g, b) = if edge { (0x1E, 0x3B, 0x8F) } else if bar { (0xFF, 0xFF, 0xFF) } else { (0x31, 0x6E, 0xF5) };
+            let (r, g, b) = if edge {
+                (0x1E, 0x3B, 0x8F)
+            } else if bar {
+                (0xFF, 0xFF, 0xFF)
+            } else {
+                (0x31, 0x6E, 0xF5)
+            };
             let i = (y * w + x) * 4;
-            v[i] = r; v[i + 1] = g; v[i + 2] = b; v[i + 3] = 0xFF;
+            v[i] = r;
+            v[i + 1] = g;
+            v[i + 2] = b;
+            v[i + 3] = 0xFF;
         }
     }
     v
@@ -150,7 +159,10 @@ fn main() {
         menu.append_items(&[&mi_sw, &mi_hd, &PredefinedMenuItem::separator(), &mi_q])
             .expect("菜单");
         MenuEvent::set_event_handler(Some(|e: MenuEvent| {
-            MENU_ACTIONS.lock().unwrap().push(Box::leak(e.id().as_ref().to_string().into_boxed_str()));
+            MENU_ACTIONS
+                .lock()
+                .unwrap()
+                .push(Box::leak(e.id().as_ref().to_string().into_boxed_str()));
         }));
         let icon = tray_icon::Icon::from_rgba(tray_icon_rgba(), 32, 32).unwrap();
         let tray = tray_icon::TrayIconBuilder::new()
@@ -164,37 +176,40 @@ fn main() {
         // 动作轮询（wry WebView 仅限主线程操作；GPUI 前台执行器保证主线程）
         let wv: &'static lb_wry::WebView = Box::leak(Box::new(webview));
         let hidden: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(false)));
-        cx.spawn(async move |cx| {
-            loop {
-                cx.background_executor().timer(Duration::from_millis(120)).await;
-                let actions: Vec<&'static str> = {
-                    let mut q = MENU_ACTIONS.lock().unwrap();
-                    std::mem::take(&mut *q)
-                };
-                let _ = cx.update(|_cx| {
-                    for a in actions {
-                        match a {
-                            "swap" => {
-                                let to_b = !SWAPPED.fetch_xor(true, Ordering::SeqCst);
-                                let (a, b) = host_urls();
-                                let u = if to_b { b } else { a };
-                                let _ = wv.load_url(u);
-                                println!("[M1.5] 换壁纸 → {}", if to_b { "B（红）" } else { "A（时钟）" });
-                            }
-                            "hide" => {
-                                let now_hidden = !hidden.fetch_xor(true, Ordering::SeqCst);
-                                let _ = wv.set_visible(!now_hidden);
-                                println!("[M1.5] 壁纸 {}", if now_hidden { "隐藏" } else { "显示" });
-                            }
-                            "quit" => {
-                                println!("[M1.5] 退出");
-                                std::process::exit(0);
-                            }
-                            _ => {}
+        cx.spawn(async move |cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(120))
+                .await;
+            let actions: Vec<&'static str> = {
+                let mut q = MENU_ACTIONS.lock().unwrap();
+                std::mem::take(&mut *q)
+            };
+            let _ = cx.update(|_cx| {
+                for a in actions {
+                    match a {
+                        "swap" => {
+                            let to_b = !SWAPPED.fetch_xor(true, Ordering::SeqCst);
+                            let (a, b) = host_urls();
+                            let u = if to_b { b } else { a };
+                            let _ = wv.load_url(u);
+                            println!(
+                                "[M1.5] 换壁纸 → {}",
+                                if to_b { "B（红）" } else { "A（时钟）" }
+                            );
                         }
+                        "hide" => {
+                            let now_hidden = !hidden.fetch_xor(true, Ordering::SeqCst);
+                            let _ = wv.set_visible(!now_hidden);
+                            println!("[M1.5] 壁纸 {}", if now_hidden { "隐藏" } else { "显示" });
+                        }
+                        "quit" => {
+                            println!("[M1.5] 退出");
+                            std::process::exit(0);
+                        }
+                        _ => {}
                     }
-                });
-            }
+                }
+            });
         })
         .detach();
     });

@@ -14,4 +14,4 @@ pub use config::{AppConfig, MonitorDiff, PausePolicy, Settings, StartupBehavior}
 pub use error::{GessoError, Result};
 pub use library::{LibraryEntry, LibraryManifest};
 pub use session::{transfer, SessionEvent, SessionState};
-pub use spec::{ContentSpec, Fit, SpecMeta, WallpaperKind};
+pub use spec::{AudioPolicy, ContentSpec, Fit, SpecMeta, WallpaperKind};

@@ -13,9 +13,11 @@ use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Theme, ThemeMode};
-use gpui_kit::gpui::{px, size, rgb, AnyElement, Bounds, Context, FocusHandle, Focusable,
-    Global, Hsla, IntoElement, ParentElement, Render, SharedString, Styled, TitlebarOptions,
-    Window, WindowBounds, WindowOptions};
+use gpui_kit::gpui::{
+    px, rgb, size, AnyElement, Bounds, Context, FocusHandle, Focusable, Global, Hsla, IntoElement,
+    ParentElement, Render, SharedString, Styled, TitlebarOptions, Window, WindowBounds,
+    WindowOptions,
+};
 use gpui_kit::*;
 use gpui_wry::WebView;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -55,8 +57,10 @@ impl HostView {
         match raw.as_raw() {
             RawWindowHandle::AppKit(h) => {
                 // rwh 0.6 给的是 NSView；NSWindow 经 objc2 view.window() 取（M1.5 实现）
-                println!("[③ PASS] macOS NSView = {:p}（→ NSWindow 由 M1.5 压层时获取）",
-                    h.ns_view.as_ptr() as *const core::ffi::c_void)
+                println!(
+                    "[③ PASS] macOS NSView = {:p}（→ NSWindow 由 M1.5 压层时获取）",
+                    h.ns_view.as_ptr() as *const core::ffi::c_void
+                )
             }
             RawWindowHandle::Win32(h) => {
                 println!("[③ PASS] Windows HWND = {:?}", h.hwnd)
@@ -74,7 +78,10 @@ impl HostView {
         });
         println!("[① PASS] 壁纸窗口 webview 已挂载");
 
-        cx.new(|cx| Self { focus_handle: cx.focus_handle(), webview })
+        cx.new(|cx| Self {
+            focus_handle: cx.focus_handle(),
+            webview,
+        })
     }
 }
 
@@ -121,7 +128,9 @@ impl ReportView {
         // ② 托盘计数轮询：500ms 定时 notify（证明 GPUI 循环与 tray 事件共存）
         cx.spawn(async move |this, cx| {
             loop {
-                cx.background_executor().timer(Duration::from_millis(200)).await;
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
                 let actions: Vec<&'static str> = {
                     let mut q = MENU_ACTIONS.lock().unwrap();
                     std::mem::take(&mut *q)
@@ -129,35 +138,47 @@ impl ReportView {
                 if !actions.is_empty() {
                     println!("[② POLL] 取到动作 {actions:?}");
                 }
-                if this.update(cx, |this, cx| {
-                    for a in actions {
-                        match a {
-                            // "打开快速面板" → 可见效果：切换壁纸窗口 webview 显隐
-                            "panel" => {
-                                let (url_a, url_b) = spike_urls();
-                                let to_b = !SWAPPED.fetch_xor(true, Ordering::SeqCst);
-                                this.host.update(cx, |host, cx| {
-                                    host.webview.update(cx, |wv, _| {
-                                        wv.load_url(if to_b { url_b } else { url_a });
-                                    })
-                                });
-                                println!("[② ACT] 壁纸切换 → {}", if to_b { "B（蓝页）" } else { "A（时钟）" });
+                if this
+                    .update(cx, |this, cx| {
+                        for a in actions {
+                            match a {
+                                // "打开快速面板" → 可见效果：切换壁纸窗口 webview 显隐
+                                "panel" => {
+                                    let (url_a, url_b) = spike_urls();
+                                    let to_b = !SWAPPED.fetch_xor(true, Ordering::SeqCst);
+                                    this.host.update(cx, |host, cx| {
+                                        host.webview.update(cx, |wv, _| {
+                                            wv.load_url(if to_b { url_b } else { url_a });
+                                        })
+                                    });
+                                    println!(
+                                        "[② ACT] 壁纸切换 → {}",
+                                        if to_b {
+                                            "B（蓝页）"
+                                        } else {
+                                            "A（时钟）"
+                                        }
+                                    );
+                                }
+                                "count" => {} // MENU_NOTE 由 render 读取
+                                "quit" => cx.quit(),
+                                _ => {}
                             }
-                            "count" => {} // MENU_NOTE 由 render 读取
-                            "quit" => cx.quit(),
-                            _ => {}
                         }
-                    }
-                    cx.notify();
-                })
-                .is_err()
+                        cx.notify();
+                    })
+                    .is_err()
                 {
                     break;
                 }
             }
         })
         .detach();
-        Self { focus_handle: cx.focus_handle(), host, panel_open: true }
+        Self {
+            focus_handle: cx.focus_handle(),
+            host,
+            panel_open: true,
+        }
     }
 }
 
@@ -176,52 +197,103 @@ impl Render for ReportView {
             .size_full()
             .text_size(px(13.))
             .child(
-                h_flex().px_6().py_4().border_b_1().border_color(rgb(0xE5E5EA))
-                    .child(div().text_size(px(15.)).font_weight(gpui_kit::FontWeight::BOLD)
-                        .child("M0.5 判定点0 · 四连验"))
+                h_flex()
+                    .px_6()
+                    .py_4()
+                    .border_b_1()
+                    .border_color(rgb(0xE5E5EA))
+                    .child(
+                        div()
+                            .text_size(px(15.))
+                            .font_weight(gpui_kit::FontWeight::BOLD)
+                            .child("M0.5 判定点0 · 四连验"),
+                    )
+                    .child(div().flex_1())
+                    .child(Button::new("theme-toggle").label("④ 切换亮/暗").on_click(
+                        |_, _, cx| {
+                            let next = if cx.theme().mode == ThemeMode::Dark {
+                                ThemeMode::Light
+                            } else {
+                                ThemeMode::Dark
+                            };
+                            Theme::change(next, None, cx);
+                        },
+                    )),
+            )
+            .child(row(
+                "①",
+                "gpui-wry 壁纸窗口",
+                if host_alive {
+                    "已打开（左侧小窗）".into()
+                } else {
+                    "未开".into()
+                },
+            ))
+            .child(row("②", "tray-icon × GPUI 循环", {
+                let note = MENU_NOTE.lock().unwrap().clone();
+                SharedString::from(if note.is_empty() {
+                    format!("托盘左键 {clicks} 次 · 点菜单项看效果（panel 切换 webview）")
+                } else {
+                    note
+                })
+            }))
+            .child(row(
+                "③",
+                "原生窗口句柄",
+                "已打印到 stdout（NSWindow/HWND）".into(),
+            ))
+            .child(row(
+                "④",
+                "冻结 token → kit 主题",
+                SharedString::from(format!(
+                    "accent {} · bg {}",
+                    hex(cx.theme().colors.accent),
+                    hex(cx.theme().colors.background)
+                )),
+            ))
+            .child(
+                h_flex()
+                    .px_6()
+                    .py_4()
+                    .gap_2()
+                    .child(
+                        div()
+                            .size(px(28.))
+                            .rounded_md()
+                            .bg(cx.theme().colors.accent),
+                    )
+                    .child(
+                        div()
+                            .size(px(28.))
+                            .rounded_md()
+                            .bg(cx.theme().colors.background)
+                            .border_1()
+                            .border_color(cx.theme().colors.border),
+                    )
+                    .child(
+                        div()
+                            .size(px(28.))
+                            .rounded_md()
+                            .bg(cx.theme().colors.danger),
+                    )
                     .child(div().flex_1())
                     .child(
-                        Button::new("theme-toggle")
-                            .label("④ 切换亮/暗")
-                            .on_click(|_, _, cx| {
-                                let next = if cx.theme().mode == ThemeMode::Dark {
-                                    ThemeMode::Light
-                                } else {
-                                    ThemeMode::Dark
-                                };
-                                Theme::change(next, None, cx);
-                            }),
+                        div()
+                            .text_color(rgb(0x6E6E73))
+                            .child("swatch: accent / surface / danger"),
                     ),
-            )
-            .child(row("①", "gpui-wry 壁纸窗口", if host_alive { "已打开（左侧小窗）".into() } else { "未开".into() }))
-            .child(row("②", "tray-icon × GPUI 循环",
-                {
-                    let note = MENU_NOTE.lock().unwrap().clone();
-                    SharedString::from(if note.is_empty() {
-                        format!("托盘左键 {clicks} 次 · 点菜单项看效果（panel 切换 webview）")
-                    } else {
-                        note
-                    })
-                }))
-            .child(row("③", "原生窗口句柄", "已打印到 stdout（NSWindow/HWND）".into()))
-            .child(row("④", "冻结 token → kit 主题",
-                SharedString::from(format!("accent {} · bg {}",
-                    hex(cx.theme().colors.accent), hex(cx.theme().colors.background)))))
-            .child(
-                h_flex().px_6().py_4().gap_2()
-                    .child(div().size(px(28.)).rounded_md().bg(cx.theme().colors.accent))
-                    .child(div().size(px(28.)).rounded_md().bg(cx.theme().colors.background).border_1().border_color(cx.theme().colors.border))
-                    .child(div().size(px(28.)).rounded_md().bg(cx.theme().colors.danger))
-                    .child(div().flex_1())
-                    .child(div().text_color(rgb(0x6E6E73)).child("swatch: accent / surface / danger")),
             )
     }
 }
 
 fn hex(c: Hsla) -> String {
     let rgba: gpui_kit::gpui::Rgba = c.into();
-    format!("#{:02X}{:02X}{:02X}",
-        (rgba.r * 255.) as u8, (rgba.g * 255.) as u8, (rgba.b * 255.) as u8)
+    format!(
+        "#{:02X}{:02X}{:02X}",
+        (rgba.r * 255.) as u8,
+        (rgba.g * 255.) as u8,
+        (rgba.b * 255.) as u8
+    )
 }
 
 /* ---------- 托盘图标（程序生成 32×32，无资产文件） ---------- */
@@ -233,9 +305,18 @@ fn tray_icon_rgba() -> Vec<u8> {
         for x in 0..w {
             let edge = x < 2 || y < 2 || x >= w - 2 || y >= h - 2;
             let g_bar = (8..24).contains(&x) && (14..18).contains(&y); // "G" 的横杠
-            let (r, g, b) = if edge { (0x1E, 0x3B, 0x8F) } else if g_bar { (0xFF, 0xFF, 0xFF) } else { (0x31, 0x6E, 0xF5) };
+            let (r, g, b) = if edge {
+                (0x1E, 0x3B, 0x8F)
+            } else if g_bar {
+                (0xFF, 0xFF, 0xFF)
+            } else {
+                (0x31, 0x6E, 0xF5)
+            };
             let i = (y * w + x) * 4;
-            v[i] = r; v[i + 1] = g; v[i + 2] = b; v[i + 3] = 0xFF;
+            v[i] = r;
+            v[i + 1] = g;
+            v[i + 2] = b;
+            v[i + 3] = 0xFF;
         }
     }
     v
@@ -291,7 +372,14 @@ fn main() {
             .expect("[② FAIL] 托盘创建");
         Box::leak(Box::new(tray)); // ponytail: spike 保活，正式实现存入 AppState
         tray_icon::TrayIconEvent::set_event_handler(Some(|e: tray_icon::TrayIconEvent| {
-            if matches!(e, tray_icon::TrayIconEvent::Click { button: tray_icon::MouseButton::Left, button_state: tray_icon::MouseButtonState::Up, .. }) {
+            if matches!(
+                e,
+                tray_icon::TrayIconEvent::Click {
+                    button: tray_icon::MouseButton::Left,
+                    button_state: tray_icon::MouseButtonState::Up,
+                    ..
+                }
+            ) {
                 let n = TRAY_CLICKS.fetch_add(1, Ordering::SeqCst) + 1;
                 println!("[② PASS] 左键点击第 {n} 次");
             }
@@ -317,23 +405,33 @@ fn main() {
         if std::env::var("GESSO_AUTO").is_ok() {
             let host2 = host.clone();
             cx.spawn(async move |cx| {
-                cx.background_executor().timer(Duration::from_millis(2000)).await;
+                cx.background_executor()
+                    .timer(Duration::from_millis(2000))
+                    .await;
                 let (_a, b) = spike_urls();
                 let b2 = b.to_string();
                 let _ = host2.update(cx, |h, cx| h.webview.update(cx, |w, _| w.load_url(&b2)));
                 println!("[AUTO] t=2s file:// 载入红页 B");
-                cx.background_executor().timer(Duration::from_millis(2000)).await;
+                cx.background_executor()
+                    .timer(Duration::from_millis(2000))
+                    .await;
                 let _ = host2.update(cx, |h, cx| h.webview.update(cx, |w, _| w.hide()));
                 println!("[AUTO] t=4s hide（应露蓝色 GPUI 底）");
-                cx.background_executor().timer(Duration::from_millis(2000)).await;
+                cx.background_executor()
+                    .timer(Duration::from_millis(2000))
+                    .await;
                 let _ = host2.update(cx, |h, cx| h.webview.update(cx, |w, _| w.show()));
                 println!("[AUTO] t=6s show（应回红页）");
-                cx.background_executor().timer(Duration::from_millis(2000)).await;
+                cx.background_executor()
+                    .timer(Duration::from_millis(2000))
+                    .await;
                 let (a, _) = spike_urls();
                 let a2 = a.to_string();
                 let _ = host2.update(cx, |h, cx| h.webview.update(cx, |w, _| w.load_url(&a2)));
                 println!("[AUTO] t=8s file:// 载回时钟 A");
-                cx.background_executor().timer(Duration::from_millis(3000)).await;
+                cx.background_executor()
+                    .timer(Duration::from_millis(3000))
+                    .await;
                 println!("[AUTO] t=11s quit");
                 cx.update(|cx| cx.quit());
             })
@@ -344,7 +442,9 @@ fn main() {
         let (_main, _) = gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None, size(px(560.), px(380.)), cx,
+                    None,
+                    size(px(560.), px(380.)),
+                    cx,
                 ))),
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from("Gesso · M0.5 spike")),

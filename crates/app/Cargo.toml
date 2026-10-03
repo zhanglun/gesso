@@ -19,6 +19,10 @@ thiserror.workspace = true
 # 官方 gpui_platform 未发布，kit 用的是快照版 gpui-pre-platform；gpui-wry 同仓同版本（M0.5 用）。
 # ⚠️ gpui-pre 为周更快照通道，API 可变——升级必须整组快照一起动，且只在里程碑间隙做。
 gpui-kit = "0.7"
+lb-wry = "0.53"
+raw-window-handle = "0.6"
+single-instance = "0.3"
+tray-icon = "0.26.0"
 
 # 平台依赖（贴壁层 §4；M1 起使用，先声明锁定版本）
 [target.'cfg(windows)'.dependencies]
@@ -30,11 +34,7 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSWorkspace"] }
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSWorkspace", "NSScreen", "NSColor", "NSResponder"] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSDictionary", "NSString"] }
 
-[dev-dependencies]
-gpui-wry = "0.7"
-lb-wry = "0.53"
-objc2-foundation = "0.3"
-raw-window-handle = "0.6"
-tray-icon = "0.26.0"
+

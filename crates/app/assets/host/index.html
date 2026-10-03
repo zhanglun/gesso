@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<!-- Gesso 壁纸宿主页 · M2 最小版（video renderer）
+     契约（技术方案 §5.1）：URL query 的 spec= 为 urlencoded JSON ContentSpec；
+     window.__gesso.pause()/resume() 由 pin 层经 evaluate_script 调用（§5.3）。 -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+  video, img { width: 100%; height: 100%; object-fit: cover; display: block; }
+</style>
+</head>
+<body>
+<video id="media" autoplay muted loop playsinline></video>
+<img id="imgmedia" alt="" style="display:none">
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  let spec = null;
+  try { spec = JSON.parse(decodeURIComponent(q.get("spec") || "null")); } catch (e) {}
+  if (!spec) { document.body.textContent = "Gesso: 缺少内容规格"; return; }
+
+  const v = document.getElementById("media");
+  const img = document.getElementById("imgmedia");
+
+  // —— 诊断状态色（M2 调试期；状态一眼可判）——
+  // 红=媒体错误  绿=播放中  蓝=已加载但暂停  品红=调用过 pause  黄=调用过 resume
+  function state(c) { document.body.style.background = c; }
+  v.addEventListener("error", function () { state("#FF0000"); });
+  v.addEventListener("playing", function () { state("#00AA00"); });
+  v.addEventListener("loadeddata", function () { state(v.paused ? "#0000FF" : "#00AA00"); });
+
+  if (spec.kind === "video") {
+    v.src = spec.source; v.play().catch(function () {});
+  } else if (spec.kind === "image") {
+    v.style.display = "none"; img.style.display = "block"; img.src = spec.source;
+  } else {
+    document.body.textContent = "Gesso: 暂不支持的类型 " + spec.kind;
+  }
+
+  // §5.3 暂停契约：JS 层停帧，窗口常驻
+  window.__gesso = {
+    pause: function () { v.pause(); state("#FF00FF"); },
+    resume: function () { v.play().catch(function () {}); state("#FFAA00"); }
+  };
+
+  // 错误上报（回退静态图由 Rust 侧状态机负责，此处仅提示）
+  v.addEventListener("error", function () {
+    document.body.textContent = "Gesso: 素材加载失败（" + spec.source + "）";
+  });
+})();
+</script>
+</body>
+</html>

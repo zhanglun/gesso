@@ -1,22 +1,24 @@
 //! 壁纸库页（§4.3，默认页）：筛选 / 搜索 / 卡片网格 / 状态条 / 空状态 /
 //! 右键菜单 / 拖拽发起 + 拖拽时的全屏投放区（signature #2）。
 
-use gpui_kit::component::icon::{Icon, IconName};
-use gpui_kit::component::input::{InputState, TextInput};
-use gpui_kit::component::menu::{PopupMenuItem, PopupMenu};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{h_flex, v_flex, Icon, WindowExt as _};
+use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    AnyElement, App, ClickEvent, Context, Entity, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
-    div, px, rgba,
+    div, px, rgba, AnyElement, App, AppContext as _, BorrowAppContext as _, ClickEvent, Context,
+    Entity, Focusable as _, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
+    Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 
-use super::app_state::{CardDrag, Filter, GessoState, state, update};
-use super::data::LibraryItem;
+use super::app_state::{state, update, CardDrag, Filter, GessoState};
+use super::data::{Art, Kind, LibraryItem};
 use super::strings::*;
 use super::theme::tokens;
-use super::widgets::{badge, empty_art, play_state_visual, preview};
+use super::widgets::{badge, empty_art, preview};
 
 const CARD_W: f32 = 208.;
 
@@ -26,14 +28,10 @@ pub struct LibraryView {
 
 impl LibraryView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(SEARCH_PLACEHOLDER)
-                .cleanable(true)
-        });
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder(SEARCH_PLACEHOLDER));
         // 搜索即时过滤：输入事件 → 全局 query（§4.3 交互表）
-        cx.subscribe(&search_input, |_, input, event: &gpui_kit::component::input::InputEvent, cx| {
-            if matches!(event, gpui_kit::component::input::InputEvent::Change) {
+        cx.subscribe(&search_input, |_, input, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
                 let q = input.read(cx).value().to_string();
                 cx.update_global::<GessoState, _>(|g, _| g.query = q);
                 cx.notify();
@@ -45,8 +43,8 @@ impl LibraryView {
 
     /// 键盘模型 `F`：聚焦搜索（Shell 调用）。
     pub fn focus_search(&self, window: &mut Window, cx: &mut App) {
-        let handle = self.search_input.read(cx).focus_handle(cx);
-        window.focus(&handle);
+        let handle = self.search_input.read(cx).focus_handle(cx).clone();
+        window.focus(&handle, cx);
     }
 
     /// 键盘模型 `Esc`：清空搜索。
@@ -58,19 +56,15 @@ impl LibraryView {
             .is_focused(window);
         let empty = self.search_input.read(cx).value().is_empty();
         if focused || !empty {
-            self.search_input.update(cx, |input, cx| {
-                input.set_value("", window, cx);
+            self.search_input
+                .update(cx, |input, cx| input.set_value("", window, cx));
+            update(window, cx, |g| {
+                g.query.clear();
             });
-            update(window, cx, |g| g.query.clear());
         }
     }
 
-    fn seg_button(
-        &self,
-        f: Filter,
-        idx: usize,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn seg_button(&self, f: Filter, idx: usize, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let selected = state(cx).filter == f;
         let label = f.label();
@@ -81,13 +75,11 @@ impl LibraryView {
             .rounded(px(5.))
             .text_size(px(12.))
             .text_color(if selected { t.text1 } else { t.text2 })
-            .when_(selected, |d| {
-                d.bg(t.elevated)
-                    .font_weight(gpui_kit::FontWeight::MEDIUM)
-                    .shadow_sm()
+            .when(selected, |d| {
+                d.bg(t.elevated).font_weight(FontWeight::MEDIUM).shadow_sm()
             })
             .hover(|s| s.text_color(t.text1))
-            .child(label.to_string())
+            .child(label)
             .on_click(cx.listener(move |_, _, _, cx| {
                 cx.update_global::<GessoState, _>(|g, _| g.filter = f);
                 cx.notify();
@@ -99,10 +91,10 @@ impl LibraryView {
         let t = tokens(cx);
         let filters = [
             Filter::All,
-            Filter::Kind(super::data::Kind::Video),
-            Filter::Kind(super::data::Kind::Gif),
-            Filter::Kind(super::data::Kind::Shader),
-            Filter::Kind(super::data::Kind::Web),
+            Filter::Kind(Kind::Video),
+            Filter::Kind(Kind::Gif),
+            Filter::Kind(Kind::Shader),
+            Filter::Kind(Kind::Web),
             Filter::We,
         ];
         let seg = h_flex()
@@ -120,26 +112,25 @@ impl LibraryView {
         let search = div()
             .w(px(220.))
             .child(
-                TextInput::new(&self.search_input)
-                    .prefix(Icon::new(IconName::Search).size_3().into_any_element()),
+                Input::new(&self.search_input)
+                    .cleanable(true)
+                    .prefix(Icon::new(IconName::Search).into_any_element()),
             )
             .into_any_element();
 
-        let import = gpui_kit::component::button::Button::new("btn-import")
+        let import = Button::new("btn-import")
             .label(BTN_IMPORT)
             .secondary()
-            .icon(IconName::Plus)
+            .icon(Icon::new(IconName::Plus))
             .on_click(|_, window, cx| {
                 let name = cx.update_global::<GessoState, _>(|g, _| g.import_demo());
-                window.push_notification(
-                    Notification::success(format!("已导入「{name}」（演示）")),
-                    cx,
-                );
+                window.refresh();
+                window.push_notification(Notification::success(toast_imported(&name)), cx);
             });
-        let scan = gpui_kit::component::button::Button::new("btn-scan")
+        let scan = Button::new("btn-scan")
             .label(BTN_SCAN_WORKSHOP)
             .secondary()
-            .icon(IconName::Scan)
+            .icon(Icon::new(IconName::Scan))
             .on_click(|_, window, cx| {
                 window.push_notification(Notification::info(TOAST_SCAN_FOUND), cx);
             });
@@ -160,37 +151,43 @@ impl LibraryView {
             .into_any_element()
     }
 
-    fn card(&self, idx: usize, item: &LibraryItem, cx: &mut Context<Self>) -> AnyElement {
+    fn card(&self, item: &LibraryItem, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
+        let hairline2 = t.hairline2;
         let id = item.id.clone();
-        let name = item.name.clone();
         let broken = item.broken;
         let selected = state(cx).selected.as_ref() == Some(&item.id);
         let assigned_to = item.assigned;
 
-        // 信息条：3px 语义指示条（§4.3 卡片解剖）
+        // 信息条：3px 语义指示条（§4.3 卡片解剖）——已指派 accent / 失效 danger / 未指派无
         let indicator_color = if broken {
             t.danger
         } else if assigned_to.is_some() {
             t.accent
         } else {
-            gpui_kit::gpui::transparent_black().into()
+            gpui_kit::gpui::transparent_black()
         };
 
         let meta_line: AnyElement = if broken {
             div()
                 .text_size(px(12.))
                 .text_color(t.danger)
-                .child(FILE_REMOVED.to_string())
+                .child(FILE_REMOVED)
                 .into_any_element()
         } else {
             let mut meta = item.meta.to_string();
             if let Some(m) = assigned_to {
-                meta = format!("{} · → {}", meta, state(cx).monitor_name(m).replace("显示器", "屏"));
+                let short = state(cx)
+                    .monitors
+                    .get(m)
+                    .map(|mm| mm.short.to_string())
+                    .unwrap_or_else(|| "?".into());
+                meta = format!("{meta} · → {short}");
             }
             div()
                 .text_size(px(12.))
                 .text_color(t.text2)
+                .font_features(super::widgets::tabular())
                 .child(meta)
                 .into_any_element()
         };
@@ -198,9 +195,10 @@ impl LibraryView {
         let badges = h_flex()
             .gap_1()
             .child(badge(item.kind.label(), false, cx))
-            .when_(item.we, |r| r.child(badge(BADGE_WE, true, cx)))
+            .when(item.we, |r| r.child(badge(BADGE_WE, true, cx)))
             .into_any_element();
 
+        let hover_id = item.id.clone();
         let mut card = div()
             .id(SharedString::from(format!("card-{}", item.id)))
             .group("card")
@@ -209,108 +207,61 @@ impl LibraryView {
             .bg(t.panel)
             .border_1()
             .border_color(if selected { t.accent } else { t.hairline })
-            .when_(selected, |d| d.border_2())
+            .when(selected, |d| d.border_2())
             .overflow_hidden()
             .cursor_pointer()
-            .hover(|s| s.shadow_md().when_(!selected, |s| s.border_color(t.hairline2)))
+            .hover(move |s| {
+                if selected {
+                    s.shadow_md()
+                } else {
+                    s.shadow_md().border_color(hairline2)
+                }
+            })
             .on_click(cx.listener(move |_, click: &ClickEvent, window, cx| {
-                if click.up.click_count >= 2 {
-                    // 双击 = 设为主显示器（托盘气泡确认）
-                    let result = cx.update_global::<GessoState, _>(|g, _| {
-                        g.assign(g.main_monitor(), id.as_ref()).map(|_| ()).map_err(|e| e.to_string())
-                    });
-                    match result {
-                        Ok(Ok(())) => {
-                            window.refresh();
+                if click.click_count() >= 2 {
+                    // 双击 = 设为主显示器（托盘气泡确认）；经桥写入真会话
+                    match super::app_state::bridge_assign(window, cx, 0, &id) {
+                        Ok(name) => {
                             window.push_notification(
-                                Notification::success(format!(
-                                    "{}",
-                                    TOAST_APPLY_MAIN.replace("{}", &name)
-                                )),
+                                Notification::success(toast_apply_main(&name)),
                                 cx,
                             );
                         }
-                        Ok(Err(e)) => window.push_notification(Notification::warning(e), cx),
-                        Err(_) => {}
+                        Err(e) => {
+                            window.push_notification(Notification::warning(e), cx);
+                        }
                     }
                 } else {
                     update(window, cx, |g| g.selected = Some(id.clone()));
                 }
             }))
             .on_drag(
-                CardDrag { item_id: item.id.clone(), item_name: item.name.clone() },
+                CardDrag {
+                    item_id: item.id.clone(),
+                    item_name: item.name.clone(),
+                    art: item.art,
+                },
                 |drag, _, _, cx| {
                     cx.new(|_| CardGhost {
                         name: drag.item_name.clone(),
-                        art: drag_art(&drag.item_id),
+                        art: drag.art,
                     })
                 },
             )
             .on_hover(cx.listener(move |_, hovering: &bool, window, cx| {
                 // signature #1：悬停库卡片 → 对应显示器边框点亮
                 update(window, cx, |g| {
-                    g.hovered = if *hovering { Some(item.id.clone()) } else { None };
+                    g.hovered = if *hovering {
+                        Some(hover_id.clone())
+                    } else {
+                        None
+                    };
                 });
             }))
-            .context_menu(move |menu, _, _| {
-                let item_id = item.id.clone();
-                let item_name = item.name.clone();
-                let is_broken = broken;
-                let menu = if is_broken {
-                    // 失效卡片：从库移除置顶（§4.3 错误状态）
-                    menu.item(
-                        PopupMenuItem::new(MENU_REMOVE)
-                            .element_icon(None)
-                            .on_click(move |_, window, cx| remove_item(&item_id, window, cx)),
-                    )
-                    .separator()
-                    .item(
-                        PopupMenuItem::new(MENU_OPEN_FOLDER)
-                            .disabled(true),
-                    )
-                } else {
-                    let sub_targets = [("主屏", 0usize), ("副屏", 1usize)];
-                    let sub = PopupMenu::build(cx.window, cx.app, |m, _, _| {
-                        let mut m = m
-                            .item(PopupMenuItem::new(sub_targets[0].0).on_click({
-                                let id = item_id.clone();
-                                move |_, window, cx| assign_item(&id, 0, window, cx)
-                            }))
-                            .item(PopupMenuItem::new(sub_targets[1].0).on_click({
-                                let id = item_id.clone();
-                                move |_, window, cx| assign_item(&id, 1, window, cx)
-                            }));
-                        m = m.item(PopupMenuItem::new(MENU_ALL_MONITORS).on_click({
-                            let id = item_id.clone();
-                            move |_, window, cx| assign_all(&id, window, cx)
-                        }));
-                        m
-                    });
-                    menu.item(
-                        PopupMenuItem::new(MENU_SET_WALLPAPER)
-                            .submenu(MENU_SET_WALLPAPER, sub),
-                    )
-                    .separator()
-                    .item(PopupMenuItem::new(MENU_OPEN_FOLDER).on_click(|_, window, cx| {
-                        window.push_notification(Notification::info(TOAST_OPEN_FOLDER), cx);
-                    }))
-                    .item(PopupMenuItem::new(MENU_DETAILS).on_click({
-                        let id = item_id.clone();
-                        move |_, window, cx| {
-                            update(window, cx, |g| g.selected = Some(id.clone()));
-                        }
-                    }))
-                    .separator()
-                    .item(
-                        PopupMenuItem::element(move |_, _| {
-                            danger_item(MENU_REMOVE)
-                        })
-                        .on_click(move |_, window, cx| {
-                            remove_item(&item_id2(&item_name, &item_id), window, cx)
-                        }),
-                    )
-                };
-                menu
+            .context_menu({
+                let id = item.id.clone();
+                let broken = item.broken;
+                move |menu, window, cx| card_context_menu(&id, broken, menu, window, cx)
             });
 
         card = card
@@ -319,8 +270,7 @@ impl LibraryView {
                 div()
                     .relative()
                     .h(px(56.))
-                    .pt_2()
-                    .pb_2()
+                    .py_2()
                     .pl(px(12.))
                     .pr(px(10.))
                     .flex()
@@ -345,7 +295,7 @@ impl LibraryView {
                                 div()
                                     .flex_1()
                                     .text_size(px(13.))
-                                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                                    .font_weight(FontWeight::MEDIUM)
                                     .text_color(if broken { t.danger } else { t.text1 })
                                     .truncate()
                                     .child(item.name.to_string()),
@@ -359,32 +309,30 @@ impl LibraryView {
     }
 
     fn grid(&self, cx: &mut Context<Self>) -> AnyElement {
-        let t = tokens(cx);
-        let g = state(cx);
-        let visible = g.visible_items();
-        if g.library.is_empty() {
+        let visible = state(cx).visible_items();
+        if state(cx).library.is_empty() {
             return empty_library(cx);
         }
         if visible.is_empty() {
             return empty_search(cx);
         }
-        let cards: Vec<AnyElement> = visible
-            .into_iter()
-            .filter_map(|i| g.library.get(i).cloned())
-            .map(|item| self.card_by_item(item, cx))
-            .collect();
+        let items: Vec<LibraryItem> = {
+            let g = state(cx);
+            visible
+                .iter()
+                .filter_map(|i| g.library.get(*i).cloned())
+                .collect()
+        };
+        let cards: Vec<AnyElement> = items.into_iter().map(|item| self.card(&item, cx)).collect();
         div()
             .id("library-grid")
             .flex_1()
             .overflow_y_scroll()
-            .p_4()
+            .py_4()
             .px(px(14.))
+            .min_h_0()
             .child(div().flex().flex_wrap().gap(px(14.)).children(cards))
             .into_any_element()
-    }
-
-    fn card_by_item(&self, item: LibraryItem, cx: &mut Context<Self>) -> AnyElement {
-        self.card(0, &item, cx)
     }
 
     fn statusbar(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -394,12 +342,7 @@ impl LibraryView {
         let mut count_text = format!("{} 项 · WE {}", g.library.len(), we_count);
         if let Some(sel) = &g.selected {
             if let Some(item) = g.library.iter().find(|w| &w.id == sel) {
-                count_text = format!(
-                    "{}  ·  {} · {}",
-                    count_text,
-                    item.name,
-                    item.meta
-                );
+                count_text = format!("{count_text}  ·  {} · {}", item.name, item.meta);
             }
         }
         h_flex()
@@ -418,39 +361,40 @@ impl LibraryView {
             .into_any_element()
     }
 
-    /// 拖拽中的全屏投放区（原型行为：不切页签，覆盖层投放）。
+    /// 拖拽中的全屏投放区（原型行为：不切页签，覆盖层上投放 = 指派）。
     fn drag_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let dragging = cx
-            .active_drag
-            .as_ref()
-            .and_then(|d| d.value.downcast_ref::<CardDrag>().is_some())
-            .unwrap_or(false);
-        if !dragging {
+        if !cx.has_active_drag() {
             return None;
         }
         let t = tokens(cx);
+        let (accent, accent_soft, elevated, hairline, text1, text2) = (
+            t.accent,
+            t.accent_soft,
+            t.elevated,
+            t.hairline,
+            t.text1,
+            t.text2,
+        );
         let targets: Vec<AnyElement> = state(cx)
             .monitors
             .iter()
             .enumerate()
-            .map(|(i, m)| {
+            .map(move |(i, m)| {
                 div()
                     .id(SharedString::from(format!("dz-{i}")))
                     .w(px(180.))
                     .h(px(120.))
                     .rounded(px(12.))
-                    .bg(t.elevated)
+                    .bg(elevated)
                     .border_1()
-                    .border_color(t.hairline)
+                    .border_color(hairline)
                     .flex()
                     .flex_col()
                     .items_center()
                     .justify_center()
                     .gap_1()
-                    .drag_over::<CardDrag>(|s, _, _, _| {
-                        s.border_color(t.accent)
-                            .border_dashed()
-                            .bg(t.accent_soft)
+                    .drag_over::<CardDrag>(move |s, _, _, _| {
+                        s.border_color(accent).border_dashed().bg(accent_soft)
                     })
                     .on_drop(move |drag: &CardDrag, window, cx| {
                         assign_item(&drag.item_id, i, window, cx);
@@ -458,14 +402,14 @@ impl LibraryView {
                     .child(
                         div()
                             .text_size(px(13.))
-                            .font_weight(gpui_kit::FontWeight::MEDIUM)
-                            .text_color(t.text1)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(text1)
                             .child(m.name.to_string()),
                     )
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(t.text2)
+                            .text_color(text2)
                             .font_features(super::widgets::tabular())
                             .child(m.label.to_string()),
                     )
@@ -503,6 +447,7 @@ impl Render for LibraryView {
         let overlay = self.drag_overlay(cx);
         v_flex()
             .size_full()
+            .text_color(t.text1)
             .child(toolbar)
             .child(
                 div()
@@ -510,37 +455,80 @@ impl Render for LibraryView {
                     .relative()
                     .min_h_0()
                     .child(grid)
-                    .when_(overlay.is_some(), |d| d.child(overlay.unwrap())),
+                    .when_some(overlay, |d, o| d.child(o)),
             )
             .child(statusbar)
-            .text_color(t.text1)
     }
 }
 
-/* ---------- 动作辅助（菜单/拖放共享） ---------- */
+/* ---------- 右键菜单（§4.3：设为壁纸子菜单 · 打开目录 · 详情 · 移除红字置底） ---------- */
 
-fn item_id2(_name: &str, id: &SharedString) -> SharedString {
-    id.clone()
+fn card_context_menu(
+    item_id: &SharedString,
+    broken: bool,
+    menu: PopupMenu,
+    window: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    if broken {
+        // 失效卡片：从库移除置顶（§4.3 错误状态）
+        return menu
+            .item(PopupMenuItem::new(MENU_REMOVE).on_click({
+                let id = item_id.clone();
+                move |_, window, cx| remove_item(&id, window, cx)
+            }))
+            .separator()
+            .item(PopupMenuItem::new(MENU_OPEN_FOLDER).disabled(true));
+    }
+
+    let sub = PopupMenu::build(window, cx, |m, _, _| {
+        m.item(PopupMenuItem::new("主屏").on_click({
+            let id = item_id.clone();
+            move |_, window, cx| assign_item(&id, 0, window, cx)
+        }))
+        .item(PopupMenuItem::new("副屏").on_click({
+            let id = item_id.clone();
+            move |_, window, cx| assign_item(&id, 1, window, cx)
+        }))
+        .item(PopupMenuItem::new(MENU_ALL_MONITORS).on_click({
+            let id = item_id.clone();
+            move |_, window, cx| assign_all(&id, window, cx)
+        }))
+    });
+    menu.item(PopupMenuItem::submenu(MENU_SET_WALLPAPER, sub))
+        .separator()
+        .item(
+            PopupMenuItem::new(MENU_OPEN_FOLDER).on_click(|_, window, cx| {
+                window.push_notification(Notification::info(TOAST_OPEN_FOLDER), cx);
+            }),
+        )
+        .item(PopupMenuItem::new(MENU_DETAILS).on_click({
+            let id = item_id.clone();
+            move |_, window, cx| update(window, cx, |g| g.selected = Some(id.clone()))
+        }))
+        .separator()
+        .item(
+            PopupMenuItem::element(move |_, _| danger_item(MENU_REMOVE)).on_click({
+                let id = item_id.clone();
+                move |_, window, cx| remove_item(&id, window, cx)
+            }),
+        )
+}
+
+/* ---------- 动作辅助（菜单 / 拖放共享） ---------- */
+
+/// 显示器页拓扑投放落点（跨页签拖拽的指派入口）。
+pub fn assign_from_drop(item_id: &str, monitor: usize, window: &mut Window, cx: &mut App) {
+    assign_item(item_id, monitor, window, cx)
 }
 
 fn assign_item(item_id: &str, monitor: usize, window: &mut Window, cx: &mut App) {
-    let outcome = cx.update_global::<GessoState, _>(|g, _| {
-        g.assign(monitor, item_id).map(|name| name.to_string())
-    });
-    match outcome {
-        Ok(Ok(name)) => {
-            let target = cx.update_global::<GessoState, _>(|g, _| g.monitor_name(monitor));
-            window.refresh();
-            window.push_notification(
-                Notification::success(format!(
-                    "{}",
-                    TOAST_ASSIGN.replace("{}", &name).replacen("{}", &target, 1)
-                )),
-                cx,
-            );
+    let target = state(cx).monitor_name(monitor);
+    match super::app_state::bridge_assign(window, cx, monitor, item_id) {
+        Ok(name) => {
+            window.push_notification(Notification::success(toast_assign(&name, &target)), cx);
         }
-        Ok(Err(e)) => window.push_notification(Notification::warning(e), cx),
-        Err(_) => {}
+        Err(e) => window.push_notification(Notification::warning(e), cx),
     }
 }
 
@@ -548,14 +536,10 @@ fn assign_all(item_id: &str, window: &mut Window, cx: &mut App) {
     let count = state(cx).monitors.len();
     let mut last_name = String::new();
     for i in 0..count {
-        let r = cx.update_global::<GessoState, _>(|g, _| {
-            g.assign(i, item_id).map(|name| name.to_string())
-        });
-        if let Ok(Ok(name)) = r {
+        if let Ok(name) = super::app_state::bridge_assign(window, cx, i, item_id) {
             last_name = name;
         }
     }
-    window.refresh();
     window.push_notification(
         Notification::success(format!("已将「{last_name}」指派到全部显示器")),
         cx,
@@ -570,10 +554,7 @@ fn remove_item(item_id: &str, window: &mut Window, cx: &mut App) {
         .map(|w| w.name.to_string())
         .unwrap_or_default();
     update(window, cx, |g| g.remove(item_id));
-    window.push_notification(
-        Notification::info(format!("{}", TOAST_REMOVED.replace("{}", &name))),
-        cx,
-    );
+    window.push_notification(Notification::info(toast_removed(&name)), cx);
 }
 
 fn danger_item(label: &'static str) -> AnyElement {
@@ -586,23 +567,9 @@ fn danger_item(label: &'static str) -> AnyElement {
         .into_any_element()
 }
 
-fn drag_art(item_id: &str) -> super::data::Art {
-    state(&mut phantom_app())
-        .library
-        .iter()
-        .find(|w| w.id.as_ref() == item_id)
-        .map(|w| w.art)
-        .unwrap_or(super::data::Art { from: 0x26262A, to: 0x0E0F13 })
-}
+/* ---------- 空状态（区分「库为空」与「无结果」，§4.3） ---------- */
 
-/// on_drag 构造器里拿不到 App：ghost 渐变退化为中性色即可。
-fn phantom_app() -> &'static mut App {
-    unreachable!("drag ghost 不读取全局")
-}
-
-/* ---------- 空状态 ---------- */
-
-fn empty_library(cx: &mut Context<LibraryView>) -> AnyElement {
+fn empty_library(cx: &App) -> AnyElement {
     let t = tokens(cx);
     v_flex()
         .size_full()
@@ -613,31 +580,39 @@ fn empty_library(cx: &mut Context<LibraryView>) -> AnyElement {
         .child(
             div()
                 .text_size(px(15.))
-                .font_weight(gpui_kit::FontWeight::MEDIUM)
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text1)
                 .child(EMPTY_LIBRARY_TITLE),
         )
-        .child(div().text_size(px(13.)).text_color(t.text2).child(EMPTY_LIBRARY_DESC))
         .child(
-            h_flex().gap(px(10.))
+            div()
+                .text_size(px(13.))
+                .text_color(t.text2)
+                .child(EMPTY_LIBRARY_DESC),
+        )
+        .child(
+            h_flex()
+                .gap(px(10.))
                 .child(
-                    gpui_kit::component::button::Button::new("empty-import")
+                    Button::new("empty-import")
                         .label(BTN_IMPORT_FILE)
                         .primary()
                         .on_click(|_, window, cx| {
                             let name = cx.update_global::<GessoState, _>(|g, _| g.import_demo());
+                            window.refresh();
                             window.push_notification(
-                                Notification::success(format!("已导入「{name}」（演示）")),
+                                Notification::success(toast_imported(&name)),
                                 cx,
                             );
                         }),
                 )
                 .child(
-                    gpui_kit::component::button::Button::new("empty-samples")
+                    Button::new("empty-samples")
                         .label(BTN_BROWSE_SAMPLES)
                         .secondary()
                         .on_click(|_, window, cx| {
                             let name = cx.update_global::<GessoState, _>(|g, _| g.import_demo());
+                            window.refresh();
                             window.push_notification(
                                 Notification::success(format!("已应用内置样例「{name}」（演示）")),
                                 cx,
@@ -660,12 +635,12 @@ fn empty_search(cx: &mut Context<LibraryView>) -> AnyElement {
         .child(
             div()
                 .text_size(px(15.))
-                .font_weight(gpui_kit::FontWeight::MEDIUM)
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text1)
                 .child(format!("没有匹配「{query}」的壁纸")),
         )
         .child(
-            gpui_kit::component::button::Button::new("clear-search")
+            Button::new("clear-search")
                 .label(BTN_CLEAR_SEARCH)
                 .text()
                 .on_click(|_, window, cx| {
@@ -683,7 +658,7 @@ fn empty_search(cx: &mut Context<LibraryView>) -> AnyElement {
 
 struct CardGhost {
     name: SharedString,
-    art: super::data::Art,
+    art: Art,
 }
 
 impl Render for CardGhost {
@@ -708,23 +683,4 @@ impl Render for CardGhost {
                     .child(self.name.to_string()),
             )
     }
-}
-
-/* ---------- 辅助 ---------- */
-
-trait WhenExt: Sized {
-    fn when_(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self;
-}
-impl<E: Sized> WhenExt for E {
-    fn when_(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self {
-        if cond {
-            f(self)
-        } else {
-            self
-        }
-    }
-}
-
-fn play_state_visual_unused() {
-    let _ = play_state_visual;
 }

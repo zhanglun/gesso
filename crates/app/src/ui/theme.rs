@@ -7,7 +7,7 @@
 //! 系统外观跟随：启动时 `Theme::sync_system_appearance`，窗口收到外观变化事件后重放。
 
 use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode};
-use gpui_kit::gpui::{App, Hsla, Rgba, Window, px, rgb, rgba};
+use gpui_kit::gpui::{px, rgb, rgba, App, BorrowAppContext as _, Hsla, Rgba, Window};
 
 /// 原型 CSS 变量的完整集合（DESIGN.md「Tokens」表；自绘组件专用）。
 #[derive(Clone, Copy)]
@@ -37,9 +37,9 @@ impl Tokens {
             text1: rgb(0x1D1D1F).into(),
             text2: rgb(0x6E6E73).into(),
             accent: rgb(0x316EF5).into(),
-            accent_soft: rgba(0x316EF51F), // 蓝 12%
+            accent_soft: rgba(0x316EF51F).into(), // 蓝 12%
             danger: rgb(0xD33A3A).into(),
-            danger_soft: rgba(0xD33A3A1A), // 红 10%
+            danger_soft: rgba(0xD33A3A1A).into(), // 红 10%
             hairline: rgb(0xE5E5EA).into(),
             hairline2: rgb(0xD8D8DE).into(),
             preview_bg: rgb(0x0E0F13).into(),
@@ -55,9 +55,9 @@ impl Tokens {
             text1: rgb(0xEBEBED).into(),
             text2: rgb(0x9B9BA1).into(),
             accent: rgb(0x5B8DEF).into(),
-            accent_soft: rgba(0x5B8DEF2E), // 蓝 18%
+            accent_soft: rgba(0x5B8DEF2E).into(), // 蓝 18%
             danger: rgb(0xE5545B).into(),
-            danger_soft: rgba(0xE5545B24), // 红 14%
+            danger_soft: rgba(0xE5545B24).into(), // 红 14%
             hairline: rgb(0x3A3A3F).into(),
             hairline2: rgb(0x4A4A50).into(),
             preview_bg: rgb(0x0E0F13).into(),
@@ -96,9 +96,9 @@ pub fn apply(mode: ThemeMode, cx: &mut App) {
         // 弹出层（右键菜单/下拉/通知）
         c.popover = t.elevated;
         c.popover_foreground = t.text1;
-        c.overlay = rgba(0x00000073u32); // 原型遮罩 rgba(0,0,0,.45)
-        // 强调色：kit 的 primary = 我们的主操作；kit 的 accent = 我们的 accent/soft
-        // （kit 中 accent 语义是 MenuItem/ListItem 悬停底，恰好对应选中底/悬停底）
+        c.overlay = rgba(0x00000073u32).into(); // 原型遮罩 rgba(0,0,0,.45)
+                                                // 强调色：kit 的 primary = 我们的主操作；kit 的 accent = 我们的 accent/soft
+                                                // （kit 中 accent 语义是 MenuItem/ListItem 悬停底，恰好对应选中底/悬停底）
         c.primary = t.accent;
         c.primary_foreground = rgb(0xFFFFFF).into();
         c.primary_hover = shift(t.accent, 0.08);
