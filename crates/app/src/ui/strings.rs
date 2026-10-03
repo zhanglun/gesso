@@ -37,6 +37,29 @@ pub const MENU_REMOVE: &str = "从库中移除";
 pub const TOAST_SCAN_FOUND: &str = "扫描 Steam 工坊：找到 2 个可导入项（演示）";
 pub const TOAST_OPEN_FOLDER: &str = "已在访达中显示（演示）";
 
+/// 导入失败文案（§7：失败文案带原因和出路）。
+pub fn import_err_unsupported() -> String {
+    "不支持的文件类型。支持：mp4 / webm / gif / webp / html / glsl".into()
+}
+
+pub fn import_err_mkv() -> String {
+    ".mkv 容器暂不支持：请用「快速转封装为 mp4」工具转换后再导入".into()
+}
+
+pub fn import_err_hevc() -> String {
+    "HEVC 视频需要系统安装 HEVC 扩展（Microsoft Store 免费），建议改用 H.264 编码的 mp4".into()
+}
+
+pub fn import_err_io() -> String {
+    "导入失败：文件复制出错（磁盘空间或权限问题）".into()
+}
+
+// 快速面板（§4.1）
+pub const PANEL_MONITORS: &str = "显示器";
+pub const PANEL_RECENT: &str = "最近使用";
+pub const PANEL_ALL: &str = "全部 →";
+pub const PANEL_EMPTY: &str = "库里还没有壁纸——去主窗口导入或拖入文件";
+
 /// 「已将「…」指派到…」——模板在文案层拼装，调用处不拼中文。
 pub fn toast_assign(name: &str, target: &str) -> String {
     format!("已将「{name}」指派到{target}")

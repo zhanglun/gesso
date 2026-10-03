@@ -33,6 +33,17 @@ impl SessionManager {
 
     /// 显示器列表（含 frame 与 is_main）
     pub fn monitors(&self) -> Vec<pin::MonitorInfo>;
+
+    /// 单显示器暂停/恢复（§4.4 屏卡片 ⏸/▶；经状态机转移）
+    pub fn pause_one(&mut self, monitor_id: &str, paused: bool);
+
+    /// 导入：扩展名校验 → 随机 ID → 拷贝进库 → 清单落盘（P1）
+    pub fn import_entry(&mut self, path: &Path) -> Result<LibraryEntry, ImportError>;
+    /// 导入类型判定（UI 预检与引擎执行共用；ImportError = Unsupported/Mkv/Hevc/Io）
+    pub fn classify_import(path: &Path) -> ImportCheck;
+
+    /// 设置更新（写内存 + 落盘；设置页全部即时生效）
+    pub fn update_settings(&mut self, settings: Settings);
 }
 ```
 
@@ -59,12 +70,12 @@ pub fn library_dir() -> PathBuf;     // <config>/library/<entry_id>/index.{mp4,h
 pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 ```
 
-## 4. UI → 引擎的调用方式（M3 接线）
+## 4. UI → 引擎的调用方式（已实现）
 
-UI 现在拿不到 `SessionManager`（它活在 `main.rs` 的 gpui 闭包里）。接线方式（由引擎侧提供）：
-
-- 引擎把 `SessionManager` 放进 `gpui` 全局状态（`cx.set_global(AppState::new(sm))`）
-- UI 用 `cx.global::<AppState>()` 读快照；写操作用 `cx.update_global` + 动作队列（引擎 150ms 轮询执行，与托盘同一通道）
+- 引擎把 `SessionManager` 放进 `gpui` 全局状态（`crates/app/src/engine.rs`：`cx.set_global(engine::AppState::new(sm))`）
+- 读：`main.rs::snapshot_ui(&sm)` 生成 `ui::app_state::GessoState`（UI 投影），启动注入 + 轮询回灌（保留 tab/selected/query/filter 等浏览状态）
+- 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
+  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `UpdateSettings` / `SetAutostart` / `ToggleQuickPanel` / `FocusMainWindow`
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
 
 ## 5. 已知限制（别在这上面浪费轮次）
@@ -75,3 +86,5 @@ UI 现在拿不到 `SessionManager`（它活在 `main.rs` 的 gpui 闭包里）�
 | 壁纸窗口 | 纯 AppKit 非 GPUI 窗口（M1.5 定稿），UI 无法也不应嵌入它 |
 | 渲染器 | 目前仅 video/image 生效；shader/html 在 M4 |
 | 显示器热插拔 | 2s 轮询 diff（平台通知 M3 后接） |
+| 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；**自动暂停事件源**（全屏/电池检测）仍未接 |
+| 导入 I/O 失败反馈 | 引擎侧仅日志；UI 预检（扩展名）已给红字/气泡，拷贝失败暂静默 |

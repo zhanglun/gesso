@@ -11,7 +11,7 @@ use gpui_kit::component::IndexPath;
 use gpui_kit::component::{h_flex, v_flex, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, px, AnyElement, AppContext as _, BorrowAppContext as _, Context, Entity, FontWeight,
+    div, px, AnyElement, App, AppContext as _, BorrowAppContext as _, Context, Entity, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement, Render, StatefulInteractiveElement as _,
     Styled, Window,
 };
@@ -225,6 +225,7 @@ impl Render for SettingsView {
                     .checked(s.idle_downclock)
                     .on_click(|checked, window, cx| {
                         update(window, cx, |g| g.settings.idle_downclock = *checked);
+                        persist_settings(cx);
                     })
                     .into_any_element(),
                 cx,
@@ -240,6 +241,8 @@ impl Render for SettingsView {
                     .checked(s.autolaunch)
                     .on_click(|checked, window, cx| {
                         update(window, cx, |g| g.settings.autolaunch = *checked);
+                        persist_settings(cx);
+                        crate::engine::enqueue(crate::engine::EngineAction::SetAutostart(*checked));
                     })
                     .into_any_element(),
                 cx,
@@ -298,6 +301,7 @@ impl Render for SettingsView {
             .on_click(cx.listener(move |this, _, window, cx| {
                 if this.reset_armed {
                     update(window, cx, |g| g.settings = Settings::default());
+                    persist_settings(cx);
                     window.push_notification(Notification::info(TOAST_RESET), cx);
                     this.reset_armed = false;
                 } else {
@@ -367,6 +371,12 @@ impl Render for SettingsView {
 }
 
 /* ---------- 辅助 ---------- */
+
+/// 投影 → 引擎落盘（UpdateSettings 动作；API.md §1 update_settings）。
+fn persist_settings(cx: &mut App) {
+    let core = state(cx).settings.to_core_settings();
+    crate::engine::enqueue(crate::engine::EngineAction::UpdateSettings(core));
+}
 
 fn policy_label(p: SuspendPolicy) -> &'static str {
     p.label()

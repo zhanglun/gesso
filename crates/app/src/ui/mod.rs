@@ -17,6 +17,7 @@ pub mod data;
 pub mod first_run;
 pub mod library_view;
 pub mod monitors_view;
+pub mod quick_panel;
 pub mod settings_view;
 pub mod shell;
 pub mod strings;

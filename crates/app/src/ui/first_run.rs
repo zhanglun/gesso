@@ -16,7 +16,7 @@ use gpui_kit::gpui::{
 use gpui_kit::AnyWindowHandle;
 
 use super::app_state::state;
-use super::data::{Kind, WIZARD_SAMPLES};
+use super::data::Kind;
 use super::strings::*;
 use super::theme::tokens;
 use super::widgets::preview;
@@ -44,7 +44,7 @@ impl FirstRun {
     }
 
     /// 打开向导小窗（顶栏「重放首启向导」钮 / 正式版首启自动调用）。
-    pub fn open(_window: &mut Window, cx: &mut App) -> Option<AnyWindowHandle> {
+    pub fn open(cx: &mut App) -> Option<AnyWindowHandle> {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                 None,
@@ -60,34 +60,6 @@ impl FirstRun {
         gpui_kit::open_window(options, cx, |_, cx| cx.new(FirstRun::new))
             .ok()
             .map(|(handle, _)| handle)
-    }
-
-    fn apply_sample(&mut self, name: &str, cx: &mut Context<Self>) {
-        // 双击样例即应用到主显示器并进入完成步（§4.6 省去「下一步」）
-        let sample = WIZARD_SAMPLES
-            .iter()
-            .find(|s| s.name == name)
-            .expect("向导样例必然存在");
-        let item = super::data::LibraryItem {
-            id: format!("sample-{}", sample.name).into(),
-            name: sample.name.into(),
-            kind: sample.kind,
-            we: false,
-            meta: "内置样例".into(),
-            assigned: None,
-            broken: false,
-            real: false,
-            art: sample.art,
-        };
-        cx.update_global::<super::app_state::GessoState, _>(|g, _| {
-            let id = item.id.clone();
-            g.library.push(item);
-            let _ = g.assign(g.main_monitor(), id.as_ref());
-        });
-        cx.notify();
-        self.applied_name = Some(name.to_string());
-        self.step = 2;
-        cx.notify();
     }
 
     fn step_indicator(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -157,23 +129,39 @@ impl FirstRun {
 
     fn step_pick(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
-        let samples: Vec<AnyElement> = WIZARD_SAMPLES
+        // 真实库条目（HANDOFF P2-8：样例步列真实库，双击走真指派流程）
+        let entries: Vec<super::data::LibraryItem> = state(cx)
+            .library
             .iter()
-            .map(|s| {
+            .filter(|w| !w.broken)
+            .cloned()
+            .collect();
+        let samples: Vec<AnyElement> = entries
+            .iter()
+            .enumerate()
+            .map(|(i, w)| {
                 v_flex()
-                    .id(SharedString::from(format!("sample-{}", s.name)))
+                    .id(SharedString::from(format!("wiz-entry-{i}")))
                     .w(px(118.))
                     .gap_1()
                     .rounded(px(8.))
                     .p_1()
                     .cursor_pointer()
                     .hover(|st| st.bg(t.panel))
-                    .on_click(cx.listener(move |this, click: &ClickEvent, _, cx| {
-                        if click.click_count() >= 2 {
-                            this.apply_sample(s.name, cx);
+                    .on_click(cx.listener({
+                        let id = w.id.clone();
+                        let name = w.name.clone();
+                        move |this, click: &ClickEvent, window, cx| {
+                            if click.click_count() >= 2 {
+                                // 双击 = 指派主显示器（真流程）→ 完成步
+                                let _ = super::app_state::bridge_assign(window, cx, 0, id.as_ref());
+                                this.applied_name = Some(name.to_string());
+                                this.step = 2;
+                                cx.notify();
+                            }
                         }
                     }))
-                    .child(preview(s.art, Some(s.kind), false, false, cx))
+                    .child(preview(w.art, Some(w.kind), false, false, cx))
                     .child(
                         h_flex()
                             .items_center()
@@ -184,7 +172,7 @@ impl FirstRun {
                                     .text_size(px(12.))
                                     .text_color(t.text1)
                                     .truncate()
-                                    .child(s.name.to_string()),
+                                    .child(w.name.to_string()),
                             )
                             .child(
                                 div()
@@ -201,6 +189,7 @@ impl FirstRun {
                     .into_any_element()
             })
             .collect();
+        let empty = entries.is_empty();
         v_flex()
             .flex_1()
             .gap_3()
@@ -221,16 +210,26 @@ impl FirstRun {
                             .child(WIZARD_PICK_SUBTITLE),
                     ),
             )
-            .child(
-                div().child(
+            .when(!empty, |r| {
+                r.child(
+                    div().child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .justify_center()
+                            .children(samples),
+                    ),
+                )
+            })
+            .when(empty, |r| {
+                r.child(
                     div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .justify_center()
-                        .children(samples),
-                ),
-            )
+                        .text_size(px(13.))
+                        .text_color(t.text2)
+                        .child(PANEL_EMPTY),
+                )
+            })
             .into_any_element()
     }
 

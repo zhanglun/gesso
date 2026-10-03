@@ -7,6 +7,7 @@
 
 use std::sync::Mutex;
 
+use gesso_core::Settings;
 use gpui_kit::Global;
 
 use crate::session::SessionManager;
@@ -32,12 +33,24 @@ pub enum EngineAction {
         monitor_id: String,
         entry_id: String,
     },
-    /// 暂停/恢复全部（SessionManager::pause_all）。
-    /// 托盘菜单已覆盖；为后续界面全局暂停控件保留。
-    #[allow(dead_code)]
+    /// 暂停/恢复全部（SessionManager::pause_all，托盘）。
     PauseAll(bool),
+    /// 单显示器暂停/恢复（SessionManager::pause_one，§4.4 屏卡片）。
+    PauseOne { monitor_id: String, paused: bool },
     /// 全量同步显示器（SessionManager::sync_monitors，幂等）。
     SyncMonitors,
+    /// 主显示器循环换下一张（SessionManager::cycle_main）。
+    CycleMain,
+    /// 导入文件（SessionManager::import_entry：校验/拷贝/清单落盘）。
+    Import { path: String },
+    /// 设置更新（SessionManager::update_settings，写内存 + 落盘）。
+    UpdateSettings(Settings),
+    /// 开机自启开关（auto-launch，随设置页/托盘勾选项）。
+    SetAutostart(bool),
+    /// 托盘左键：开/关快速面板（signature #3）。
+    ToggleQuickPanel,
+    /// 托盘「管理窗口…」：激活主窗口。
+    FocusMainWindow,
 }
 
 static ENGINE_ACTIONS: Mutex<Vec<EngineAction>> = Mutex::new(Vec::new());

@@ -22,6 +22,8 @@ gpui-kit = "0.7"
 lb-wry = "0.53"
 raw-window-handle = "0.6"
 single-instance = "0.3"
+rfd = "0.15"
+auto-launch = "0.5"
 tray-icon = "0.26.0"
 
 # 平台依赖（贴壁层 §4；M1 起使用，先声明锁定版本）

@@ -40,17 +40,13 @@ pub struct ContentSpec {
     pub meta: SpecMeta,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AudioPolicy {
+    /// 壁纸默认静音（技术方案 §5.2）—— `#[default]` 显式承载该语义。
+    #[default]
     Muted,
     On,
-}
-
-impl Default for AudioPolicy {
-    fn default() -> Self {
-        Self::Muted // 壁纸默认静音（技术方案 §5.2）
-    }
 }
 
 #[cfg(test)]

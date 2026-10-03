@@ -143,8 +143,8 @@ impl Shell {
             .ghost()
             .icon(Icon::new(IconName::RotateCcw))
             .tooltip("重放首启向导")
-            .on_click(|_, window, cx| {
-                let _ = super::first_run::FirstRun::open(window, cx);
+            .on_click(|_, _, cx| {
+                let _ = super::first_run::FirstRun::open(cx);
             });
 
         let theme_toggle = Button::new("btn-theme")

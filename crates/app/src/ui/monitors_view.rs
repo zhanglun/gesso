@@ -244,8 +244,20 @@ impl MonitorsView {
             .label(if paused { BTN_RESUME } else { BTN_PAUSE })
             .secondary()
             .compact()
-            .on_click(move |_, window, cx| {
-                update(window, cx, |g| g.toggle_pause(i));
+            .on_click({
+                let real_id = m.real_id.clone();
+                move |_, window, cx| {
+                    if real_id.is_empty() {
+                        // 演示数据：无真实会话，仅切换投影
+                        update(window, cx, |g| g.toggle_pause(i));
+                    } else {
+                        // 真源：引擎 pause_one（≤150ms 执行，快照回灌刷新状态行）
+                        crate::engine::enqueue(crate::engine::EngineAction::PauseOne {
+                            monitor_id: real_id.clone(),
+                            paused: !paused,
+                        });
+                    }
+                }
             });
         let fps_select = self
             .fps_selects

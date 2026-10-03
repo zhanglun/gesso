@@ -12,21 +12,19 @@ mod ui;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use gesso_core::{AppConfig, LibraryEntry, SessionState, WallpaperKind};
+use gesso_core::{AppConfig, LibraryEntry, SessionState, StartupBehavior, WallpaperKind};
 
 use gpui_kit::BorrowAppContext as _;
 use ui::app_state::GessoState;
 
-#[derive(Debug, Clone, PartialEq)]
-enum Action {
-    PauseAll,
-    ResumeAll,
-    CycleMain,
-    Quit,
-}
-
-static ACTIONS: Mutex<Vec<Action>> = Mutex::new(Vec::new());
-static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// 托盘「暂停全部」的当前取向（菜单文案随之切换）。
+static TRAY_PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// 主窗口句柄（托盘「管理窗口…」激活用）。
+static MAIN_WINDOW: std::sync::OnceLock<gpui_kit::AnyWindowHandle> = std::sync::OnceLock::new();
+/// 快速面板句柄（toggle 开/关）。
+static PANEL_WINDOW: Mutex<Option<gpui_kit::AnyWindowHandle>> = Mutex::new(None);
+/// 托盘勾选镜像（自启翻转判定用；真源 = AppConfig.settings.autostart）。
+static AUTOSTART_HINT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn tray_icon_rgba() -> Vec<u8> {
     let (w, h) = (32usize, 32usize);
@@ -52,7 +50,7 @@ fn tray_icon_rgba() -> Vec<u8> {
     v
 }
 
-fn bootstrap() -> session::SessionManager {
+fn bootstrap() -> (session::SessionManager, bool) {
     let cfg_path = protocol::config_dir().join("config.json");
     let mut config = AppConfig::load(&cfg_path).unwrap_or_default();
     let first_run = config.monitors.is_empty();
@@ -98,7 +96,7 @@ fn bootstrap() -> session::SessionManager {
 
     let mut sm = session::SessionManager::new(config, library);
     sm.sync_monitors();
-    sm
+    (sm, first_run)
 }
 
 /// 会话快照 → UI 状态（GessoState.demo=false）。库/显示器/指派/状态取自真源；
@@ -107,6 +105,17 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
     let mut g = GessoState {
         demo: false, // 快照覆盖本地投影；调用方回灌时保留浏览状态
         ..GessoState::default()
+    };
+    // 设置真源 = AppConfig.settings（设置页写经 UpdateSettings 动作落盘）
+    let cs = sm.config().settings.clone();
+    g.settings = ui::data::Settings {
+        fps_cap: cs.fps_cap_default as u32,
+        fullscreen: map_policy(cs.fullscreen_policy),
+        battery: map_policy(cs.battery_policy),
+        idle_downclock: cs.idle_downscale,
+        autolaunch: cs.autostart,
+        startup_random: cs.startup_behavior == StartupBehavior::Random,
+        ..ui::data::Settings::default()
     };
     g.library = sm
         .library()
@@ -129,7 +138,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                     e.origin.clone().into()
                 },
                 assigned: None,
-                broken: std::fs::read_dir(protocol::library_dir().join(&e.id)).is_err(),
+                broken: session::main_asset_name(&e.source_dir, e.kind).is_none(),
                 real: true,
                 art: kind_art(e.kind),
             }
@@ -189,6 +198,14 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
     g
 }
 
+fn map_policy(p: gesso_core::PausePolicy) -> ui::data::SuspendPolicy {
+    match p {
+        gesso_core::PausePolicy::Pause => ui::data::SuspendPolicy::Pause,
+        gesso_core::PausePolicy::Downscale => ui::data::SuspendPolicy::Downclock,
+        gesso_core::PausePolicy::Ignore => ui::data::SuspendPolicy::Ignore,
+    }
+}
+
 fn kind_art(kind: WallpaperKind) -> ui::data::Art {
     match kind {
         WallpaperKind::Video => ui::data::Art {
@@ -210,6 +227,60 @@ fn kind_art(kind: WallpaperKind) -> ui::data::Art {
     }
 }
 
+/// 托盘左键：开/关快速面板（360×280，主屏右上角，PopUp 窗口）。
+fn toggle_quick_panel(cx: &mut gpui_kit::gpui::App) {
+    if let Some(handle) = PANEL_WINDOW.lock().expect("面板句柄").take() {
+        if handle
+            .update(cx, |_: gpui_kit::gpui::AnyView, window, _| {
+                window.remove_window();
+            })
+            .is_ok()
+        {
+            return;
+        }
+        // 句柄已失效（面板被外部关闭）→ 落到重新打开
+    }
+    const W: f32 = 360.;
+    const H: f32 = 280.;
+    let b = cx.primary_display().map(|d| d.bounds()).unwrap_or_default();
+    let origin = gpui_kit::gpui::point(
+        b.right() - gpui_kit::px(W) - gpui_kit::px(12.),
+        b.top() + gpui_kit::px(44.),
+    );
+    let options = gpui_kit::WindowOptions {
+        window_bounds: Some(gpui_kit::WindowBounds::Windowed(gpui_kit::Bounds {
+            origin,
+            size: gpui_kit::size(gpui_kit::px(W), gpui_kit::px(H)),
+        })),
+        titlebar: None,
+        kind: gpui_kit::gpui::WindowKind::PopUp,
+        ..Default::default()
+    };
+    if let Ok((handle, _)) = gpui_kit::open_window(options, cx, |window, cx| {
+        use gpui_kit::AppContext as _;
+        cx.new(|cx| ui::quick_panel::QuickPanel::new(window, cx))
+    }) {
+        *PANEL_WINDOW.lock().expect("面板句柄") = Some(handle);
+    }
+}
+
+/// 开机自启（auto-launch：macOS LaunchAgent / Win 注册表 Run 键）。
+fn apply_autostart(enable: bool) {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let app = auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Gesso")
+        .set_app_path(&exe.display().to_string())
+        .build();
+    let outcome = match app {
+        Ok(al) => {
+            let r = if enable { al.enable() } else { al.disable() };
+            r.map_err(|e| e.to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    };
+    println!("[autostart] enable={enable} → {outcome:?}");
+}
+
 fn main() {
     // 单实例（§4.1 对策 5）。GESSO_LOCK 供开发期多实例并存（UI 验收 vs 会话调试）。
     let lock_name = std::env::var("GESSO_LOCK").unwrap_or_else(|_| "gesso-app-lock".into());
@@ -229,49 +300,81 @@ fn main() {
             ui::theme::init(cx);
 
             // 顺序关键：NSApplication 就绪后才能建 AppKit 壁纸窗口
-            let sm = bootstrap();
-            println!("[boot] 会话数：{}", sm.session_count());
+            let (sm, first_run) = bootstrap();
+            println!(
+                "[boot] 会话数：{}（first_run={first_run}）",
+                sm.session_count()
+            );
 
             // 引擎全局（API.md §4：cx.set_global(AppState::new(sm))）+ UI 快照注入
+            let autostart_on = sm.config().settings.autostart;
+            AUTOSTART_HINT.store(autostart_on, std::sync::atomic::Ordering::SeqCst);
             cx.set_global(engine::AppState::new(sm));
             cx.set_global(snapshot_ui(&cx.global::<engine::AppState>().sm));
 
-            use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+            // 托盘（§4.1/§4.2）：左键 = 快速面板；右键 = 菜单
+            use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
             let menu = Menu::new();
-            let mi_pause = MenuItem::with_id("pause", "暂停全部", true, None);
-            let mi_cycle = MenuItem::with_id("cycle", "换壁纸（主屏）", true, None);
-            let mi_quit = MenuItem::with_id("quit", "退出", true, None);
+            let mi_pause = MenuItem::with_id("pause", "暂停全部壁纸", true, None);
+            let mi_cycle = MenuItem::with_id("cycle", "随机换一张", true, None);
+            let mi_main = MenuItem::with_id("main", "管理窗口…", true, None);
+            let mi_auto = CheckMenuItem::with_id("autostart", "开机自启", true, autostart_on, None);
+            let mi_quit = MenuItem::with_id("quit", "退出 Gesso", true, None);
             menu.append_items(&[
                 &mi_pause,
                 &mi_cycle,
+                &PredefinedMenuItem::separator(),
+                &mi_main,
+                &PredefinedMenuItem::separator(),
+                &mi_auto,
                 &PredefinedMenuItem::separator(),
                 &mi_quit,
             ])
             .expect("菜单");
             MenuEvent::set_event_handler(Some(|e: MenuEvent| {
-                let a = match e.id().as_ref() {
+                use engine::EngineAction;
+                match e.id().as_ref() {
+                    // 菜单文案恒为「暂停全部壁纸」（muda handler 要求 Send，不能持菜单句柄改文案；
+                    // 当前状态经托盘图标/状态矩阵反映）
                     "pause" => {
-                        if PAUSED.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                            Action::ResumeAll
-                        } else {
-                            PAUSED.store(true, std::sync::atomic::Ordering::SeqCst);
-                            Action::PauseAll
-                        }
+                        // fetch_xor 翻转并返回旧值（swap(true) 会永远读到同一个旧值 →
+                        // 该项变成"只暂停不恢复"，M0.5 踩过同款坑）
+                        let paused = !TRAY_PAUSED.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
+                        engine::enqueue(EngineAction::PauseAll(paused));
                     }
-                    "cycle" => Action::CycleMain,
-                    "quit" => Action::Quit,
-                    _ => return,
-                };
-                ACTIONS.lock().unwrap().push(a);
+                    "cycle" => engine::enqueue(EngineAction::CycleMain),
+                    "main" => engine::enqueue(EngineAction::FocusMainWindow),
+                    "autostart" => {
+                        // CheckMenuItem 在 macOS 原生翻转；此处读翻转后的近似值
+                        let now = !AUTOSTART_HINT.load(std::sync::atomic::Ordering::SeqCst);
+                        AUTOSTART_HINT.store(now, std::sync::atomic::Ordering::SeqCst);
+                        engine::enqueue(EngineAction::SetAutostart(now));
+                    }
+                    "quit" => std::process::exit(0),
+                    _ => {}
+                }
             }));
             let icon = tray_icon::Icon::from_rgba(tray_icon_rgba(), 32, 32).unwrap();
             let tray = tray_icon::TrayIconBuilder::new()
-                .with_tooltip("Gesso")
+                .with_tooltip("Gesso（左键：快速面板）")
                 .with_icon(icon)
                 .with_menu(Box::new(menu))
+                .with_menu_on_left_click(false) // 左键留给快速面板（§4.1）
                 .build()
                 .expect("托盘");
             Box::leak(Box::new(tray));
+            tray_icon::TrayIconEvent::set_event_handler(Some(|e: tray_icon::TrayIconEvent| {
+                if matches!(
+                    e,
+                    tray_icon::TrayIconEvent::Click {
+                        button: tray_icon::MouseButton::Left,
+                        button_state: tray_icon::MouseButtonState::Up,
+                        ..
+                    }
+                ) {
+                    engine::enqueue(engine::EngineAction::ToggleQuickPanel);
+                }
+            }));
 
             cx.spawn(async move |cx| {
                 let mut tick: u32 = 0;
@@ -279,36 +382,13 @@ fn main() {
                     cx.background_executor()
                         .timer(Duration::from_millis(150))
                         .await;
-                    let actions: Vec<Action> = {
-                        let mut q = ACTIONS.lock().unwrap();
-                        std::mem::take(&mut *q)
-                    };
-                    // UI 写动作入队（API.md §4）——引擎轮询执行
+                    // UI/托盘写动作入队（API.md §4）——引擎轮询统一执行
                     let engine_actions = engine::drain();
                     let mut refresh_ui = !engine_actions.is_empty();
-                    if !actions.is_empty() || !engine_actions.is_empty() {
+                    let mut deferred_window_actions: Vec<engine::EngineAction> = Vec::new();
+                    if !engine_actions.is_empty() {
                         cx.update(|cx| {
                             let sm = &mut cx.global_mut::<engine::AppState>().sm;
-                            for a in actions {
-                                match a {
-                                    Action::PauseAll => {
-                                        println!("[tray] 暂停全部");
-                                        sm.pause_all(true);
-                                    }
-                                    Action::ResumeAll => {
-                                        println!("[tray] 恢复全部");
-                                        sm.pause_all(false);
-                                    }
-                                    Action::CycleMain => {
-                                        println!("[tray] 换壁纸（主屏）");
-                                        sm.cycle_main();
-                                    }
-                                    Action::Quit => {
-                                        println!("[tray] 退出");
-                                        std::process::exit(0);
-                                    }
-                                }
-                            }
                             for a in engine_actions {
                                 match a {
                                     engine::EngineAction::Assign {
@@ -322,10 +402,59 @@ fn main() {
                                         println!("[ui] 暂停全部 = {p}");
                                         sm.pause_all(p);
                                     }
+                                    engine::EngineAction::PauseOne { monitor_id, paused } => {
+                                        println!("[ui] 单屏暂停 = {paused}（{monitor_id}）");
+                                        sm.pause_one(&monitor_id, paused);
+                                    }
                                     engine::EngineAction::SyncMonitors => {
                                         println!("[ui] 重新检测显示器");
                                         sm.sync_monitors();
                                     }
+                                    engine::EngineAction::CycleMain => {
+                                        println!("[ui] 随机换一张（主屏）");
+                                        sm.cycle_main();
+                                    }
+                                    engine::EngineAction::Import { path } => {
+                                        match sm.import_entry(std::path::Path::new(&path)) {
+                                            Ok(e) => {
+                                                println!("[ui] 已导入「{}」→ {}", e.title, e.id)
+                                            }
+                                            Err(err) => println!("[ui] 导入失败：{err:?}"),
+                                        }
+                                    }
+                                    engine::EngineAction::UpdateSettings(settings) => {
+                                        println!("[ui] 设置更新并落盘");
+                                        sm.update_settings(settings);
+                                    }
+                                    engine::EngineAction::SetAutostart(enable) => {
+                                        apply_autostart(enable);
+                                    }
+                                    engine::EngineAction::ToggleQuickPanel
+                                    | engine::EngineAction::FocusMainWindow => {
+                                        // 需要 cx 的窗口操作：sm 借用结束后在同一闭包内处理
+                                        deferred_window_actions.push(a);
+                                    }
+                                }
+                            }
+                            for a in deferred_window_actions {
+                                match a {
+                                    engine::EngineAction::ToggleQuickPanel => {
+                                        toggle_quick_panel(cx);
+                                    }
+                                    engine::EngineAction::FocusMainWindow => {
+                                        if let Some(h) = MAIN_WINDOW.get() {
+                                            let _ = h.update(
+                                                cx,
+                                                |_: gpui_kit::gpui::AnyView,
+                                                 window,
+                                                 cx: &mut gpui_kit::gpui::App| {
+                                                    window.activate_window();
+                                                    cx.activate(true);
+                                                },
+                                            );
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
                         });
@@ -403,7 +532,15 @@ fn main() {
                     cx.new(|cx| ui::shell::Shell::new(window, cx))
                 },
             )
+            .inspect(|(handle, _)| {
+                let _ = MAIN_WINDOW.set(*handle);
+            })
             .ok();
+
+            // 首启（config.monitors 为空）：一次性打开向导（§4.6）
+            if first_run {
+                let _ = ui::first_run::FirstRun::open(cx);
+            }
 
             cx.activate(true);
         });

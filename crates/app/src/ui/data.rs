@@ -128,6 +128,29 @@ pub struct Settings {
     pub weather_key: String,
 }
 
+impl Settings {
+    /// UI 投影 → core 真源（设置页写回经 EngineAction::UpdateSettings 落盘）。
+    pub fn to_core_settings(&self) -> gesso_core::Settings {
+        let policy = |p: super::data::SuspendPolicy| match p {
+            SuspendPolicy::Pause => gesso_core::PausePolicy::Pause,
+            SuspendPolicy::Downclock => gesso_core::PausePolicy::Downscale,
+            SuspendPolicy::Ignore => gesso_core::PausePolicy::Ignore,
+        };
+        gesso_core::Settings {
+            fps_cap_default: self.fps_cap as u8,
+            fullscreen_policy: policy(self.fullscreen),
+            battery_policy: policy(self.battery),
+            idle_downscale: self.idle_downclock,
+            autostart: self.autolaunch,
+            startup_behavior: if self.startup_random {
+                gesso_core::StartupBehavior::Random
+            } else {
+                gesso_core::StartupBehavior::RestoreLast
+            },
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
@@ -289,77 +312,3 @@ pub fn demo_monitors() -> Vec<MonitorEntry> {
         },
     ]
 }
-
-/// 供向导第②步复用的内置样例描述（3 视频 + 3 Shader + 2 网页时钟）。
-pub struct SampleEntry {
-    pub name: &'static str,
-    pub kind: Kind,
-    pub art: Art,
-}
-
-pub const WIZARD_SAMPLES: [SampleEntry; 8] = [
-    SampleEntry {
-        name: "星云漂移",
-        kind: Kind::Video,
-        art: Art {
-            from: 0x24345C,
-            to: 0x0E0F13,
-        },
-    },
-    SampleEntry {
-        name: "极光夜",
-        kind: Kind::Video,
-        art: Art {
-            from: 0x1E4A3C,
-            to: 0x0C110E,
-        },
-    },
-    SampleEntry {
-        name: "海浪",
-        kind: Kind::Video,
-        art: Art {
-            from: 0x1C4A5E,
-            to: 0x0E0F13,
-        },
-    },
-    SampleEntry {
-        name: "正弦波场",
-        kind: Kind::Shader,
-        art: Art {
-            from: 0x2E2A5E,
-            to: 0x0E0F13,
-        },
-    },
-    SampleEntry {
-        name: "等离子场",
-        kind: Kind::Shader,
-        art: Art {
-            from: 0x3E2A5E,
-            to: 0x0E0F13,
-        },
-    },
-    SampleEntry {
-        name: "粒子星系",
-        kind: Kind::Shader,
-        art: Art {
-            from: 0x14304A,
-            to: 0x0A0D12,
-        },
-    },
-    SampleEntry {
-        name: "极简时钟",
-        kind: Kind::Web,
-        art: Art {
-            from: 0x2A2A30,
-            to: 0x101012,
-        },
-    },
-    SampleEntry {
-        name: "翻页日历",
-        kind: Kind::Web,
-        art: Art {
-            from: 0x3A2E26,
-            to: 0x12100C,
-        },
-    },
-];

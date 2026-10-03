@@ -56,23 +56,28 @@
 
 ## 5. 下一步任务（按优先级）
 
-**P0 · UI↔引擎真实化（把演示桥变成真操作）**
-1. `显示器页「重新检测」` → `EngineAction::SyncMonitors`（现已能触发，确认快照刷新）
-2. 库指派/暂停/换壁纸 → 确认经 `EngineAction` 落到 `SessionManager::{assign,pause_all,cycle_main}`，并核对 `snapshot_ui` 回读的状态（`SessionState` → UI `PlayState` 映射：`PausedUser→UserPaused`、`Autopause→FullscreenPaused/BatteryPaused`、`Playing→Playing`）
-3. 库卡片「失效」态接入真实校验（`source_dir/index.*` 不存在 → `broken: true`）
+**P0 · UI↔引擎真实化 ✅（2026-10-03 本轮完成）**
+1. ✅ `显示器页「重新检测」` → `EngineAction::SyncMonitors`
+2. ✅ 库指派（双击/右键/拖放/全部）→ `Assign`；屏卡片 ⏸/▶ → `PauseOne`（新增 `SessionManager::pause_one`）；托盘「随机换一张」→ `CycleMain`；快照映射核对（`PausedUser→UserPaused`、`Autopause→FullscreenPaused`、`Playing→Playing`）
+3. ✅ 失效态真判定：`snapshot_ui` 按 `source_dir/index.<ext按kind>` 存在性置 `broken`
 
-**P1 · 导入流程（M3 DoD 缺口）**
-4. `导入` 按钮：`rfd` 文件选择 → 校验类型（mp4/webm/gif/webp/html/glsl）→ 拷贝进 `library/<新随机id>/index.<ext>` + 写 `library.json`（`gesso_core::LibraryManifest` + `generate_id()`）→ 刷新快照
-5. 失败文案：HEVC 提示装系统扩展；`.mkv` 提示需转封装；未知类型拒绝（`strings.rs` 唯一出处）
-6. 拖入文件到窗口 = 同一导入路径（原型 §4.3 交互表）
+**P1 · 导入流程 ✅（2026-10-03 本轮完成）**
+4. ✅ `导入` 按钮 → `rfd` 选择 → `SessionManager::import_entry`（校验/`generate_id`/拷贝/`LibraryManifest::save`）→ 快照刷新
+5. ✅ 失败文案（`strings.rs`）：`import_err_mkv/hevc/unsupported/io`；不支持类型 → 状态条红字 + 警告气泡
+6. ✅ 拖入文件：gpui 原生 `ExternalPaths` 载荷 + 网格 `on_drop` → 同一导入路径（拖入期间网格 accent 描边）
 
-**P2 · 设置与首启**
-7. 设置页每个控件接 `AppConfig.settings` 持久化（`AppConfig::save`）；开机自启接 `auto-launch` crate
-8. 首启向导接真：`config.monitors` 为空 → 打开向导；第二步选样例 → 走导入/指派真流程
+**P2 · 设置与首启 ✅（2026-10-03 本轮完成）**
+7. ✅ 设置页全部控件 → `UpdateSettings`（`Settings::to_core_settings` 映射）+ 落盘；开机自启 → `SetAutostart`（`auto-launch` crate）
+8. ✅ 首启向导接真：`bootstrap` 返回 `first_run` 标志 → 启动开窗；样例步列**真实库条目**（双击 → 真指派）；空库给导入出路
 
-**P3 · 原型对齐（细节）**
-9. 库卡片悬停预览、拖拽卡片到显示器拓扑投放（signature #2）、悬停卡片点亮真实显示器边框（signature #1，真机版需新窗口画描边——先与引擎确认）
-10. 托盘：右键菜单（暂停/随机/管理窗口/自启/退出）+ 左键快速面板（signature #3，弹出小窗）
+**P3 · 原型对齐（部分完成）**
+9. ⏳ 库卡片悬停预览（需导入期抽帧管线）；拖拽投放 signature #2 ✅（窗口内）；真机显示器边框描边 signature #1 ⏳（需透明描边窗口——先与引擎确认）
+10. ✅ 托盘右键菜单（暂停全部/随机换一张/管理窗口…/开机自启✓/退出）+ 左键快速面板（`ui/quick_panel.rs`，360×280 PopUp，主屏右上角；Esc 关闭；点屏缩略图暂停、点最近缩略图两击换壁纸）
+
+**已知缺口（下轮候选）**
+- 托盘「暂停全部」菜单文案恒定（muda handler 要求 Send，不能持 MenuItem 改文案；状态经图标/界面反映）
+- 快速面板定位用主屏右上角近似（未按托盘图标坐标精确锚定；retina 缩放换算待做）
+- 悬停预览的抽帧动图管线、真机边框描边窗口（signature #1 真机版）
 
 **独立任务（引擎侧，UI 会话不要动）**
 - `gesso://` 协议修复（候选：注册前共享 config / 上游 wry 异步协议 API / 自研 WKURLSchemeHandler）

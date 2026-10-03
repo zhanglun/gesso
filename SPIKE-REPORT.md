@@ -82,3 +82,7 @@ v1（GPUI 窗口 + gpui-wry 内嵌）失败链：
 12. `NSColor::clearColor()`（不是 clear）；`setBackgroundColor(Some(&Retained))`；`NSWindow::new(mtm)` 是 unsafe（释放语义）
 13. wry `build_as_child` 接受任意 rwh 句柄——为自有 NSView 手写 `HasWindowHandle` 即可，无需 GPUI
 14. 纯 AppKit 路径下 webview bounds 无人下发，创建后必须自己 `set_bounds` 满屏
+
+## 附注（2026-10-03）
+
+- `examples/m05.rs` 已删除：其结论全部入档，且它探索的"webview 嵌 GPUI 窗口"路线被 M1.5 明确否决（改为纯 AppKit 窗口 + wry 直挂）。`examples/m15.rs` 保留为压层参考实现。

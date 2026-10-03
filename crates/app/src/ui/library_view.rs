@@ -123,9 +123,7 @@ impl LibraryView {
             .secondary()
             .icon(Icon::new(IconName::Plus))
             .on_click(|_, window, cx| {
-                let name = cx.update_global::<GessoState, _>(|g, _| g.import_demo());
-                window.refresh();
-                window.push_notification(Notification::success(toast_imported(&name)), cx);
+                super::app_state::import_with_dialog(window, cx);
             });
         let scan = Button::new("btn-scan")
             .label(BTN_SCAN_WORKSHOP)
@@ -309,6 +307,7 @@ impl LibraryView {
     }
 
     fn grid(&self, cx: &mut Context<Self>) -> AnyElement {
+        let t = tokens(cx);
         let visible = state(cx).visible_items();
         if state(cx).library.is_empty() {
             return empty_library(cx);
@@ -324,6 +323,7 @@ impl LibraryView {
                 .collect()
         };
         let cards: Vec<AnyElement> = items.into_iter().map(|item| self.card(&item, cx)).collect();
+        let grid_accent = t.accent;
         div()
             .id("library-grid")
             .flex_1()
@@ -332,6 +332,13 @@ impl LibraryView {
             .px(px(14.))
             .min_h_0()
             .child(div().flex().flex_wrap().gap(px(14.)).children(cards))
+            // 拖入文件 = 同一导入路径（§4.3 交互表；gpui 把 FileDrop 翻译成 ExternalPaths 载荷）
+            .drag_over::<gpui_kit::gpui::ExternalPaths>(move |s, _, _, _| {
+                s.border_color(grid_accent).rounded(px(8.))
+            })
+            .on_drop(|paths: &gpui_kit::gpui::ExternalPaths, window, cx| {
+                super::app_state::import_paths(paths.0.iter().cloned(), window, cx);
+            })
             .into_any_element()
     }
 
@@ -357,13 +364,16 @@ impl LibraryView {
             .text_color(t.text2)
             .font_features(super::widgets::tabular())
             .child(count_text)
+            .when_some(g.status_error.clone(), |r, err| {
+                r.child(div().text_color(t.danger).child(err))
+            })
             .child(div().flex_1().child(HINT_LIBRARY))
             .into_any_element()
     }
 
     /// 拖拽中的全屏投放区（原型行为：不切页签，覆盖层上投放 = 指派）。
     fn drag_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !cx.has_active_drag() {
+        if !cx.has_active_drag() || !state(cx).card_dragging {
             return None;
         }
         let t = tokens(cx);
@@ -663,6 +673,8 @@ struct CardGhost {
 
 impl Render for CardGhost {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // ghost 只在卡片拖拽期间存活：置标志供投放覆盖层区分「卡片拖拽 vs 文件拖放」
+        cx.update_global::<GessoState, _>(|g, _| g.card_dragging = true);
         let t = tokens(cx);
         div()
             .w(px(CARD_W))

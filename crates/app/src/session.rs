@@ -12,6 +12,26 @@ use gesso_core::{
 
 use crate::pin::{self, MonitorInfo, WallpaperWindow};
 
+/// 导入失败原因（UI 侧映射 strings.rs 文案；§7 失败文案带原因和出路）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportError {
+    /// 不支持的类型（拒绝并说明支持的类型列表）。
+    Unsupported,
+    /// mkv 容器：webview 不支持，需转封装。
+    Mkv,
+    /// HEVC：Windows 需系统扩展（macOS 原生支持，仍统一提示）。
+    Hevc,
+    /// 磁盘 I/O 失败。
+    Io,
+}
+
+/// 导入类型判定结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportCheck {
+    Ok(WallpaperKind),
+    Err(ImportError),
+}
+
 pub struct Session {
     pub state: SessionState,
     pub monitor: MonitorInfo,
@@ -36,7 +56,7 @@ impl SessionManager {
 
     /// 全量同步：枚举显示器 → 按配置建/拆会话（启动与显示器轮询共用）。
     pub fn sync_monitors(&mut self) {
-        let mut monitors = pin::macos::enumerate_monitors();
+        let monitors = pin::macos::enumerate_monitors();
 
         // 首启占位键 "main" → 解析为真实主屏 ID（一次性改写并落盘）
         if self.config.monitors.remove("main").is_some() {
@@ -159,6 +179,26 @@ impl SessionManager {
         }
     }
 
+    /// 单显示器暂停/恢复（§4.4 屏卡片 ⏸/▶；经状态机转移，与 pause_all 同级）
+    pub fn pause_one(&mut self, monitor_id: &str, paused: bool) {
+        let ev = if paused {
+            SessionEvent::UserPause
+        } else {
+            SessionEvent::UserResume
+        };
+        if let Some(s) = self.sessions.get_mut(monitor_id) {
+            let next = transfer(s.state, ev);
+            s.state = next;
+            if let Some(w) = s.window.as_mut() {
+                if next == SessionState::PausedUser {
+                    w.set_paused(true);
+                } else if next == SessionState::Playing {
+                    w.set_paused(false);
+                }
+            }
+        }
+    }
+
     /// 主显示器循环切换到下一个库条目（托盘「换壁纸」）
     pub fn cycle_main(&mut self) {
         let Some(main_id) = self.sessions.keys().next().cloned() else {
@@ -212,6 +252,60 @@ impl SessionManager {
 
     fn build_window_only(monitor: &MonitorInfo) -> gesso_core::Result<Box<dyn WallpaperWindow>> {
         pin::create_wallpaper_window(monitor)
+    }
+
+    /// 设置更新（设置页全部即时生效：写内存 + 落盘，§4.5）
+    pub fn update_settings(&mut self, settings: gesso_core::Settings) {
+        self.config.settings = settings;
+        let _ = self.save_config();
+    }
+
+    /// 导入结果的类型判定（UI 预检与引擎执行共用同一套规则）。
+    pub fn classify_import(path: &std::path::Path) -> ImportCheck {
+        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+            return ImportCheck::Err(ImportError::Unsupported);
+        };
+        match ext.to_ascii_lowercase().as_str() {
+            "mp4" | "webm" => ImportCheck::Ok(WallpaperKind::Video),
+            "gif" | "webp" => ImportCheck::Ok(WallpaperKind::Image),
+            "glsl" => ImportCheck::Ok(WallpaperKind::Shader),
+            "html" => ImportCheck::Ok(WallpaperKind::Html),
+            "mkv" => ImportCheck::Err(ImportError::Mkv),
+            "hevc" | "h265" | "heic" => ImportCheck::Err(ImportError::Hevc),
+            _ => ImportCheck::Err(ImportError::Unsupported),
+        }
+    }
+
+    /// 导入（P1）：随机 ID → 拷贝进库（v1 拷贝制）→ 清单落盘 → 追加内存库。
+    pub fn import_entry(&mut self, path: &std::path::Path) -> Result<LibraryEntry, ImportError> {
+        let kind = match Self::classify_import(path) {
+            ImportCheck::Ok(kind) => kind,
+            ImportCheck::Err(e) => return Err(e),
+        };
+        let ext = import_ext(path, kind);
+        let id = gesso_core::generate_id();
+        let dst_dir = crate::protocol::library_dir().join(&id);
+        std::fs::create_dir_all(&dst_dir).map_err(|_| ImportError::Io)?;
+        let title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("未命名")
+            .to_string();
+        std::fs::copy(path, dst_dir.join(format!("index.{ext}"))).map_err(|_| ImportError::Io)?;
+        let entry = LibraryEntry {
+            id: id.clone(),
+            kind,
+            title,
+            origin: "local".into(),
+            source_dir: dst_dir.display().to_string(),
+        };
+        self.library.push(entry.clone());
+        gesso_core::LibraryManifest {
+            entries: self.library.clone(),
+        }
+        .save(&crate::protocol::library_dir().join("library.json"))
+        .map_err(|_| ImportError::Io)?;
+        Ok(entry)
     }
 
     pub fn save_config(&self) -> gesso_core::Result<()> {
@@ -282,13 +376,93 @@ fn urlencode(s: &str) -> String {
     out
 }
 
-/// 条目主资源：v1 约定 source_dir 内 index.<ext>（video: index.mp4；image: index.gif…）
-fn entry_main_source(entry: &LibraryEntry) -> String {
-    let ext = match entry.kind {
+/// 导入落盘用的扩展名：**保留源文件扩展名**（WKWebView 按扩展名判定媒体类型，
+/// 把 `.webm` 存成 `index.mp4`、`.webp` 存成 `index.gif` 会直接播不出来）；
+/// 源文件无扩展名时退回类型默认名。
+pub fn import_ext(path: &std::path::Path, kind: WallpaperKind) -> String {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| default_ext(kind).to_string())
+}
+
+/// 类型对应的默认扩展名（导入时源文件无扩展名的兜底）
+pub fn default_ext(kind: WallpaperKind) -> &'static str {
+    match kind {
         WallpaperKind::Video => "mp4",
         WallpaperKind::Image => "gif",
         WallpaperKind::Shader => "glsl",
         WallpaperKind::Html => "html",
-    };
-    format!("index.{ext}") // 相对宿主页同目录（条目自包含）
+    }
+}
+
+/// 条目主资源文件名：优先目录内真实存在的 `index.*`（导入保留源扩展名），
+/// 找不到时回退到类型默认名。**导入 / 失效判定 / 宿主页 spec 三处必须共用本函数**，
+/// 否则 webm/webp 这类条目会出现"能导入但被判失效"或"宿主页请求错文件名"。
+pub fn main_asset_name(source_dir: &str, kind: WallpaperKind) -> Option<String> {
+    let dir = std::path::Path::new(source_dir);
+    let pref = std::fs::read_dir(dir).ok()?;
+    let mut fallback: Option<String> = None;
+    for ent in pref.flatten() {
+        let name = ent.file_name().to_string_lossy().to_string();
+        if let Some(rest) = name.strip_prefix("index.") {
+            if !rest.is_empty() {
+                // 类型默认扩展名优先，其次任意 index.*
+                if rest.eq_ignore_ascii_case(default_ext(kind)) {
+                    return Some(name);
+                }
+                fallback.get_or_insert(name);
+            }
+        }
+    }
+    fallback
+}
+
+/// 条目主资源（相对宿主页同目录；条目自包含）
+fn entry_main_source(entry: &LibraryEntry) -> String {
+    main_asset_name(&entry.source_dir, entry.kind)
+        .unwrap_or_else(|| format!("index.{}", default_ext(entry.kind)))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn import_ext_preserves_source_extension() {
+        // webm/webp 不能被改名成 mp4/gif（WKWebView 按扩展名判定类型）
+        assert_eq!(import_ext(Path::new("/tmp/a.webm"), WallpaperKind::Video), "webm");
+        assert_eq!(import_ext(Path::new("/tmp/a.webp"), WallpaperKind::Image), "webp");
+        assert_eq!(import_ext(Path::new("/tmp/a.MP4"), WallpaperKind::Video), "mp4");
+        // 无扩展名 → 类型默认
+        assert_eq!(import_ext(Path::new("/tmp/noext"), WallpaperKind::Html), "html");
+    }
+
+    #[test]
+    fn main_asset_name_prefers_kind_ext_then_any_index() {
+        let dir = std::env::temp_dir().join(format!("gesso-asset-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 空目录 → None（失效判定依赖它）
+        assert_eq!(main_asset_name(&dir.display().to_string(), WallpaperKind::Video), None);
+
+        // 只有 index.webm → 命中（类型默认缺失时用任意 index.*）
+        std::fs::write(dir.join("index.webm"), b"x").unwrap();
+        assert_eq!(
+            main_asset_name(&dir.display().to_string(), WallpaperKind::Video).as_deref(),
+            Some("index.webm")
+        );
+
+        // 同时存在 index.mp4 → 类型默认优先
+        std::fs::write(dir.join("index.mp4"), b"x").unwrap();
+        assert_eq!(
+            main_asset_name(&dir.display().to_string(), WallpaperKind::Video).as_deref(),
+            Some("index.mp4")
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

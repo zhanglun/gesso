@@ -3,6 +3,7 @@
 //! 形状按 技术方案 §3.8：持久状态唯一真源是一个 Global；UI Entity 只是投影。
 //! 所有变更走本模块的 `update`（唯一写入路径），完成后刷新窗口 —— 单向数据流。
 
+use gpui_kit::component::WindowExt as _;
 use gpui_kit::{App, BorrowAppContext as _, Global, SharedString, Window};
 
 use super::data::{Kind, LibraryItem, MonitorEntry, PlayState, Settings};
@@ -49,6 +50,10 @@ pub struct GessoState {
     pub pending_new_monitor: bool,
     /// 顶栏手动主题切换后的模式提示（None = 跟随系统）。
     pub import_counter: usize,
+    /// 状态条红字（不支持类型等原因说明，§4.3 拖入文件交互）。
+    pub status_error: Option<String>,
+    /// 库卡片拖拽进行中（区分卡片拖拽与 OS 文件拖放，供投放覆盖层判定）。
+    pub card_dragging: bool,
     /// false = 页面数据来自真会话快照（main.rs 装配）；true = 纯演示数据。
     pub demo: bool,
 }
@@ -68,6 +73,8 @@ impl Default for GessoState {
             hovered: None,
             pending_new_monitor: false,
             import_counter: 0,
+            status_error: None,
+            card_dragging: false,
             demo: true,
         }
     }
@@ -224,4 +231,72 @@ pub fn bridge_assign(
     }
     update(window, cx, |g| g.selected = Some(item_id.into()));
     Ok(name)
+}
+
+/* ---------- 导入（P1：rfd 对话框 / 文件拖入共用同一路径） ---------- */
+
+use crate::session::{ImportCheck, ImportError};
+
+/// 导入失败 → 文案（strings.rs 唯一出处；§7 失败文案带原因和出路）。
+pub fn import_error_text(e: ImportError) -> String {
+    use super::strings::*;
+    match e {
+        ImportError::Unsupported => import_err_unsupported(),
+        ImportError::Mkv => import_err_mkv(),
+        ImportError::Hevc => import_err_hevc(),
+        ImportError::Io => import_err_io(),
+    }
+}
+
+/// 预检 + 入队导入；不支持类型 → 状态条红字（返回是否受理）。
+pub fn import_paths(
+    paths: impl Iterator<Item = std::path::PathBuf>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    for path in paths {
+        match crate::session::SessionManager::classify_import(&path) {
+            ImportCheck::Ok(_) => {
+                crate::engine::enqueue(crate::engine::EngineAction::Import {
+                    path: path.display().to_string(),
+                });
+                let name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("未命名")
+                    .to_string();
+                update(window, cx, |g| {
+                    g.status_error = None;
+                });
+                window.push_notification(
+                    gpui_kit::component::notification::Notification::success(
+                        super::strings::toast_imported(&name),
+                    ),
+                    cx,
+                );
+            }
+            ImportCheck::Err(e) => {
+                let msg = import_error_text(e);
+                update(window, cx, |g| {
+                    g.status_error = Some(msg.clone());
+                    g.selected = None;
+                });
+                window.push_notification(
+                    gpui_kit::component::notification::Notification::warning(msg),
+                    cx,
+                );
+            }
+        }
+    }
+}
+
+/// 「导入」按钮：rfd 文件选择（类型预过滤）→ 同一导入路径。
+pub fn import_with_dialog(window: &mut Window, cx: &mut App) {
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter("壁纸文件", &["mp4", "webm", "gif", "webp", "html", "glsl"])
+        .pick_file()
+    else {
+        return;
+    };
+    import_paths(std::iter::once(path), window, cx);
 }
