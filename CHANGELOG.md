@@ -25,6 +25,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 - Feasibility spikes with verified conclusions (`SPIKE-REPORT.md`): GPUI integration, macOS desktop layering, Xcode-free builds via `runtime_shaders`.
 - Engine API contract (`crates/app/API.md`), engineering notes (architecture rules + pitfall ledger), architecture doc, roadmap, FAQ, security policy, contribution guide, dual MIT/Apache-2.0 licensing.
+- Product icon set ("gesso ground" concept, DESIGN.md §品牌图形): `mac/Gesso.icns` (16→1024), `win/gesso.ico` (16→256), tray glyphs (macOS template @2x / Windows white); tray placeholder pixels in `main.rs` replaced by embedded PNGs (template-aware on macOS), runtime Dock icon via `NSImage`; regen pipeline `crates/app/assets/icons/tools/build.mjs` + brand spec sheet `docs/design/06-品牌图标.brand.html`.
 
 ### Fixed
 

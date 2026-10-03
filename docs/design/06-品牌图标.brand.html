@@ -59,8 +59,13 @@
   .note span { color:var(--text2); font-size:11.5px; }
 
   /* ── 真机场景 ── */
-  .scene { margin-bottom:14px; }
+  .scene { margin-bottom:18px; }
   .scene .lab { font-size:11px; color:var(--text2); margin-bottom:6px; }
+  .filetile { background:var(--elevated); border:1px solid var(--hairline); border-radius:10px;
+    padding:12px 14px 10px; width:138px; text-align:center; }
+  .filetile img { width:44px; height:44px; }
+  .filetile b { display:block; font-size:11.5px; font-weight:600; margin-top:6px; }
+  .filetile span { font-size:10.5px; color:var(--text2); }
   .menubar { height:28px; border-radius:7px; display:flex; align-items:center; gap:14px;
     padding:0 12px; font-size:11.5px; font-weight:500; position:relative; }
   .menubar.light { background:#F5F5F7; border:1px solid var(--hairline); color:#1D1D1F; }
@@ -193,6 +198,19 @@
           <div class="clock num">10:24<br>2026/10/03</div>
         </div>
       </div>
+      <div class="scene" style="margin-bottom:0">
+        <div class="lab">产物档案 · 访达 / 资源管理器视角</div>
+        <div style="display:flex;gap:10px">
+          <div class="filetile">
+            <img src="../../crates/app/assets/icons/src/app-icon@1024.png" alt="">
+            <b>Gesso.icns</b><span>macOS bundle · 16→1024</span>
+          </div>
+          <div class="filetile">
+            <img src="../../crates/app/assets/icons/win/gesso.ico" alt="">
+            <b>gesso.ico</b><span>Windows · winresource 内嵌</span>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="card">
@@ -229,7 +247,7 @@
         <div class="grad">
           <div style="background:#7FA8F2"><span class="hex mono">#7FA8F2</span></div>
           <div style="background:#9C7BE8"><span class="hex mono">#9C7BE8</span></div>
-          <div style="background:#F0B878"><span class="hex mono">#F0B878</span></div>
+          <div style="background:#F0B878"><span class="hex mono" style="color:#6B451C;text-shadow:none">#F0B878</span></div>
         </div>
       </div>
       <div class="strip">
@@ -250,7 +268,7 @@
       <h2>托盘字形构造</h2>
       <div class="hint">24 网格 · 双层圆角矩形 · 读法：壁纸从前层（桌面）之下探出</div>
       <div class="construct">
-        <svg width="240" height="240" viewBox="-14 -14 52 52">
+        <svg width="240" height="240" viewBox="-16 -16 56 56">
           <rect x="0" y="0" width="24" height="24" fill="transparent"/>
           <!-- 后层 -->
           <rect x="9" y="3" width="11.5" height="9" rx="3" fill="#9B9BA1"/>
@@ -259,9 +277,12 @@
             stroke="#316EF5" stroke-width=".5" stroke-dasharray="1.4 1.1" opacity=".8"/>
           <!-- 前层 -->
           <rect x="3.5" y="8.75" width="13.5" height="11.75" rx="3.5" fill="#1D1D1F"/>
-          <text x="21.4" y="6.4" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">11.5×9 r3</text>
-          <text x="17.6" y="21.6" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">13.5×11.75 r3.5</text>
-          <text x="19.2" y="10.4" font-size="2.6" fill="#316EF5" font-family="Menlo,monospace">缝 1.75</text>
+          <!-- 标注置于画布外侧 + 引线 -->
+          <line x1="20.5" y1="5" x2="25.2" y2="5" stroke="#9B9BA1" stroke-width=".25"/>
+          <text x="26" y="5.8" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">11.5×9 r3</text>
+          <line x1="18.75" y1="12" x2="25.2" y2="12" stroke="#316EF5" stroke-width=".25"/>
+          <text x="26" y="12.8" font-size="2.6" fill="#316EF5" font-family="Menlo,monospace">缝 1.75</text>
+          <text x="1" y="28.6" font-size="2.6" fill="#6E6E73" font-family="Menlo,monospace">13.5×11.75 r3.5</text>
           <!-- 网格线 -->
           <g stroke="#E5E5EA" stroke-width=".18" opacity=".55">
             <line x1="0" y1="0" x2="0" y2="24"/><line x1="24" y1="0" x2="24" y2="24"/>

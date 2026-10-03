@@ -44,7 +44,8 @@ crates/app      应用：
   ├─ protocol.rs  gesso:// 资源协议（当前 file:// 自包含模式，协议修复待办）
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
-  └─ ui/          管理窗口 UI（gpui-kit）
+  ├─ ui/          管理窗口 UI（gpui-kit）
+  └─ assets/      宿主页 / 内置样例 / 产品图标（icons/ 产出 + 再生成管线，见其 README）
 host/           壁纸宿主页（TS，跑在 wry webview 内）
 docs/           工程文档 + design/（设计归档）
 assets/         内置样例 + 宿主页静态资源
