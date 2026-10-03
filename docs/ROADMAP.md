@@ -44,3 +44,4 @@ Status is honest and verified-first: an item is ✅ only after real-machine veri
 - Hover previews (extracted-frame animation pipeline) vs. current gradient art.
 - ~15 compiler warnings in `gesso-app`; example `m15.rs` is a reference, not a product surface.
 - i18n: UI strings are centralized in `ui/strings.rs` (Chinese-first); English translation pass pending.
+- Tray polish: dynamic menu copy (muda handlers are `Send`-only — menu handle can't be mutated from the poller) and precise quick-panel positioning relative to the tray icon (retina coordinate conversion).

@@ -290,13 +290,25 @@ pub fn import_paths(
     }
 }
 
-/// 「导入」按钮：rfd 文件选择（类型预过滤）→ 同一导入路径。
-pub fn import_with_dialog(window: &mut Window, cx: &mut App) {
-    let Some(path) = rfd::FileDialog::new()
-        .add_filter("壁纸文件", &["mp4", "webm", "gif", "webp", "html", "glsl"])
-        .pick_file()
-    else {
-        return;
-    };
-    import_paths(std::iter::once(path), window, cx);
+/// 「导入」按钮：rfd **异步**文件选择 → 同一导入路径。
+///
+/// ⚠️ 必须用 AsyncFileDialog：同步 `FileDialog::pick_file` 会在主线程跑
+/// `NSApp run_modal` 嵌套事件循环，GPUI 的 App RefCell 在嵌套循环里被
+/// 事件重入借用 → "RefCell already borrowed" panic（app.rs:955，实测崩溃）。
+/// ModalFuture/FileHandle 均 Send，可在 GPUI 后台任务 await，结果入队动作。
+pub fn import_with_dialog(_window: &mut Window, cx: &mut App) {
+    cx.background_executor()
+        .spawn(async move {
+            let Some(handle) = rfd::AsyncFileDialog::new()
+                .add_filter("壁纸文件", &["mp4", "webm", "gif", "webp", "html", "glsl"])
+                .pick_file()
+                .await
+            else {
+                return; // 用户取消
+            };
+            crate::engine::enqueue(crate::engine::EngineAction::Import {
+                path: handle.path().display().to_string(),
+            });
+        })
+        .detach();
 }

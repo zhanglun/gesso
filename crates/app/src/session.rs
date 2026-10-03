@@ -58,6 +58,37 @@ impl SessionManager {
     pub fn sync_monitors(&mut self) {
         let monitors = pin::macos::enumerate_monitors();
 
+        // v1 已知限制：CGDirectDisplayID 不跨重启/重连稳定（技术方案 §4.3 的 EDID 哈希是正解）。
+        // 当配置里的 key 全部失配（如系统重编了 cg-id）时，把映射迁移到当前主屏，避免静默丢壁纸。
+        let known: std::collections::BTreeSet<String> =
+            monitors.iter().map(|m| m.id.clone()).collect();
+        if !self.config.monitors.is_empty()
+            && self.config.monitors.keys().all(|k| !known.contains(k))
+        {
+            if let Some(main) = monitors
+                .iter()
+                .find(|m| m.is_main)
+                .or_else(|| monitors.first())
+            {
+                let old_map: Vec<(String, String)> = self
+                    .config
+                    .monitors
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let first_entry = old_map.first().map(|(_, v)| v.clone());
+                self.config.monitors.clear();
+                if let Some(entry) = first_entry {
+                    self.config.monitors.insert(main.id.clone(), entry);
+                }
+                let _ = self.save_config();
+                println!(
+                    "[session] 显示器 ID 已失效（系统重编），配置迁移 → {}",
+                    main.id
+                );
+            }
+        }
+
         // 首启占位键 "main" → 解析为真实主屏 ID（一次性改写并落盘）
         if self.config.monitors.remove("main").is_some() {
             if let Some(main) = monitors

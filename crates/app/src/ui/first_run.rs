@@ -20,7 +20,6 @@ use super::data::Kind;
 use super::strings::*;
 use super::theme::tokens;
 use super::widgets::preview;
-use gpui_kit::BorrowAppContext as _;
 
 pub struct FirstRun {
     step: usize,
@@ -321,14 +320,9 @@ impl Render for FirstRun {
                     .label(WIZARD_IMPORT_OWN)
                     .text()
                     .on_click(|_, window, cx| {
-                        let name = cx.update_global::<super::app_state::GessoState, _>(|g, _| {
-                            g.import_demo()
-                        });
-                        window.refresh();
-                        window.push_notification(
-                            Notification::success(super::strings::toast_imported(&name)),
-                            cx,
-                        );
+                        // 与库页同一导入路径（异步对话框；同步 pick_file 会嵌套
+                        // run_modal 撞 GPUI RefCell）
+                        super::app_state::import_with_dialog(window, cx);
                     })
                     .into_any_element(),
                 Button::new("wiz-back")

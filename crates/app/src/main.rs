@@ -392,8 +392,20 @@ fn main() {
                                             |_: gpui_kit::gpui::AnyView,
                                              window,
                                              cx: &mut gpui_kit::gpui::App| {
-                                                window.activate_window();
+                                                // 顺序关键：先激活 App 再上屏窗口。
+                                                // App 未激活时 makeKeyAndOrderFront 会触发
+                                                // GPUI 的幽灵 windowDidBecomeKey 处理
+                                                // （gpui-pre-macos window.rs ~3135：非 key 态
+                                                // 立即 resignKeyWindow），窗口上屏即被打回；
+                                                // 先让 NSApp.active 再上屏则不会命中该分支。
                                                 cx.activate(true);
+                                                window.activate_window();
+                                                // 再 defer 一帧补一次上屏：跨 Space 场景下
+                                                // 首次 orderFront 可能只切 Space 不上屏
+                                                window.defer(cx, |window, cx| {
+                                                    window.activate_window();
+                                                    cx.activate(true);
+                                                });
                                             },
                                         );
                                     }
