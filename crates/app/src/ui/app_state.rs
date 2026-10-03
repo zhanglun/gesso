@@ -1,0 +1,178 @@
+//! 窗口状态（M3 接入 core 前的演示内存态）。
+//!
+//! 形状按 技术方案 §3.8：持久状态唯一真源是一个 Global；UI Entity 只是投影。
+//! 所有变更走本模块的 `update`（唯一写入路径），完成后刷新窗口 —— 单向数据流。
+
+use gpui_kit::{App, Global, SharedString, Window};
+
+use super::data::{Kind, LibraryItem, MonitorEntry, PlayState, Settings};
+
+/// 筛选段控件的当前值（§4.3：单选段控件；WE 仅在已扫描时出现——演示恒可筛）。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Filter {
+    All,
+    Kind(Kind),
+    We,
+}
+
+impl Filter {
+    pub fn label(self) -> &'static str {
+        match self {
+            Filter::All => super::strings::FILTER_ALL,
+            Filter::We => super::strings::FILTER_WE,
+            Filter::Kind(k) => k.filter_label(),
+        }
+    }
+}
+
+/// 库卡片拖拽载荷（signature #2：拖卡片 → 显示器投放区 → 放手即指派）。
+#[derive(Clone)]
+pub struct CardDrag {
+    pub item_id: SharedString,
+    pub item_name: SharedString,
+}
+
+pub struct GessoState {
+    pub library: Vec<LibraryItem>,
+    pub monitors: Vec<MonitorEntry>,
+    pub settings: Settings,
+    pub filter: Filter,
+    pub query: String,
+    /// 单击选中（状态条显示 meta 详情）。
+    pub selected: Option<SharedString>,
+    /// 悬停中的库卡片（signature #1：对应显示器边框点亮）。
+    pub hovered: Option<SharedString>,
+    /// 「检测到新显示器」提示条可见性。
+    pub pending_new_monitor: bool,
+    /// 顶栏手动主题切换后的模式提示（None = 跟随系统）。
+    pub import_counter: usize,
+}
+
+impl Global for GessoState {}
+
+impl Default for GessoState {
+    fn default() -> Self {
+        GessoState {
+            library: super::data::demo_library(),
+            monitors: super::data::demo_monitors(),
+            settings: Settings::default(),
+            filter: Filter::All,
+            query: String::new(),
+            selected: None,
+            hovered: None,
+            pending_new_monitor: false,
+            import_counter: 0,
+        }
+    }
+}
+
+pub fn state(cx: &App) -> &GessoState {
+    cx.try_global::<GessoState>()
+        .map(|g| &g.0)
+        .expect("GessoState 未初始化")
+}
+
+/// 唯一写入路径；改完即整窗刷新（M3 换 Entity observe 精细化重绘）。
+pub fn update(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut GessoState)) {
+    cx.update_global::<GessoState, _>(|g, _| f(g));
+    window.refresh();
+}
+
+impl GessoState {
+    /// 筛选 + 搜索后的库条目下标（标题/标签模糊匹配，即时过滤）。
+    pub fn visible_items(&self) -> Vec<usize> {
+        let q = self.query.to_lowercase();
+        self.library
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| {
+                let kind_ok = match self.filter {
+                    Filter::All => true,
+                    Filter::We => w.we,
+                    Filter::Kind(k) => w.kind == k,
+                };
+                let query_ok =
+                    q.is_empty() || w.name.to_lowercase().contains(&q) || w.id.to_lowercase().contains(&q);
+                kind_ok && query_ok
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// 指派（§3.6 set_wallpaper 语义）：该屏旧壁纸置为未指派；失效素材拒绝指派。
+    pub fn assign(&mut self, monitor_idx: usize, item_id: &str) -> Result<&'static str, &'static str> {
+        let Some(item) = self.library.iter_mut().find(|w| w.id.as_ref() == item_id) else {
+            return Err("找不到该壁纸");
+        };
+        if item.broken {
+            return Err("素材失效，无法指派");
+        }
+        for w in &mut self.library {
+            if w.assigned == Some(monitor_idx) {
+                w.assigned = None;
+            }
+        }
+        item.assigned = Some(monitor_idx);
+        if let Some(m) = self.monitors.get_mut(monitor_idx) {
+            m.wallpaper = Some(item.id.clone());
+            m.state = PlayState::Playing; // 指派即恢复（原型行为）
+        }
+        Ok(item.name.as_ref())
+    }
+
+    /// 从库中移除（只出库，永不删文件 —— §7 用词纪律）。
+    pub fn remove(&mut self, item_id: &str) {
+        self.library.retain(|w| w.id.as_ref() != item_id);
+        if self.selected.as_ref().is_some_and(|s| s.as_ref() == item_id) {
+            self.selected = None;
+        }
+    }
+
+    /// 单屏暂停/恢复（用户暂停，§9 Paused(user)）。
+    pub fn toggle_pause(&mut self, monitor_idx: usize) {
+        if let Some(m) = self.monitors.get_mut(monitor_idx) {
+            m.state = if m.state.paused() {
+                PlayState::Playing
+            } else {
+                PlayState::UserPaused
+            };
+        }
+    }
+
+    /// 重新检测（演示：揭示「检测到新显示器」提示条）。
+    pub fn redetect(&mut self) {
+        self.pending_new_monitor = true;
+    }
+
+    /// 演示导入：向库中追加一个条目并选中（M3 换 rfd + core import）。
+    pub fn import_demo(&mut self) -> String {
+        self.import_counter += 1;
+        let n = self.import_counter;
+        let name = format!("Imported Sample {n}");
+        self.library.push(LibraryItem {
+            id: format!("imported-{n}").into(),
+            name: name.clone().into(),
+            kind: Kind::Video,
+            we: false,
+            meta: "1080p · 8s".into(),
+            assigned: None,
+            broken: false,
+            art: super::data::Art { from: 0x2A4A3E, to: 0x0E0F13 },
+        });
+        self.selected = Some(format!("imported-{n}").into());
+        name
+    }
+
+    /// 主显示器下标（0 = 主；多显示器时即第一块）。
+    pub fn main_monitor(&self) -> usize {
+        0
+    }
+
+    /// 找某 id 的显示器名。
+    pub fn monitor_name(&self, idx: usize) -> String {
+        self.monitors
+            .get(idx)
+            .map(|m| m.name.to_string())
+            .unwrap_or_else(|| "未知显示器".into())
+    }
+}

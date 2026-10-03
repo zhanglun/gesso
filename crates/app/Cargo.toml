@@ -35,5 +35,6 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSWorkspace"] }
 [dev-dependencies]
 gpui-wry = "0.7"
 lb-wry = "0.53"
+objc2-foundation = "0.3"
 raw-window-handle = "0.6"
 tray-icon = "0.26.0"
