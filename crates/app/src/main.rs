@@ -374,30 +374,16 @@ fn main() {
                         .timer(Duration::from_millis(150))
                         .await;
                     // UI/托盘写动作入队（API.md §4）——引擎轮询统一执行
-                    // ThumbsDone 单独分流：它写 AppState.thumbs（与 sm 无关），
-                    // 独立 update 避免 &mut sm 与 &mut thumbs 的借用冲突
-                    let (thumb_done, engine_actions): (Vec<_>, Vec<_>) =
-                        engine::drain().into_iter().partition(|a| {
-                            matches!(a, engine::EngineAction::ThumbsDone { .. })
-                        });
-                    let mut refresh_ui =
-                        !engine_actions.is_empty() || !thumb_done.is_empty();
+                    let engine_actions = engine::drain();
+                    let mut refresh_ui = !engine_actions.is_empty();
                     let mut deferred_window_actions: Vec<engine::EngineAction> = Vec::new();
                     let mut deferred_thumb_requests: Vec<String> = Vec::new();
-                    if !thumb_done.is_empty() {
-                        cx.update(|cx| {
-                            let thumbs =
-                                &mut cx.global_mut::<engine::AppState>().thumbs;
-                            for a in thumb_done {
-                                if let engine::EngineAction::ThumbsDone { dir } = a {
-                                    thumbs.mark_finished(&dir);
-                                }
-                            }
-                        });
-                    }
                     if !engine_actions.is_empty() {
                         cx.update(|cx| {
-                            let sm = &mut cx.global_mut::<engine::AppState>().sm;
+                            // app（整个全局）与 sm（字段）分开绑定：ThumbsDone 分支
+                            // 要写 app.thumbs，与 &mut app.sm 是不相交字段借用
+                            let app = cx.global_mut::<engine::AppState>();
+                            let sm = &mut app.sm;
                             for a in engine_actions {
                                 match a {
                                     engine::EngineAction::Assign {
@@ -426,7 +412,14 @@ fn main() {
                                     engine::EngineAction::Import { path } => {
                                         match sm.import_entry(std::path::Path::new(&path)) {
                                             Ok(e) => {
-                                                println!("[ui] 已导入「{}」→ {}", e.title, e.id)
+                                                println!("[ui] 已导入「{}」→ {}", e.title, e.id);
+                                                // 导入后立即后台抽帧（v1 在 import_entry
+                                                // 里主线程同步抽 ~1s，导入即卡顿）；统一
+                                                // 走 ThumbScheduler 去重/限额
+                                                if e.kind == WallpaperKind::Video {
+                                                    deferred_thumb_requests
+                                                        .push(e.source_dir);
+                                                }
                                             }
                                             Err(err) => println!("[ui] 导入失败：{err:?}"),
                                         }
@@ -449,6 +442,11 @@ fn main() {
                                     engine::EngineAction::FocusMainWindow => {
                                         // 需要 cx 的窗口操作：sm 借用结束后在同一闭包内处理
                                         deferred_window_actions.push(a);
+                                    }
+                                    engine::EngineAction::ThumbsDone { dir } => {
+                                        // 后台抽帧完成：释放在途标记（重试计数随之累加）；
+                                        // 快照回灌由 refresh_ui 统一触发
+                                        app.thumbs.mark_finished(&dir);
                                     }
                                 }
                             }
@@ -481,6 +479,15 @@ fn main() {
                             }
                         });
                     }
+                    // 导入触发的立即补帧（已在 ThumbScheduler 标记在途，直接起任务）
+                    for dir in deferred_thumb_requests {
+                        cx.update(|cx| {
+                            cx.global_mut::<engine::AppState>()
+                                .thumbs
+                                .mark_started(&dir);
+                        });
+                        spawn_thumb_job(cx.background_executor().clone(), dir);
+                    }
                     tick += 1;
                     if tick == 20 || tick == 40 {
                         cx.update(|cx| {
@@ -492,29 +499,6 @@ fn main() {
                     if tick.is_multiple_of(13) {
                         cx.update(|cx| cx.global_mut::<engine::AppState>().sm.sync_monitors());
                         refresh_ui = true;
-                    }
-                    // 缩略帧序列后台补齐（~30s 一轮；只处理缺帧的视频条目）
-                    if tick.is_multiple_of(200) {
-                        let targets: Vec<String> = cx.update(|cx| -> Vec<String> {
-                            cx.global::<GessoState>()
-                                .library
-                                .iter()
-                                .filter(|w| w.kind == ui::data::Kind::Video && w.thumbs.len() < 2)
-                                .map(|w| w.source_dir.to_string())
-                                .collect()
-                        });
-                        if !targets.is_empty() {
-                            for dir in targets {
-                                cx.background_executor()
-                                    .spawn(async move {
-                                        thumb::extract_frames(&dir);
-                                    })
-                                    .detach();
-                            }
-                            // 给生成留 ~2s，随后常规回灌把新帧带回 UI
-                            cx.background_executor().timer(Duration::from_secs(2)).await;
-                            refresh_ui = true;
-                        }
                     }
                     if refresh_ui {
                         // 会话 → UI 单向回灌（托盘/界面动作 / 显示器热插拔后的跨面同步）
@@ -538,6 +522,40 @@ fn main() {
                             });
                             cx.refresh_windows();
                         });
+                    }
+                }
+            })
+            .detach();
+
+            // 缩略图抽帧扫描（独立任务，30s 一轮兜底：启动时/导入外的缺帧补齐）。
+            // v1 把它挂在 150ms tick 的 tick%200 上并用 timer(2s) 猜"生成完了没"，
+            // 且无限重试——现在完成事件（ThumbsDone）驱动回灌，重试上限与在途
+            // 去重收敛在 ThumbScheduler。
+            cx.spawn(async move |cx| {
+                loop {
+                    cx.background_executor().timer(Duration::from_secs(30)).await;
+                    // 扫描缺帧的视频条目：真源 = 库目录文件系统（existing_frames），
+                    // 不依赖 UI 快照投影的新鲜度
+                    let targets: Vec<String> = cx.update(|cx| -> Vec<String> {
+                        let app = cx.global::<engine::AppState>();
+                        app.sm
+                            .library()
+                            .iter()
+                            .filter(|e| e.kind == WallpaperKind::Video)
+                            .map(|e| e.source_dir.clone())
+                            .filter(|dir| {
+                                app.thumbs.should_start(dir)
+                                    && thumb::existing_frames(dir).len() < 2
+                            })
+                            .collect()
+                    });
+                    for dir in targets {
+                        cx.update(|cx| {
+                            cx.global_mut::<engine::AppState>()
+                                .thumbs
+                                .mark_started(&dir);
+                        });
+                        spawn_thumb_job(cx.background_executor().clone(), dir);
                     }
                 }
             })

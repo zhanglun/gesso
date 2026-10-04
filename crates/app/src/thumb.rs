@@ -75,7 +75,7 @@ fn frame_times(duration_secs: f64) -> Vec<f64> {
 /// 不对持续失败的条目无限空转。
 #[cfg(target_os = "macos")]
 pub fn extract_frames(source_dir: &str) -> ThumbOutcome {
-    objc2::rc::autoreleasepool(|| extract_frames_inner(source_dir))
+    objc2::rc::autoreleasepool(|_| extract_frames_inner(source_dir))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -99,7 +99,7 @@ fn extract_frames_inner(source_dir: &str) -> ThumbOutcome {
     // 所有权不裸写：生成绑定的便利构造器/属性方法已按 ARC 语义正确处理
     // autorelease（fileURLWithPath 是 autoreleased 返回，绑定内部走
     // objc_retainAutoreleasedReturnValue）——这正是 v1 裸 msg_send 踩坑的位置。
-    let url = unsafe { NSURL::fileURLWithPath(&NSString::from_str(src.display().to_string().as_str())) };
+    let url = NSURL::fileURLWithPath(&NSString::from_str(src.display().to_string().as_str()));
     let asset = unsafe { AVURLAsset::URLAssetWithURL_options(&url, None) };
     let seconds = unsafe { asset.duration().seconds() };
     if !(seconds.is_finite() && seconds > 0.1) {
@@ -144,7 +144,7 @@ fn extract_frames_inner(source_dir: &str) -> ThumbOutcome {
         let file_name = out_path.file_name().unwrap_or_default().to_string_lossy();
         let tmp_path = dir.join(format!(".{file_name}.tmp.png"));
 
-        let ok = ffi::write_png_to_file(&image, &tmp_path, &png_uti);
+        let ok = ffi::write_png_to_file(&image, &tmp_path, png_uti);
         if ok && std::fs::rename(&tmp_path, &out_path).is_ok() {
             written += 1;
         } else if tmp_path.exists() {

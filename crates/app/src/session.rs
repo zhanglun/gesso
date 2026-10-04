@@ -398,10 +398,9 @@ impl SessionManager {
             .unwrap_or("未命名")
             .to_string();
         std::fs::copy(path, dst_dir.join(format!("index.{ext}"))).map_err(|_| ImportError::Io)?;
-        // 导入后立即抽帧（不等 30s 后台轮询；~1s/条目，同步执行确保缩略图就绪）
-        if kind == WallpaperKind::Video {
-            crate::thumb::extract_frames(dst_dir.display().to_string().as_str());
-        }
+        // 抽帧不在本函数做：import_entry 跑在引擎主线程，v1 在这里同步抽 ~1s
+        // （导入即卡顿），且经裸 FFI 路径。视频条目的补帧由 main.rs 的 Import
+        // 分支在动作处理后异步调度（ThumbScheduler 去重/限额，完成经 ThumbsDone 回灌）。
         let entry = LibraryEntry {
             id: id.clone(),
             kind,
