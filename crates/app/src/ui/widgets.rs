@@ -65,66 +65,53 @@ pub fn preview(
     cx: &App,
 ) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
-    let base = if broken {
-        t.preview_frame
-    } else {
-        t.preview_bg
-    };
 
-    // 真图路径（存在且未失效）
-    if !broken {
-        if let Some(path) = thumbs.get(frame).or_else(|| thumbs.first()) {
+    // 1) 已失效 → 灰底问号
+    if broken {
+        return div()
+            .w_full()
+            .aspect_ratio(16. / 9.)
+            .overflow_hidden()
+            .relative()
+            .rounded_t(px(11.))
+            .bg(t.preview_frame)
+            .child(
+                div().size_full().flex().items_center().justify_center()
+                    .text_color(t.text2)
+                    .child(Icon::new(IconName::CircleQuestionMark).size_4()),
+            )
+            .into_any_element();
+    }
+
+    // 2) 有缩略图 → 显示缩略图帧
+    if !thumbs.is_empty() {
+        if let Some(path) = thumbs.get(frame.min(thumbs.len() - 1)) {
             if std::path::Path::new(path).exists() {
-                let gf: Hsla = rgb(art.from).into();
-                let gt: Hsla = rgb(art.to).into();
                 return div()
                     .w_full()
                     .aspect_ratio(16. / 9.)
                     .overflow_hidden()
                     .relative()
                     .rounded_t(px(11.))
-                    .bg(linear_gradient(
-                        135.,
-                        linear_color_stop(gf, 0.),
-                        linear_color_stop(gt, 1.),
-                    ))
-                    // 加载指示：类型图标居中淡显，img 加载完自动覆盖
-                    .child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .opacity(0.4)
-                            .text_color(t.text2)
-                            .child(
-                                Icon::new(kind_icon(kind.unwrap_or(Kind::Video))).size_6(),
-                            ),
-                    )
+                    .bg(t.preview_bg)
                     .child({
                         use gpui_kit::gpui::StyledImage as _;
-                        // ⚠️ img(&str) 把非 URL 字符串当「应用内置资源」名（Embedded），
-                        // 本地文件必须显式 Resource::Path 才走 fs::read。
                         let source = gpui_kit::gpui::ImageSource::Resource(
                             gpui_kit::gpui::Resource::Path(std::path::PathBuf::from(path).into()),
                         );
                         gpui_kit::gpui::img(source)
                             .size_full()
                             .object_fit(gpui_kit::gpui::ObjectFit::Cover)
-                            .rounded_t(px(11.))
                     })
                     .into_any_element();
             }
         }
     }
 
-    let (from, to) = if broken {
-        (base, base)
-    } else {
-        (rgb(art.from).into(), rgb(art.to).into())
-    };
-    let frame = div()
+    // 3) 兜底：渐变底色（永不白屏）
+    let from: Hsla = rgb(art.from).into();
+    let to: Hsla = rgb(art.to).into();
+    div()
         .w_full()
         .aspect_ratio(16. / 9.)
         .overflow_hidden()
@@ -135,23 +122,9 @@ pub fn preview(
             linear_color_stop(from, 0.),
             linear_color_stop(to, 1.),
         ))
-        .child(
-            div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(t.text2)
-                .child(match (broken, kind) {
-                    (true, _) => Icon::new(IconName::CircleQuestionMark)
-                        .size_4()
-                        .into_any_element(),
-                    (false, Some(k)) => Icon::new(kind_icon(k)).size_4().into_any_element(),
-                    (false, None) => div().into_any_element(),
-                }),
-        );
-    frame.into_any_element()
+        .into_any_element()
 }
+
 
 /// 运行状态 →（图标，文案，颜色）：§5 跨屏状态矩阵的视图投影。
 pub fn play_state_visual(state: PlayState, cx: &App) -> (IconName, &'static str, Hsla) {
