@@ -7,7 +7,7 @@ use std::sync::Arc;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::Icon;
 use gpui_kit::component::{h_flex, v_flex};
-use gpui_kit::gpui::{
+use gpui_kit::gpui::{ Hsla, 
     div, linear_color_stop, linear_gradient, px, rgb, App, FontFeatures, Hsla, IntoElement,
     ParentElement, Styled,
 };
@@ -75,13 +75,19 @@ pub fn preview(
     if !broken {
         if let Some(path) = thumbs.get(frame).or_else(|| thumbs.first()) {
             if std::path::Path::new(path).exists() {
+                let gf: Hsla = rgb(art.from).into();
+                let gt: Hsla = rgb(art.to).into();
                 return div()
                     .w_full()
                     .aspect_ratio(16. / 9.)
                     .overflow_hidden()
                     .relative()
-                    // 预览位于卡片顶部：上侧两角随卡片圆角（GPUI 的 img 不吃父级裁剪）
                     .rounded_t(px(11.))
+                    .bg(linear_gradient(
+                        135.,
+                        linear_color_stop(gf, 0.),
+                        linear_color_stop(gt, 1.),
+                    ))
                     .child({
                         use gpui_kit::gpui::StyledImage as _;
                         // ⚠️ img(&str) 把非 URL 字符串当「应用内置资源」名（Embedded），
