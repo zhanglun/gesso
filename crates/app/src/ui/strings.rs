@@ -75,7 +75,10 @@ pub const DZ_HINT: &str = "拖到目标显示器上放手";
 
 // 显示器页
 pub const BTN_REDETECT: &str = "重新检测";
-pub const MONITOR_HOVER_NOTE: &str = "悬停库卡片时，对应显示器边框会亮起";
+pub const MONITOR_HOVER_NOTE: &str = "悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制";
+pub const ST_SELECT_WALLPAPER: &str = "选择壁纸";
+pub const MONITORS_EMPTY_TITLE: &str = "未检测到显示器";
+pub const EDID_NOTE_SHORT: &str = "标识取自 EDID · 配置随显示器保留，重新接入自动恢复";
 pub const BTN_CHANGE: &str = "更换";
 pub const BTN_PAUSE: &str = "暂停";
 pub const BTN_RESUME: &str = "恢复";

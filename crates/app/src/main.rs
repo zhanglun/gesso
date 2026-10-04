@@ -165,7 +165,6 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 broken: session::main_asset_name(&e.source_dir, e.kind).is_none(),
                 real: true,
                 art: kind_art(e.kind),
-                source_dir: e.source_dir.clone(),
                 thumbs: thumb::existing_frames(&e.source_dir),
             }
         })
@@ -201,6 +200,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                     m.frame.2 as f32,
                     m.frame.3 as f32,
                 ),
+                is_main: m.is_main,
                 wallpaper: entry_id.map(Into::into),
                 state: match state {
                     SessionState::Playing | SessionState::Loading => ui::data::PlayState::Playing,

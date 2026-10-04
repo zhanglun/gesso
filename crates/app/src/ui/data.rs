@@ -58,8 +58,6 @@ pub struct LibraryItem {
     pub broken: bool,
     /// 真实库条目（gesso-core LibraryEntry）。
     pub real: bool,
-    /// 素材根目录（缩略帧序列的惰性生成键）。
-    pub source_dir: String,
     pub art: Art,
     /// 预览帧序列（video = 抽帧 thumb.png + thumb-1..7.png；gif = 素材本身；
     /// 空 = 渐变占位）。悬停时 UI 轮播这些帧。
@@ -94,6 +92,8 @@ pub struct MonitorEntry {
     pub label: SharedString,
     /// 拓扑图用的工作区矩形（逻辑像素 x/y/w/h）。
     pub rect: (f32, f32, f32, f32),
+    /// 系统主显示器（详情条角标 accent 依据）。
+    pub is_main: bool,
     pub wallpaper: Option<SharedString>,
     pub state: PlayState,
     pub fps: u32,

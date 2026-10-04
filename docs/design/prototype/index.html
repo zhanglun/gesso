@@ -166,41 +166,81 @@ svg{display:block}
 .empty .actions{display:flex;gap:10px}
 .empty .big{font-size:15px;color:var(--text-1);font-weight:500}
 
-/* —— 显示器页 —— */
-.mono-scroll{flex:1;overflow-y:auto;padding:20px 14px;display:flex;flex-direction:column;gap:16px}
-.topo{
-  align-self:center;position:relative;padding:18px;border:1px solid var(--hairline);border-radius:var(--radius-card);
-  background:var(--bg-panel);display:flex;gap:18px;align-items:flex-start;
+/* —— 显示器页（桌面沙盘 + 详情条，2026-10-04 改版） —— */
+.mono-page{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:14px}
+.desk{
+  position:relative;flex:1;min-height:0;overflow:hidden;
+  border:1px solid var(--hairline);border-radius:var(--radius-card);
+  background:
+    radial-gradient(circle at 1px 1px, var(--hairline-2) 0 1px, transparent 1.6px),
+    linear-gradient(180deg, var(--bg-panel), var(--bg-surface));
+  background-size:22px 22px, 100% 100%;
 }
-.monitor-frame{
-  border:2px solid var(--hairline-2);border-radius:8px;padding:10px;background:var(--bg-surface);
-  transition:border-color .2s ease-out,box-shadow .2s ease-out;min-width:280px;
+.desk-head{
+  position:absolute;top:0;left:0;right:0;z-index:3;
+  display:flex;align-items:center;gap:12px;padding:12px 14px;
 }
-.monitor-frame.glow{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.monitor-frame.drop-over{border-color:var(--accent);border-style:dashed;background:var(--accent-soft)}
-.monitor-frame .stand{width:36%;height:6px;background:var(--hairline-2);border-radius:0 0 4px 4px;margin:2px auto 0}
-.mono-head{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
-.mono-head .t{font-size:15px;font-weight:600}
-.mono-head .sub{font-size:12px;color:var(--text-2)}
-.mono-thumb{aspect-ratio:16/9;border-radius:8px;overflow:hidden;position:relative;background:#0E0F13;margin-bottom:8px}
-.mono-thumb canvas{position:absolute;inset:0;width:100%;height:100%}
-.mono-status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);margin-bottom:10px}
-.mono-status .st{display:inline-flex;align-items:center;gap:4px;color:var(--text-1)}
-.mono-status .st.paused{color:var(--text-2)}
-.mono-ctl{display:flex;gap:8px;align-items:center}
-.mono-ctl .fps{margin-left:auto}
+.desk-head .hint{flex:1;font-size:12px;color:var(--text-2)}
+.screen-mini{
+  position:absolute;border-radius:10px;overflow:hidden;cursor:pointer;
+  border:1px solid var(--hairline-2);background:#0E0F13;
+  box-shadow:0 10px 26px rgba(0,0,0,.20),0 2px 6px rgba(0,0,0,.12);
+  transition:box-shadow .18s ease-out,border-color .18s ease-out;
+}
+.screen-mini:hover{box-shadow:0 18px 40px rgba(0,0,0,.28),0 3px 8px rgba(0,0,0,.14)}
+.screen-mini.glow,.screen-mini.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 10px 26px rgba(0,0,0,.22)}
+.screen-mini.drop-over{border-style:dashed;border-color:var(--accent)}
+.screen-mini .preview{position:absolute;inset:0}
+.screen-mini .preview canvas{position:absolute;inset:0;width:100%;height:100%}
+.screen-mini .chip{
+  position:absolute;top:8px;left:8px;z-index:2;display:inline-flex;align-items:center;gap:5px;
+  padding:3px 9px;border-radius:999px;background:rgba(14,15,19,.55);
+  border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(6px);
+  color:#fff;font-size:11px;
+}
+.screen-mini .chip.paused{color:rgba(255,255,255,.82)}
+.screen-mini .scrim{
+  position:absolute;left:0;right:0;bottom:0;z-index:2;
+  display:flex;align-items:baseline;gap:8px;padding:22px 10px 8px;
+  background:linear-gradient(180deg,transparent,rgba(0,0,0,.60));
+}
+.screen-mini .scrim .t{font-size:13px;font-weight:600;color:#fff}
+.screen-mini .scrim .sub{font-size:11px;color:rgba(255,255,255,.72)}
+.screen-mini.unassigned{border-style:dashed;background:var(--bg-panel);box-shadow:none}
+.screen-mini.unassigned:hover{box-shadow:none}
+.screen-mini.unassigned .pick{
+  position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:8px;
+  color:var(--text-2);font-size:12px;
+}
+.screen-mini.unassigned .pick .plus{
+  width:34px;height:34px;border-radius:50%;border:1.5px dashed var(--hairline-2);
+  display:grid;place-items:center;font-size:17px;color:var(--text-2);
+}
+.detail-strip{
+  flex:none;display:flex;align-items:center;gap:14px;min-height:64px;padding:10px 16px;
+  border:1px solid var(--hairline);border-radius:var(--radius-card);background:var(--bg-surface);
+}
+.detail-strip .who{display:flex;flex-direction:column;gap:3px;min-width:0}
+.detail-strip .who .l1{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--text-1)}
+.detail-strip .who .l2{font-size:11px;color:var(--text-2)}
+.detail-strip .st{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-1)}
+.detail-strip .st.paused{color:var(--text-2)}
+.detail-strip .acts{margin-left:auto;display:flex;align-items:center;gap:8px}
+.notice{
+  position:absolute;top:54px;left:50%;transform:translateX(-50%);z-index:4;
+  display:none;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;white-space:nowrap;
+  background:var(--accent-soft);color:var(--text-1);font-size:12px;
+  box-shadow:0 6px 18px rgba(0,0,0,.14);
+}
+.notice.visible{display:flex}
+.notice .warn{color:var(--accent)}
+.note-inline{align-self:center;font-size:12px;color:var(--text-2)}
 select.sel{
   height:28px;border-radius:var(--radius-ctl);border:1px solid var(--hairline);background:var(--bg-panel);
   color:var(--text-1);font-size:12px;padding:0 8px;cursor:pointer;
 }
 select.sel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.notice{
-  align-self:center;display:none;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;
-  background:var(--accent-soft);color:var(--text-1);font-size:12px;
-}
-.notice.visible{display:flex}
-.notice .warn{color:var(--accent)}
-.note-inline{align-self:center;font-size:12px;color:var(--text-2)}
 
 /* —— 设置页 —— */
 .settings-scroll{flex:1;overflow-y:auto;padding:8px 0}
@@ -388,52 +428,47 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       </div>
     </section>
 
-    <!-- ============ 显示器 ============ -->
+    <!-- ============ 显示器（桌面沙盘 + 详情条） ============ -->
     <section class="view" id="view-monitors">
-      <div class="toolbar">
-        <button class="btn secondary" id="btn-redetect" style="height:28px">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7a5 5 0 1 1 1.6 3.7M2 11V7.6h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          重新检测
-        </button>
-        <span style="font-size:12px;color:var(--text-2)">悬停库卡片时，对应显示器边框会亮起</span>
-      </div>
-      <div class="mono-scroll">
-        <div class="topo" id="topo">
-          <div class="monitor-frame" id="mf-0" data-mono="0">
-            <div class="mono-head"><span class="t">主显示器</span><span class="sub num">27″ · 3840×2160</span></div>
-            <div class="mono-thumb" id="mt-0"></div>
-            <div class="mono-status">
-              <span class="st" id="ms-0"></span>
-              <span class="num" id="mfps-0" style="margin-left:auto"></span>
-            </div>
-            <div class="mono-ctl">
-              <button class="btn secondary" data-assign="0">更换</button>
-              <button class="btn secondary" data-toggle="0" id="mtg-0">暂停</button>
-              <select class="sel num fps" data-fps="0"><option>60 fps</option><option>30 fps</option><option>15 fps</option><option>5 fps</option></select>
-            </div>
-            <div class="stand"></div>
+      <div class="mono-page">
+        <div class="desk" id="desk">
+          <div class="desk-head">
+            <span class="hint">悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制</span>
+            <button class="btn secondary" id="btn-redetect" style="height:28px">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7a5 5 0 1 1 1.6 3.7M2 11V7.6h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              重新检测
+            </button>
           </div>
-          <div class="monitor-frame" id="mf-1" data-mono="1" style="margin-top:36px">
-            <div class="mono-head"><span class="t">副显示器</span><span class="sub num">24″ · 1920×1080</span></div>
-            <div class="mono-thumb" id="mt-1"></div>
-            <div class="mono-status">
-              <span class="st" id="ms-1"></span>
-              <span class="num" id="mfps-1" style="margin-left:auto"></span>
-            </div>
-            <div class="mono-ctl">
-              <button class="btn secondary" data-assign="1">更换</button>
-              <button class="btn secondary" data-toggle="1" id="mtg-1">暂停</button>
-              <select class="sel num fps" data-fps="1"><option>60 fps</option><option selected>30 fps</option><option>15 fps</option><option>5 fps</option></select>
-            </div>
-            <div class="stand"></div>
+          <div class="screen-mini" id="mf-0" data-mono="0"
+               style="left:7%;top:18%;width:46%;aspect-ratio:1512/982">
+            <div class="preview" id="mt-0"></div>
+            <div class="chip" id="mc-0"></div>
+            <div class="scrim"><span class="t">主显示器</span><span class="sub num">1512×982</span></div>
+          </div>
+          <div class="screen-mini" id="mf-1" data-mono="1"
+               style="left:59%;top:34%;width:34%;aspect-ratio:16/9">
+            <div class="preview" id="mt-1"></div>
+            <div class="chip" id="mc-1"></div>
+            <div class="scrim"><span class="t">副显示器</span><span class="sub num">1920×1080</span></div>
+          </div>
+          <div class="notice" id="new-mono">
+            <span class="warn">⚠</span>
+            检测到新显示器「DELL U2723QE」
+            <button class="btn text" id="go-assign">去指派</button>
           </div>
         </div>
-        <div class="notice" id="new-mono">
-          <span class="warn">⚠</span>
-          检测到新显示器「DELL U2723QE」
-          <button class="btn text" id="go-assign">去指派</button>
+        <div class="detail-strip">
+          <div class="who">
+            <div class="l1"><span id="ds-name">主显示器</span><span class="badge" id="ds-badge">主屏</span><span class="num" id="ds-res" style="font-size:12px;font-weight:400;color:var(--text-2)">1512×982</span></div>
+            <div class="l2">标识取自 EDID · 配置随显示器保留，重新接入自动恢复</div>
+          </div>
+          <div class="st num" id="ds-st" style="margin-left:4px"></div>
+          <div class="acts">
+            <button class="btn secondary" data-assign="0">更换</button>
+            <button class="btn secondary" id="mtg-0" data-toggle="0">暂停</button>
+            <select class="sel num fps" data-fps="0"><option>60 fps</option><option>30 fps</option><option>15 fps</option><option>5 fps</option></select>
+          </div>
         </div>
-        <span class="note-inline">显示器标识取自 EDID；配置随显示器保留，重新接入自动恢复</span>
       </div>
     </section>
 
@@ -498,7 +533,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 <script>
 /* ================== 数据（演示素材，规格 §7 诚实标注） ================== */
-const MONOS=[{name:'主显示器',short:'主屏',paused:false,pausedBy:null},{name:'副显示器',short:'副屏',paused:false,pausedBy:'full'}];
+const MONOS=[{name:'主显示器',short:'主屏',paused:false,pausedBy:null,res:'1512×982',fps:60},{name:'副显示器',short:'副屏',paused:false,pausedBy:'full',res:'1920×1080',fps:30}];
 MONOS[1].paused=true;
 const LIB=[
   {id:'nebula',   name:'Nebula Drift',  type:'视频',  we:false, meta:'4K · 12s',   assign:0, kind:'nebula',  desc:'缓慢漂移的星云（演示视频）'},
@@ -660,7 +695,7 @@ function renderGrid(){
   }
 }
 function glowMonitor(idx){
-  document.querySelectorAll('.monitor-frame').forEach((f,i)=>f.classList.toggle('glow',i===idx));
+  document.querySelectorAll('.screen-mini').forEach((f,i)=>f.classList.toggle('glow',i===idx));
 }
 document.getElementById('filter').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
@@ -681,33 +716,64 @@ function assign(wid,mono){
   renderGrid();renderMonitors();renderTray();
   toast(`已将「${w.name}」指派到${MONOS[mono].name}`);
 }
+let selectedMono=0;
 function renderMonitors(){
-  for(let i=0;i<2;i++){
+  document.querySelectorAll('.screen-mini').forEach((f,i)=>{
     const w=LIB.find(x=>x.assign===i);
-    const mt=document.getElementById('mt-'+i);mt.innerHTML='';
-    const st=document.getElementById('ms-'+i);
-    const tg=document.getElementById('mtg-'+i);
-    const fps=document.querySelector(`[data-fps="${i}"]`);
-    if(!w){st.innerHTML='<span style="color:var(--text-2)">未指派</span>';continue;}
+    const chip=document.getElementById('mc-'+i);
+    const mt=document.getElementById('mt-'+i);
+    f.classList.toggle('selected',i===selectedMono);
+    f.classList.toggle('unassigned',!w);
+    mt.innerHTML='';
+    if(!w){
+      chip.style.display='none';
+      mt.innerHTML='<div class="pick"><span class="plus">＋</span><span>选择壁纸</span></div>';
+      return;
+    }
+    chip.style.display='';
     if(w.kind)attachPreview(mt,w.kind,true);
     const run=MONOS[i].paused;
-    let ic,txt;
-    if(run){ic=MONOS[i].pausedBy==='full'?I.full:MONOS[i].pausedBy==='batt'?I.batt:I.pause;
-      txt=MONOS[i].pausedBy==='full'?'全屏应用中':MONOS[i].pausedBy==='batt'?'电池省电':'已暂停';
-    }else{ic=I.play;txt='播放中';}
-    st.className='st'+(run?' paused':'');
-    st.innerHTML=`${ic} ${w.name} · ${txt}`;
-    tg.textContent=run?'恢复':'暂停';
-    document.getElementById('mfps-'+i).textContent=run?'0 fps':fps.value;
-  }
+    const ic=run?(MONOS[i].pausedBy==='full'?I.full:MONOS[i].pausedBy==='batt'?I.batt:I.pause):I.play;
+    const txt=run?(MONOS[i].pausedBy==='full'?'全屏应用中':MONOS[i].pausedBy==='batt'?'电池省电':'已暂停'):'播放中';
+    chip.className='chip'+(run?' paused':'');
+    chip.innerHTML=`${ic} ${txt}`;
+  });
+  renderDetail();
 }
-document.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{
-  const i=+b.dataset.toggle;MONOS[i].paused=!MONOS[i].paused;
+function renderDetail(){
+  const i=selectedMono,m=MONOS[i],w=LIB.find(x=>x.assign===i);
+  document.getElementById('ds-name').textContent=m.name;
+  document.getElementById('ds-badge').textContent=m.short;
+  document.getElementById('ds-res').textContent=m.res;
+  const st=document.getElementById('ds-st');
+  const tg=document.querySelector('.detail-strip [data-toggle]');
+  const fps=document.querySelector('.detail-strip .fps');
+  fps.value=m.fps+' fps';
+  if(!w){
+    st.className='st';st.innerHTML='<span style="color:var(--text-2)">未指派</span>';
+    tg.style.display='none';fps.style.display='none';
+    return;
+  }
+  tg.style.display='';fps.style.display='';
+  const run=m.paused;
+  const ic=run?(m.pausedBy==='full'?I.full:m.pausedBy==='batt'?I.batt:I.pause):I.play;
+  const txt=run?(m.pausedBy==='full'?'全屏应用中':m.pausedBy==='batt'?'电池省电':'已暂停'):'播放中';
+  st.className='st num'+(run?' paused':'');
+  st.innerHTML=`${ic} ${w.name} · ${txt}`;
+  tg.textContent=run?'恢复':'暂停';
+}
+document.querySelectorAll('.screen-mini').forEach(f=>{
+  f.addEventListener('click',()=>{selectedMono=+f.dataset.mono;renderMonitors();});
+});
+document.querySelector('.detail-strip [data-toggle]').onclick=()=>{
+  const i=selectedMono;MONOS[i].paused=!MONOS[i].paused;
   MONOS[i].pausedBy=MONOS[i].paused?'user':null;
   renderMonitors();renderTray();
-});
-document.querySelectorAll('.fps').forEach(s=>s.onchange=()=>renderMonitors());
-document.querySelectorAll('[data-assign]').forEach(b=>b.onclick=()=>{switchView('library');toast('在壁纸库双击即设为主显示器');});
+};
+document.querySelector('.detail-strip .fps').onchange=e=>{
+  MONOS[selectedMono].fps=parseInt(e.target.value,10)||60;renderMonitors();
+};
+document.querySelector('.detail-strip [data-assign]').onclick=()=>{switchView('library');toast('在壁纸库双击即设为主显示器');};
 document.getElementById('btn-redetect').onclick=()=>{document.getElementById('new-mono').classList.add('visible');toast('已重新检测显示器');};
 document.getElementById('go-assign').onclick=()=>switchView('library');
 document.getElementById('btn-import').onclick=()=>toast('已打开文件选择（演示）');
@@ -759,7 +825,7 @@ dz.querySelectorAll('.dz-target').forEach(t=>{
     if(wid)assign(wid,+t.dataset.mono);
   });
 });
-document.querySelectorAll('.monitor-frame').forEach(f=>{
+document.querySelectorAll('.screen-mini').forEach(f=>{
   f.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('text/gesso')){e.preventDefault();f.classList.add('drop-over');}});
   f.addEventListener('dragleave',()=>f.classList.remove('drop-over'));
   f.addEventListener('drop',e=>{
