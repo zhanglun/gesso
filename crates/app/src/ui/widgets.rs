@@ -102,6 +102,7 @@ pub fn preview(
                         gpui_kit::gpui::img(source)
                             .size_full()
                             .object_fit(gpui_kit::gpui::ObjectFit::Cover)
+                            .rounded_t(px(11.))
                     })
                     .into_any_element();
             }

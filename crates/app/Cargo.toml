@@ -27,6 +27,7 @@ auto-launch = "0.5"
 tray-icon = "0.26.0"
 # 托盘图标 PNG 解码（内嵌 assets/icons/tray/*.png → RGBA）
 png = "0.17"
+objc2-av-foundation = "0.3"
 
 # 平台依赖（贴壁层 §4；M1 起使用，先声明锁定版本）
 [target.'cfg(windows)'.dependencies]
