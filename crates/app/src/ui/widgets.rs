@@ -7,7 +7,7 @@ use std::sync::Arc;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::Icon;
 use gpui_kit::component::{h_flex, v_flex};
-use gpui_kit::gpui::{ Hsla, 
+use gpui_kit::gpui::{
     div, linear_color_stop, linear_gradient, px, rgb, App, FontFeatures, Hsla, IntoElement,
     ParentElement, Styled,
 };
