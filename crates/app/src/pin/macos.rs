@@ -15,7 +15,7 @@ use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, Wi
 use super::{MonitorInfo, WallpaperWindow};
 use gesso_core::{GessoError, Result};
 
-const PIN_LEVEL: isize = -2147483604;
+pub(crate) const PIN_LEVEL: isize = -2147483604;
 
 /// wry 直挂所需的句柄包装（仅主线程使用）
 struct ViewHandle(*mut NSView);

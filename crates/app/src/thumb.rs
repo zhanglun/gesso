@@ -34,7 +34,7 @@ pub struct ThumbOutcome {
     pub written: usize,
 }
 
-fn thumb_path(dir: &Path, idx: usize) -> PathBuf {
+pub(crate) fn thumb_path(dir: &Path, idx: usize) -> PathBuf {
     if idx == 0 {
         dir.join("thumb.png")
     } else {
@@ -82,6 +82,24 @@ pub fn extract_frames(source_dir: &str) -> ThumbOutcome {
 pub fn extract_frames(_source_dir: &str) -> ThumbOutcome {
     // Windows（M1）落地的占位：缩略图抽帧走平台 API，当前仅 macOS 实现
     ThumbOutcome::default()
+}
+
+/// 把已渲染的 CGImage 编码为 PNG 写盘（shader 缩略图采集复用 ImageIO 管线）。
+/// 原子写：先 .tmp 再 rename，`existing_frames` 的连续性判定不会数进半截文件。
+#[cfg(target_os = "macos")]
+pub fn write_png(image: &objc2::rc::Retained<objc2_core_graphics::CGImage>, path: &Path) -> bool {
+    let Some(uti) = ffi::cf_string("public.png") else {
+        return false;
+    };
+    let tmp = path.with_extension("png.tmp");
+    let ok = ffi::write_png_to_file(image, &tmp, uti);
+    ffi::cf_release(uti);
+    if ok && std::fs::rename(&tmp, path).is_ok() {
+        true
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+        false
+    }
 }
 
 #[cfg(target_os = "macos")]

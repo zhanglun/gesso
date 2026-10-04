@@ -163,7 +163,7 @@ impl SessionManager {
     }
 
     /// ContentSpec 构建（assign / set_fps / build_session 共用同一套字段映射）
-    fn content_spec(entry: &LibraryEntry, fps: u8) -> ContentSpec {
+    pub(crate) fn content_spec(entry: &LibraryEntry, fps: u8) -> ContentSpec {
         ContentSpec {
             kind: entry.kind,
             source: entry_main_source(&entry),
@@ -180,7 +180,7 @@ impl SessionManager {
     /// 宿主页 URL：条目自包含 host 拷贝 + spec。
     /// shader 额外携带 code=（base64url 源码）：file:// 页面里 fetch/XHR 被
     /// WKWebView 拦截，查询参数不受限，源码随 URL 直达宿主页。
-    fn entry_host_url(entry: &LibraryEntry, fps: u8) -> String {
+    pub(crate) fn entry_host_url(entry: &LibraryEntry, fps: u8) -> String {
         let spec = Self::content_spec(entry, fps);
         let mut url = format!(
             "{}?spec={}",

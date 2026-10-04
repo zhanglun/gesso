@@ -37,6 +37,7 @@
 | 裸 `msg_send!` 人肉维护 ObjC 引用计数 | v1 缩略图抽帧两处违约（alloc+init 被两次 `Retained::from_raw` 接管；`representationUsingType:properties:` 的 **autoreleased** 返回值被当 +1 接管）→ 对象提前释放，autorelease 池里的悬垂记录在 GCD drain 结束时二次释放 → **池弹出段错误**，且崩溃点远离案发现场（2026-10-03/04 两次线上崩溃同指纹）。正确做法：objc2 生成绑定 + ImageIO 编码 + `autoreleasepool` 包任务（见 `thumb.rs` v2）；PNG 等大对象的 over-release 会 munmap 掉整个 VM region，池弹出时是翻译 fault 而非静默损坏 |
 | 缺帧条目无限重试 | 曾每 30s 对 `thumbs.len()<2` 的条目无限重抽——持续失败的条目（坏文件/磁盘满）变成无限 FFI 空转 + 崩溃放大器。用 `engine::ThumbScheduler`（在途去重 + 每会话 3 次上限）收敛；抽帧输出先写 `.tmp` 再 rename，崩溃不留半截帧 |
 | `file://` 页面里 fetch/XHR 被拦 | WKWebView 的 file 源是 opaque origin，`fetch("./index.glsl")` 直接 CORS 拒绝——**shader 源码改走 URL 查询参数**（`code=base64url`，无填充免转义），宿主页 `atob` + `TextDecoder` 解码。img/video/script 子资源不受限，别混为一谈 |
+| shader 缩略图采集（shader_thumb.rs） | 两条纪律，均实测踩过：① **采集窗口必须「屏内 + 不被遮挡」**——屏幕外或被壁纸完全盖住时 WebKit 停摆 RAF/合成，快照全黑（RAF 探针 400ms 增量=0 可确诊）；现为壁纸层之上一档 + alphaValue(0.02) 常驻，肉眼不可见。② **快照 completion 悬挂期间绝不能 close 窗口**——WebKit 异步回调摸已释放层 → 池排出时 over-release SIGSEGV（同 thumb v1 指纹）；窗口进程级持久永不 close + 采集全局串行 |
 | WebGL 像素判读 | 默认帧缓冲合成后即被清空：合成器清屏后 `readPixels`/`toDataURL` 全读到黑。验证渲染要**在同一次 JS 任务里 `drawArrays` 后立刻 `readPixels`**，或建上下文时 `preserveDrawingBuffer: true` |
 
 ## 3. 关键路径（调试用）

@@ -53,5 +53,8 @@ objc2-av-foundation = { version = "0.3", default-features = false, features = [
 ] }
 # CMTime（CMTime::new / with_seconds / seconds）+ 自链接 CoreMedia 框架
 objc2-core-media = "0.3"
+# shader 缩略图采集（shader_thumb.rs）：WKWebView 快照把宿主页渲染落成 PNG
+objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKSnapshotConfiguration"] }
+block2 = "0.6"
 
 

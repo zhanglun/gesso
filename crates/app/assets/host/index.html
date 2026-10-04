@@ -186,6 +186,15 @@
       glT.t0 = performance.now();
       glT.last = glT.t0;
       startShaderLoop();
+      // 缩略图采集（shader_thumb.rs）对接：就绪标志 + 定格到任意时刻
+      window.__gessoReady = true;
+      window.__rafN = 0; // RAF 活性探针（遮挡窗口会停摆，采集侧据此诊断）
+      (function tick() { window.__rafN++; requestAnimationFrame(tick); })();
+      window.__gessoSeek = function (t) {
+        if (!gl) return;
+        glT.t0 = performance.now() - t * 1000;
+        glT.lastDraw = -1e9; // 强制下一帧立即按目标时刻重绘
+      };
     } catch (e) {
       msg.textContent = "Gesso: shader 初始化失败 " + e;
       state("#FF0000");
