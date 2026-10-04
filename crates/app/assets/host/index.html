@@ -1,53 +1,215 @@
 <!DOCTYPE html>
-<!-- Gesso 壁纸宿主页 · M2 最小版（video renderer）
-     契约（技术方案 §5.1）：URL query 的 spec= 为 urlencoded JSON ContentSpec；
-     window.__gesso.pause()/resume() 由 pin 层经 evaluate_script 调用（§5.3）。 -->
+<!-- Gesso 壁纸宿主页 · M4（video / image / shader）
+     契约（技术方案 §5.1）：URL query 的 spec= 为 urlencode(JSON ContentSpec)。
+     shader 额外携带 code=（base64url 源码）——file:// 页面里 fetch/XHR 被 WKWebView
+     拦截，查询参数不受限，故源码随 URL 直达。
+     window.__gesso.pause()/resume() 由 pin 层经 evaluate_script 调用（§5.3）：
+     video 停播放器、shader 停 RAF 循环，窗口常驻。 -->
 <html>
 <head>
 <meta charset="utf-8">
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
   video, img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: none; }
+  #msg { position: fixed; left: 8px; bottom: 6px; font: 11px monospace; color: #f66; }
 </style>
 </head>
 <body>
 <video id="media" autoplay muted loop playsinline></video>
 <img id="imgmedia" alt="" style="display:none">
+<canvas id="gl"></canvas>
+<div id="msg"></div>
 <script>
 (function () {
   const q = new URLSearchParams(location.search);
-  let spec = null;
-  try { spec = JSON.parse(decodeURIComponent(q.get("spec") || "null")); } catch (e) {}
-  if (!spec) { document.body.textContent = "Gesso: 缺少内容规格"; return; }
-
   const v = document.getElementById("media");
   const img = document.getElementById("imgmedia");
+  const cvs = document.getElementById("gl");
+  const msg = document.getElementById("msg");
+  let spec = null;
+  try { spec = JSON.parse(q.get("spec") || "null"); } catch (e) {}
+  if (!spec) { msg.textContent = "Gesso: 缺少内容规格"; return; }
 
-  // —— 诊断状态色（M2 调试期；状态一眼可判）——
+  // —— 诊断状态色（video 调试期）——
   // 红=媒体错误  绿=播放中  蓝=已加载但暂停  品红=调用过 pause  黄=调用过 resume
   function state(c) { document.body.style.background = c; }
   v.addEventListener("error", function () { state("#FF0000"); });
   v.addEventListener("playing", function () { state("#00AA00"); });
   v.addEventListener("loadeddata", function () { state(v.paused ? "#0000FF" : "#00AA00"); });
 
+  // ============ shader 渲染器（WebGL2 · Shadertoy 子集）============
+  // uniform 契约：iTime / iResolution / iMouse / iTimeDelta / iFrame + iChannel0..3。
+  // iChannel 绑定运行时生成的 256x256 RGBA 白噪声纹理（REPEAT+LINEAR），
+  // 覆盖 Shadertoy 标准预设纹理里的 noise 子集；自备贴图的作品不在 M4 范围。
+  let gl = null, glU = null, glRaf = 0, glRunning = false;
+  const glT = { t0: 0, last: 0, lastDraw: -1e9, frame: 0 };
+
+  const VS_SRC =
+    "#version 300 es\n" +
+    "void main() {\n" +
+    "  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n" +
+    "  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n" +
+    "}\n";
+
+  const FS_HEADER =
+    "#version 300 es\n" +
+    "precision highp float;\n" +
+    "uniform vec3 iResolution;\n" +
+    "uniform float iTime;\n" +
+    "uniform float iTimeDelta;\n" +
+    "uniform float iFrame;\n" +
+    "uniform vec4 iMouse;\n" +
+    "uniform sampler2D iChannel0;\n" +
+    "uniform sampler2D iChannel1;\n" +
+    "uniform sampler2D iChannel2;\n" +
+    "uniform sampler2D iChannel3;\n" +
+    "out vec4 gessoOut;\n";
+
+  function fragSource(src) {
+    src = src.replace(/#version[^\n]*\n?/g, ""); // 版本行由宿主统一注入
+    if (/\bvoid\s+mainImage\s*\(/.test(src)) {
+      // Shadertoy 风格：包一层 main 调 mainImage
+      return FS_HEADER + src +
+        "\nvoid main() { vec4 c = vec4(0.0); mainImage(c, gl_FragCoord.xy); gessoOut = c; }\n";
+    }
+    return FS_HEADER + src; // 独立 GLSL：自带 void main（ES 3.0 语义）
+  }
+
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(sh) || "unknown";
+      msg.textContent = "Gesso: shader 编译失败 " + log.slice(0, 260);
+      state("#FF0000");
+      return null;
+    }
+    return sh;
+  }
+
+  function makeNoiseTexture(g) {
+    const N = 256, data = new Uint8Array(N * N * 4);
+    let s = 0x9e3779b9 | 0; // xorshift32：确定性白噪声，无外部资源
+    for (let i = 0; i < data.length; i++) {
+      s ^= s << 13; s |= 0; s ^= s >>> 17; s ^= s << 5; s |= 0;
+      data[i] = s & 255;
+    }
+    const tex = g.createTexture();
+    g.bindTexture(g.TEXTURE_2D, tex);
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, N, N, 0, g.RGBA, g.UNSIGNED_BYTE, data);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.REPEAT);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.REPEAT);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+    return tex;
+  }
+
+  function fitCanvas() {
+    const w = Math.max(1, cvs.clientWidth), h = Math.max(1, cvs.clientHeight);
+    if (cvs.width !== w || cvs.height !== h) {
+      cvs.width = w; cvs.height = h;
+      gl.viewport(0, 0, w, h);
+    }
+  }
+
+  function stopShaderLoop() {
+    if (glRunning) { cancelAnimationFrame(glRaf); glRunning = false; }
+  }
+
+  function startShaderLoop() {
+    if (!gl || glRunning) return;
+    glRunning = true;
+    glRaf = requestAnimationFrame(shaderTick);
+  }
+
+  function shaderTick(now) {
+    glRaf = requestAnimationFrame(shaderTick);
+    const cap = Math.max(1, spec.fps_cap | 0 || 60);
+    if (now - glT.lastDraw < 1000 / cap - 1) return; // FPS 门控（rAF 时间戳跳帧）
+    const dt = Math.min(0.1, (now - glT.last) / 1000);
+    glT.last = now; glT.lastDraw = now; glT.frame++;
+    fitCanvas();
+    gl.uniform3f(glU.res, cvs.width, cvs.height, 1.0);
+    gl.uniform1f(glU.time, (now - glT.t0) / 1000);
+    gl.uniform1f(glU.delta, dt);
+    gl.uniform1f(glU.frame, glT.frame);
+    gl.uniform4f(glU.mouse, 0, 0, 0, 0); // 桌面级窗口收不到鼠标事件，恒零（M5 接光标桥）
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  function initShader(codeB64) {
+    v.style.display = "none";
+    img.style.display = "none";
+    try {
+      const bin = atob(codeB64.replace(/-/g, "+").replace(/_/g, "/"));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const src = new TextDecoder().decode(bytes);
+
+      gl = cvs.getContext("webgl2", { antialias: false, alpha: false });
+      if (!gl) { msg.textContent = "Gesso: WebGL2 不可用"; state("#FF0000"); return; }
+
+      const vs = compile(gl.VERTEX_SHADER, VS_SRC);
+      const fs = compile(gl.FRAGMENT_SHADER, fragSource(src));
+      if (!vs || !fs) return;
+      const prog = gl.createProgram();
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        msg.textContent = "Gesso: shader 链接失败 " + (gl.getProgramInfoLog(prog) || "");
+        state("#FF0000");
+        return;
+      }
+      gl.useProgram(prog);
+
+      const tex = makeNoiseTexture(gl);
+      for (let i = 0; i < 4; i++) {
+        gl.activeTexture(gl.TEXTURE0 + i);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        const loc = gl.getUniformLocation(prog, "iChannel" + i);
+        if (loc) gl.uniform1i(loc, i);
+      }
+      glU = {
+        res: gl.getUniformLocation(prog, "iResolution"),
+        time: gl.getUniformLocation(prog, "iTime"),
+        delta: gl.getUniformLocation(prog, "iTimeDelta"),
+        frame: gl.getUniformLocation(prog, "iFrame"),
+        mouse: gl.getUniformLocation(prog, "iMouse"),
+      };
+
+      cvs.style.display = "block";
+      fitCanvas();
+      window.addEventListener("resize", fitCanvas);
+      glT.t0 = performance.now();
+      glT.last = glT.t0;
+      startShaderLoop();
+    } catch (e) {
+      msg.textContent = "Gesso: shader 初始化失败 " + e;
+      state("#FF0000");
+    }
+  }
+
+  // ============ 分派 ============
   if (spec.kind === "video") {
     v.src = spec.source; v.play().catch(function () {});
   } else if (spec.kind === "image") {
     v.style.display = "none"; img.style.display = "block"; img.src = spec.source;
+  } else if (spec.kind === "shader") {
+    const code = q.get("code");
+    if (!code) { msg.textContent = "Gesso: shader 源码缺失（code 参数）"; state("#FF0000"); }
+    else { initShader(code); }
   } else {
-    document.body.textContent = "Gesso: 暂不支持的类型 " + spec.kind;
+    msg.textContent = "Gesso: 暂不支持的类型 " + spec.kind;
   }
 
   // §5.3 暂停契约：JS 层停帧，窗口常驻
   window.__gesso = {
-    pause: function () { v.pause(); state("#FF00FF"); },
-    resume: function () { v.play().catch(function () {}); state("#FFAA00"); }
+    pause: function () { v.pause(); stopShaderLoop(); },
+    resume: function () { v.play().catch(function () {}); startShaderLoop(); }
   };
-
-  // 错误上报（回退静态图由 Rust 侧状态机负责，此处仅提示）
-  v.addEventListener("error", function () {
-    document.body.textContent = "Gesso: 素材加载失败（" + spec.source + "）";
-  });
 })();
 </script>
 </body>

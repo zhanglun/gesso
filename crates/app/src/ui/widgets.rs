@@ -138,11 +138,15 @@ pub fn preview(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(
-                            Icon::new(IconName::RefreshCw)
-                                .size_4()
-                                .text_color(gpui_kit::gpui::white()),
-                        ),
+                        .child({
+                            // video：帧序列后台生成中 → loading；其余类型永不产帧 → 类型图标
+                            let icon = if kind == Some(Kind::Video) {
+                                IconName::RefreshCw
+                            } else {
+                                kind_icon(kind.unwrap_or(Kind::Video))
+                            };
+                            Icon::new(icon).size_4().text_color(gpui_kit::gpui::white())
+                        }),
                 ),
         )
         .into_any_element()

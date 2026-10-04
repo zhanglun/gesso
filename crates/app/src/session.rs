@@ -162,6 +162,43 @@ impl SessionManager {
         )
     }
 
+    /// ContentSpec 构建（assign / set_fps / build_session 共用同一套字段映射）
+    fn content_spec(entry: &LibraryEntry, fps: u8) -> ContentSpec {
+        ContentSpec {
+            kind: entry.kind,
+            source: entry_main_source(&entry),
+            fit: gesso_core::Fit::Cover,
+            fps_cap: fps,
+            audio: gesso_core::AudioPolicy::Muted,
+            meta: gesso_core::SpecMeta {
+                title: entry.title.clone(),
+                origin: entry.origin.clone(),
+            },
+        }
+    }
+
+    /// 宿主页 URL：条目自包含 host 拷贝 + spec。
+    /// shader 额外携带 code=（base64url 源码）：file:// 页面里 fetch/XHR 被
+    /// WKWebView 拦截，查询参数不受限，源码随 URL 直达宿主页。
+    fn entry_host_url(entry: &LibraryEntry, fps: u8) -> String {
+        let spec = Self::content_spec(entry, fps);
+        let mut url = format!(
+            "{}?spec={}",
+            Self::ensure_entry_host(entry),
+            urlencode(&serde_json::to_string(&spec).expect("ContentSpec 序列化"))
+        );
+        if entry.kind == WallpaperKind::Shader {
+            if let Some(name) = main_asset_name(&entry.source_dir, entry.kind) {
+                if let Ok(bytes) = std::fs::read(std::path::Path::new(&entry.source_dir).join(name))
+                {
+                    url.push_str("&code=");
+                    url.push_str(&base64url(&bytes));
+                }
+            }
+        }
+        url
+    }
+
     fn fps_for(&self, monitor_id: &str) -> u8 {
         self.config
             .monitor_fps
@@ -172,22 +209,7 @@ impl SessionManager {
 
     fn build_session(monitor: MonitorInfo, entry: LibraryEntry, fps: u8) -> gesso_core::Result<Session> {
         let mut window = pin::create_wallpaper_window(&monitor)?;
-        let spec = ContentSpec {
-            kind: entry.kind,
-            source: entry_main_source(&entry),
-            fit: gesso_core::Fit::Cover,
-            fps_cap: fps,
-            audio: gesso_core::AudioPolicy::Muted,
-            meta: gesso_core::SpecMeta {
-                title: entry.title.clone(),
-                origin: entry.origin.clone(),
-            },
-        };
-        let url = format!(
-            "{}?spec={}",
-            Self::ensure_entry_host(&entry),
-            urlencode(&serde_json::to_string(&spec).expect("ContentSpec 序列化"))
-        );
+        let url = Self::entry_host_url(&entry, fps);
         window.load(&url);
         // 隔离实验：builder 的 with_url 可能绕过 scheme handler，创建后再显式加载一次
         println!("[session] 宿主页 URL = {}", url);
@@ -268,22 +290,7 @@ impl SessionManager {
             if let Some(entry) = entry {
                 s.entry_id = entry_id.into();
                 if let Ok(mut w) = Self::build_window_only(&s.monitor) {
-                    let spec = ContentSpec {
-                        kind: entry.kind,
-                        source: entry_main_source(&entry),
-                        fit: gesso_core::Fit::Cover,
-                        fps_cap: fps,
-                        audio: gesso_core::AudioPolicy::Muted,
-                        meta: gesso_core::SpecMeta {
-                            title: entry.title.clone(),
-                            origin: entry.origin.clone(),
-                        },
-                    };
-                    w.load(&format!(
-                        "{}?spec={}",
-                        Self::ensure_entry_host(&entry),
-                        urlencode(&serde_json::to_string(&spec).unwrap())
-                    ));
+                    w.load(&Self::entry_host_url(&entry, fps));
                     s.window = Some(w);
                     s.state = transfer(s.state, SessionEvent::Loaded);
                 }
@@ -314,22 +321,7 @@ impl SessionManager {
             return;
         };
         let entry = entry.clone();
-        let spec = ContentSpec {
-            kind: entry.kind,
-            source: entry_main_source(&entry),
-            fit: gesso_core::Fit::Cover,
-            fps_cap: fps,
-            audio: gesso_core::AudioPolicy::Muted,
-            meta: gesso_core::SpecMeta {
-                title: entry.title.clone(),
-                origin: entry.origin.clone(),
-            },
-        };
-        let url = format!(
-            "{}?spec={}",
-            Self::ensure_entry_host(&entry),
-            urlencode(&serde_json::to_string(&spec).expect("ContentSpec 序列化"))
-        );
+        let url = Self::entry_host_url(&entry, fps);
         // 落配置
         self.config.monitor_fps.insert(monitor_id.into(), fps);
         let _ = self.save_config();
@@ -457,6 +449,27 @@ impl SessionManager {
     }
 }
 
+/// base64url（无填充：base64url 字母表全属 unreserved，查询参数免转义；
+/// 浏览器侧 atob 按 forgiving-base64 规则接受无填充输入）
+fn base64url(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        if chunk.len() > 1 {
+            out.push(T[(n >> 6) as usize & 63] as char);
+        }
+        if chunk.len() > 2 {
+            out.push(T[n as usize & 63] as char);
+        }
+    }
+    out
+}
+
 /// 文件路径 → URL 路径段编码（保留分隔符 /，其余非 unreserved 全部编码）
 fn percent_encode_path(p: &str) -> String {
     let mut out = String::with_capacity(p.len());
@@ -538,6 +551,22 @@ fn entry_main_source(entry: &LibraryEntry) -> String {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn base64url_known_vectors() {
+        // RFC 4648 测试向量（标准字母表）经 url 字母表映射
+        assert_eq!(base64url(b""), "");
+        assert_eq!(base64url(b"f"), "Zg");
+        assert_eq!(base64url(b"fo"), "Zm8");
+        assert_eq!(base64url(b"foo"), "Zm9v");
+        assert_eq!(base64url(b"foob"), "Zm9vYg");
+        assert_eq!(base64url(b"fooba"), "Zm9vYmE");
+        assert_eq!(base64url(b"foobar"), "Zm9vYmFy");
+        // +/ 不出现（URL 安全）
+        let all: Vec<u8> = (0..=255u8).collect();
+        let enc = base64url(&all);
+        assert!(!enc.contains('+') && !enc.contains('/'));
+    }
 
     #[test]
     fn import_ext_preserves_source_extension() {

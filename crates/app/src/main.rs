@@ -85,21 +85,53 @@ fn bootstrap() -> (session::SessionManager, bool) {
             .unwrap_or_default()
             .entries
     };
-    if !library.iter().any(|e| e.id == "builtin-testsrc") {
-        let dst = protocol::library_dir().join("builtin-testsrc");
-        std::fs::create_dir_all(&dst).ok();
-        let src = protocol::assets_dir().join("samples/testsrc.mp4");
-        if src.exists() {
-            std::fs::copy(&src, dst.join("index.mp4")).ok();
-            library.push(LibraryEntry {
-                id: "builtin-testsrc".into(),
-                kind: WallpaperKind::Video,
-                title: "测试图源（内置）".into(),
-                origin: "builtin".into(),
-                source_dir: dst.display().to_string(),
-            });
-            println!("[boot] 内置样例已入库");
+    // 内置样例：视频 1 + shader 3（M4 DoD：shader 三样例渲染，noiseflow 含 iChannel 纹理）
+    let builtin_samples: &[(&str, WallpaperKind, &str, &str)] = &[
+        (
+            "builtin-testsrc",
+            WallpaperKind::Video,
+            "samples/testsrc.mp4",
+            "测试图源（内置）",
+        ),
+        (
+            "builtin-shader-plasma",
+            WallpaperKind::Shader,
+            "samples/shader/plasma.glsl",
+            "Plasma（内置 Shader）",
+        ),
+        (
+            "builtin-shader-aurora",
+            WallpaperKind::Shader,
+            "samples/shader/aurora.glsl",
+            "Aurora（内置 Shader）",
+        ),
+        (
+            "builtin-shader-noiseflow",
+            WallpaperKind::Shader,
+            "samples/shader/noiseflow.glsl",
+            "Noise Flow（内置 Shader · iChannel0）",
+        ),
+    ];
+    for (id, kind, asset, title) in builtin_samples {
+        if library.iter().any(|e| e.id == *id) {
+            continue;
         }
+        let src = protocol::assets_dir().join(asset);
+        if !src.exists() {
+            continue;
+        }
+        let dst = protocol::library_dir().join(id);
+        std::fs::create_dir_all(&dst).ok();
+        let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+        std::fs::copy(&src, dst.join(format!("index.{ext}"))).ok();
+        library.push(LibraryEntry {
+            id: (*id).into(),
+            kind: *kind,
+            title: (*title).into(),
+            origin: "builtin".into(),
+            source_dir: dst.display().to_string(),
+        });
+        println!("[boot] 内置样例已入库：{id}");
     }
     {
         let p = protocol::library_dir().join("library.json");
