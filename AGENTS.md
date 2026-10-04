@@ -9,7 +9,7 @@ Gesso：跨平台（Windows/macOS）动态壁纸引擎——视频/动图/Shader
 
 ## 必读文档（按顺序）
 
-1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 5 条架构规则 + 21 条实测踩坑，改代码前先读。
+1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 5 条架构规则 + 25 条实测踩坑，改代码前先读。
 2. **[crates/app/API.md](crates/app/API.md)** —— UI 层唯一允许调用的引擎接口。
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** —— 分层、窗口模型、贴壁参数、状态机。
 4. **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 当前进度与已知缺口。

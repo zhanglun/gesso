@@ -41,6 +41,8 @@
 | WebGL 像素判读 | 默认帧缓冲合成后即被清空：合成器清屏后 `readPixels`/`toDataURL` 全读到黑。验证渲染要**在同一次 JS 任务里 `drawArrays` 后立刻 `readPixels`**，或建上下文时 `preserveDrawingBuffer: true` |
 | IOKit 电源 API 的符号在新 SDK 被移除 | 借用式 `IOPSGetPowerSourceList` 在 macOS 15.4 SDK 的 IOKit.tbd 里**已无导出**（链接期 undefined）——改用 `IOPSCopyPowerSourcesList`（+1，用完 `CFRelease`），`IOPSGetPowerSourceDescription` 仍是借用随 info 释放。纯 C API 也会踩符号可用性，extern 前先 `grep` 本机 tbd |
 | 全屏检测的坐标系 | `CGWindowList` bounds 是**全局顶左原点**，`MonitorInfo.frame` 是 AppKit **底左原点**——y 不能直接比。翻转基准 = 主显示器高度：`y_appkit = primary_h - win_y - win_h`。全屏判定：layer 0 窗口 bounds 与显示器 frame 重合（±3pt），菜单栏(24)/Dock(20)/壁纸(-2147483604) 天然被 layer 过滤 |
+| `flex_1`/`min_h_0` 在非 flex 父级无效 | 嵌在普通 `div()` 里的滚动容器（`overflow_y_scroll`）高度被内容撑开、永不溢出（库页滚不动的根因）——中间包裹层必须也是 flex（交叉轴默认 stretch 给子级定高）。对照：设置页滚动容器直接挂在 `v_flex` 下所以一直正常。排查口诀：滚动不动先查**高度约束链**上有没有断点 |
+| 网格响应式列数 | GPUI 没有 CSS `auto-fill`：在 `render` 里用 `window.viewport_size()` 按容器宽算列数（min 宽 + gap），卡片等分宽撑满整行；窗口 resize 会触发重渲，无需额外监听（库页 880→4 列 / 1200→5 列实机验证）。所有卡片同一渲染帧必须同一宽度，否则最后一行参差 |
 
 ## 3. 关键路径（调试用）
 
