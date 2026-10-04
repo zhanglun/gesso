@@ -77,6 +77,10 @@ impl MonitorsView {
                     .unwrap_or(0);
                 let entity = cx
                     .new(|cx| SelectState::new(items, Some(IndexPath::new(selected)), window, cx));
+                // 真 UI 控件（§4.4 FPS 下拉）：确认即入队引擎动作，热重载该屏宿主页。
+                // 只改本地投影会导致引擎侧 fps 与 UI 永久漂移（SetMonitorFps 曾
+                // 因此从未被构造）。
+                let real_id = m.real_id.clone();
                 cx.subscribe(
                     &entity,
                     move |_, _, event: &SelectEvent<SearchableVec<String>>, cx| {
@@ -86,6 +90,10 @@ impl MonitorsView {
                                     if let Some(m) = g.monitors.get_mut(i) {
                                         m.fps = fps;
                                     }
+                                });
+                                crate::engine::enqueue(crate::engine::EngineAction::SetMonitorFps {
+                                    monitor_id: real_id.clone(),
+                                    fps: fps as u8,
                                 });
                                 cx.notify();
                             }
@@ -320,7 +328,7 @@ impl MonitorsView {
         top: Pixels,
         width: Pixels,
         ratio: f32,
-        selected_idx: usize,
+        _selected_idx: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = tokens(cx);

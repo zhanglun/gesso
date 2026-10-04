@@ -300,7 +300,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                     },
                     _ => ui::data::PlayState::UserPaused,
                 },
-                fps: 60,
+                fps: sm.fps_for(&m.id) as u32,
                 real_id: m.id.clone(),
             }
         })
