@@ -130,9 +130,20 @@ pub fn preview(
                 .flex()
                 .items_center()
                 .justify_center()
-                .opacity(0.35)
-                .text_color(t.text2)
-                .child(Icon::new(IconName::RefreshCw).size_5()),
+                .child(
+                    div()
+                        .size_8()
+                        .rounded_full()
+                        .bg(gpui_kit::gpui::black().opacity(0.30))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            Icon::new(IconName::RefreshCw)
+                                .size_4()
+                                .text_color(gpui_kit::gpui::white()),
+                        ),
+                ),
         )
         .into_any_element()
 }
