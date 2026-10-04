@@ -19,8 +19,10 @@ use ui::app_state::GessoState;
 
 /// 托盘「暂停全部」的当前取向（菜单文案随之切换）。
 static TRAY_PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// 主窗口句柄（托盘「管理窗口…」激活用）。
-static MAIN_WINDOW: std::sync::OnceLock<gpui_kit::AnyWindowHandle> = std::sync::OnceLock::new();
+/// 主窗口句柄（托盘「管理窗口…」激活用）。窗口可被用户关闭（红点），
+/// 关闭后 GPUI 会从注册表移除窗口 → 旧句柄失效，需重建而非激活。
+static MAIN_WINDOW: std::sync::Mutex<Option<gpui_kit::AnyWindowHandle>> =
+    std::sync::Mutex::new(None);
 /// 托盘勾选镜像（自启翻转判定用；真源 = AppConfig.settings.autostart）。
 static AUTOSTART_HINT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -301,6 +303,47 @@ fn apply_autostart(enable: bool) {
     };
     println!("[autostart] enable={enable} → {outcome:?}");
 }
+fn open_main_window(cx: &mut gpui_kit::gpui::App) {
+    gpui_kit::open_window(
+        gpui_kit::WindowOptions {
+            window_bounds: Some(gpui_kit::WindowBounds::Windowed(
+                gpui_kit::Bounds::centered(
+                    None,
+                    gpui_kit::size(gpui_kit::px(880.), gpui_kit::px(600.)),
+                    cx,
+                ),
+            )),
+            // 顶栏自绘：产品名 + 三页签；窗口控制（红绿灯）由系统提供
+            titlebar: Some(gpui_kit::TitlebarOptions {
+                title: Some("Gesso".into()),
+                appears_transparent: true,
+                traffic_light_position: Some(gpui_kit::point(
+                    gpui_kit::px(14.),
+                    gpui_kit::px(15.),
+                )),
+            }),
+            ..Default::default()
+        },
+        cx,
+        |window, cx| {
+            // 亮暗跟随系统（DESIGN.md「GPUI 落地」）
+            // Subscription 必须 detach 保活，否则跟随系统主题立即失效
+            window
+                .observe_window_appearance(|window, cx| {
+                    ui::theme::sync_on_appearance_change(window, cx);
+                })
+                .detach();
+            use gpui_kit::AppContext as _;
+            cx.new(|cx| ui::shell::Shell::new(window, cx))
+        },
+    )
+    .inspect(|(handle, _)| {
+        if let Ok(mut g) = MAIN_WINDOW.lock() {
+            *g = Some(*handle);
+        }
+    })
+    .ok();
+}
 
 fn main() {
     // 单实例（§4.1 对策 5）。GESSO_LOCK 供开发期多实例并存（UI 验收 vs 会话调试）。
@@ -484,28 +527,38 @@ fn main() {
                             }
                             for a in deferred_window_actions {
                                 if let engine::EngineAction::FocusMainWindow = a {
-                                    if let Some(h) = MAIN_WINDOW.get() {
-                                        let _ = h.update(
-                                            cx,
-                                            |_: gpui_kit::gpui::AnyView,
-                                             window,
-                                             cx: &mut gpui_kit::gpui::App| {
-                                                // 顺序关键：先激活 App 再上屏窗口。
-                                                // App 未激活时 makeKeyAndOrderFront 会触发
-                                                // GPUI 的幽灵 windowDidBecomeKey 处理
-                                                // （gpui-pre-macos window.rs ~3135：非 key 态
-                                                // 立即 resignKeyWindow），窗口上屏即被打回；
-                                                // 先让 NSApp.active 再上屏则不会命中该分支。
-                                                cx.activate(true);
-                                                window.activate_window();
-                                                // 再 defer 一帧补一次上屏：跨 Space 场景下
-                                                // 首次 orderFront 可能只切 Space 不上屏
-                                                window.defer(cx, |window, cx| {
-                                                    window.activate_window();
+                                    let existing =
+                                        MAIN_WINDOW.lock().ok().and_then(|g| g.clone());
+                                    let mut activated = false;
+                                    if let Some(h) = existing {
+                                        activated = h
+                                            .update(
+                                                cx,
+                                                |_: gpui_kit::gpui::AnyView,
+                                                 window,
+                                                 cx: &mut gpui_kit::gpui::App| {
+                                                    // 顺序关键：先激活 App 再上屏窗口。
+                                                    // App 未激活时 makeKeyAndOrderFront 会触发
+                                                    // GPUI 的幽灵 windowDidBecomeKey 处理
+                                                    // （gpui-pre-macos window.rs ~3135：非 key 态
+                                                    // 立即 resignKeyWindow），窗口上屏即被打回；
+                                                    // 先让 NSApp.active 再上屏则不会命中该分支。
                                                     cx.activate(true);
-                                                });
-                                            },
-                                        );
+                                                    window.activate_window();
+                                                    // 再 defer 一帧补一次上屏：跨 Space 场景下
+                                                    // 首次 orderFront 可能只切 Space 不上屏
+                                                    window.defer(cx, |window, cx| {
+                                                        window.activate_window();
+                                                        cx.activate(true);
+                                                    });
+                                                },
+                                            )
+                                            .is_ok();
+                                    }
+                                    if !activated {
+                                        // 句柄不存在或已死（窗口被红点关闭）：重建
+                                        open_main_window(cx);
+                                        println!("[ui] 管理窗口已重建");
                                     }
                                 }
                             }
@@ -594,43 +647,7 @@ fn main() {
             .detach();
 
             // 管理窗口：三页签 UI（§4.3–4.5；44px 顶栏 + 键盘模型 + 双主题）
-            gpui_kit::open_window(
-                gpui_kit::WindowOptions {
-                    window_bounds: Some(gpui_kit::WindowBounds::Windowed(
-                        gpui_kit::Bounds::centered(
-                            None,
-                            gpui_kit::size(gpui_kit::px(880.), gpui_kit::px(600.)),
-                            cx,
-                        ),
-                    )),
-                    // 顶栏自绘：产品名 + 三页签；窗口控制（红绿灯）由系统提供
-                    titlebar: Some(gpui_kit::TitlebarOptions {
-                        title: Some("Gesso".into()),
-                        appears_transparent: true,
-                        traffic_light_position: Some(gpui_kit::point(
-                            gpui_kit::px(14.),
-                            gpui_kit::px(15.),
-                        )),
-                    }),
-                    ..Default::default()
-                },
-                cx,
-                |window, cx| {
-                    // 亮暗跟随系统（DESIGN.md「GPUI 落地」）
-                    // Subscription 必须 detach 保活，否则跟随系统主题立即失效
-                    window
-                        .observe_window_appearance(|window, cx| {
-                            ui::theme::sync_on_appearance_change(window, cx);
-                        })
-                        .detach();
-                    use gpui_kit::AppContext as _;
-                    cx.new(|cx| ui::shell::Shell::new(window, cx))
-                },
-            )
-            .inspect(|(handle, _)| {
-                let _ = MAIN_WINDOW.set(*handle);
-            })
-            .ok();
+            open_main_window(cx);
 
             // 首启（config.monitors 为空）：一次性打开向导（§4.6）
             if first_run {
