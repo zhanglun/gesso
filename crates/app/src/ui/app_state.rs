@@ -48,6 +48,8 @@ pub struct GessoState {
     pub hovered: Option<SharedString>,
     /// 悬停轮播相位（所有卡片共用 tick；hover 时推进）。
     pub hover_frame: usize,
+    /// 悬停预载阶段：帧序列尚未全部就绪，卡片显示 spinner 覆盖层
+    pub hover_preloading: bool,
     /// 「检测到新显示器」提示条可见性。
     pub pending_new_monitor: bool,
     /// 顶栏手动主题切换后的模式提示（None = 跟随系统）。
@@ -75,6 +77,7 @@ impl Default for GessoState {
             selected: None,
             hovered: None,
             hover_frame: 0,
+            hover_preloading: false,
             pending_new_monitor: false,
             import_counter: 0,
             status_error: None,

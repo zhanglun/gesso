@@ -257,6 +257,9 @@ impl LibraryView {
                         };
                         if *hovering {
                             g.hover_frame = 0;
+                            g.hover_preloading = true;
+                        } else {
+                            g.hover_preloading = false;
                         }
                     });
                     if *hovering && has_thumbs {
@@ -270,16 +273,35 @@ impl LibraryView {
                 move |menu, window, cx| card_context_menu(&id, broken, menu, window, cx)
             });
 
+        let preloading = state(cx).hovered.as_ref() == Some(&item.id)
+            && state(cx).hover_preloading;
         card = card
-            .child(preview(
-                item.art,
-                Some(item.kind),
-                broken,
-                &item.thumbs,
-                hover_frame,
-                gpui_kit::gpui::SharedString::from(format!("previewcache-{}", item.id)),
-                cx,
-            ))
+            .child(
+                div()
+                    .relative()
+                    .child(preview(
+                        item.art,
+                        Some(item.kind),
+                        broken,
+                        &item.thumbs,
+                        hover_frame,
+                        cx,
+                    ))
+                    .when(preloading, |r| {
+                        r.child(
+                            div()
+                                .absolute()
+                                .inset_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    gpui_kit::component::spinner::Spinner::new()
+                                        .color(gpui_kit::gpui::white()),
+                                ),
+                        )
+                    }),
+            )
             .child(
                 div()
                     .relative()
@@ -724,7 +746,7 @@ impl Render for CardGhost {
             .shadow_lg()
             .opacity(0.9)
             .bg(t.panel)
-            .child(preview(self.art, None, false, &[], 0, gpui_kit::gpui::SharedString::from("previewcache-ghost"), cx))
+            .child(preview(self.art, None, false, &[], 0, cx))
             .child(
                 div()
                     .px_3()
@@ -736,37 +758,89 @@ impl Render for CardGhost {
     }
 }
 
-/// 悬停轮播驱动：125ms/帧（~8fps）推进 `hover_frame`，悬停离开即停。
-/// 单一全局循环：每次进入新悬停都会先停旧循环（通过 hovered 校验）。
+/// 悬停轮播驱动（两段式）：
+/// ① 预载阶段：fetch_asset 逐帧拉取，画面停在首帧 + spinner（loading 由
+///   preview 的 fallback 呈现）；② 播放阶段：全部帧就绪后以固定 125ms/帧
+///   推进，每帧直接命中缓存——无回退、无忽快忽慢。第二次 hover 帧已缓存，
+///   预载阶段立即结束。
 fn start_hover_cycle(cx: &mut gpui_kit::gpui::Context<LibraryView>) {
-    cx.spawn(async move |this, cx| loop {
-        cx.background_executor()
-            .timer(std::time::Duration::from_millis(125))
-            .await;
-        let still_hovering = this
-            .update(cx, |_, cx| {
-                let g = cx.global::<GessoState>();
-                let alive = g.hovered.is_some();
-                if alive {
-                    let len = g
-                        .library
-                        .iter()
-                        .find(|w| Some(&w.id) == g.hovered.as_ref())
-                        .map(|w| w.thumbs.len())
-                        .unwrap_or(0);
-                    if len > 0 {
-                        cx.update_global::<GessoState, _>(|g, _| {
-                            g.hover_frame = (g.hover_frame + 1) % len;
-                        });
-                        cx.notify();
+    cx.spawn(async move |this, cx| {
+        // —— 预载阶段 ——
+        loop {
+            let (alive, pending) = this
+                .update(cx, |_, cx| {
+                    let (thumbs, alive) = {
+                        let g = cx.global::<GessoState>();
+                        let t = g
+                            .library
+                            .iter()
+                            .find(|w| Some(&w.id) == g.hovered.as_ref())
+                            .map(|w| w.thumbs.clone());
+                        (t, g.hovered.is_some())
+                    };
+                    // 每轮触发至多 2 个未就绪帧的加载；pending=0 = 全部命中缓存
+                    let pending = match thumbs {
+                        Some(thumbs) => thumbs
+                            .iter()
+                            .filter(|p| {
+                                let r = gpui_kit::gpui::Resource::Path(std::sync::Arc::from(
+                                    std::path::Path::new(p),
+                                ));
+                                cx.fetch_asset::<gpui_kit::gpui::ImgResourceLoader>(&r).is_none()
+                            })
+                            .take(2)
+                            .count(),
+                        None => 0,
+                    };
+                    (alive, pending)
+                })
+                .unwrap_or((false, 0));
+            if !alive {
+                return;
+            }
+            if pending == 0 {
+                this.update(cx, |_, cx| {
+                    cx.update_global::<GessoState, _>(|g, _| g.hover_preloading = false);
+                })
+                .ok();
+                break; // 全部就绪
+            }
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(60))
+                .await;
+        }
+
+        // —— 播放阶段：固定节奏推进，帧全部命中缓存 ——
+        loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(125))
+                .await;
+            let still_hovering = this
+                .update(cx, |_, cx| {
+                    let g = cx.global::<GessoState>();
+                    let alive = g.hovered.is_some();
+                    if alive {
+                        let len = g
+                            .library
+                            .iter()
+                            .find(|w| Some(&w.id) == g.hovered.as_ref())
+                            .map(|w| w.thumbs.len())
+                            .unwrap_or(0);
+                        if len > 0 {
+                            cx.update_global::<GessoState, _>(|g, _| {
+                                g.hover_frame = (g.hover_frame + 1) % len;
+                            });
+                            cx.notify();
+                        }
                     }
-                }
-                alive
-            })
-            .unwrap_or(false);
-        if !still_hovering {
-            break;
+                    alive
+                })
+                .unwrap_or(false);
+            if !still_hovering {
+                return;
+            }
         }
     })
     .detach();
 }
+

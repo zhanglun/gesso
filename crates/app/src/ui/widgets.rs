@@ -62,7 +62,6 @@ pub fn preview(
     broken: bool,
     thumbs: &[String],
     frame: usize,
-    cache_id: impl Into<gpui_kit::gpui::ElementId>,
     cx: &App,
 ) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
@@ -85,52 +84,68 @@ pub fn preview(
     }
 
     // 2) 有缩略图 → 显示缩略图帧。
-    // 防闪双保险（hover 换帧实测底色闪烁）：① retain_all 卡片级缓存——16 帧
-    // 一旦加载过就不被默认缓存卸载，换帧是同步取图；② with_loading——首遍加载
-    // 的间隙直接画上一帧（首帧无上图时露 preview_bg，与加载中状态一致）。
+    // 防闪纪律（多轮实测）：用默认图片缓存（预载 fetch_asset 与 img 共用
+    // 同一缓存条目），img 加固定元素 id（无 id 则 loading fallback 分支整体
+    // 被跳过）；加载中 fallback = 上一稳定帧 + spinner——hover 循环保证进入
+    // 播放阶段前所有帧已就绪，正常播放期间不触发 fallback。
     if !thumbs.is_empty() {
         if let Some(path) = thumbs.get(frame.min(thumbs.len() - 1)) {
             if std::path::Path::new(path).exists() {
-                let prev_path = frame
-                    .checked_sub(1)
-                    .and_then(|p| thumbs.get(p))
+                use gpui_kit::gpui::InteractiveElement as _;
+                use gpui_kit::gpui::StyledImage as _;
+                let prev_path = thumbs
+                    .get(frame.saturating_sub(1))
                     .filter(|p| std::path::Path::new(p).exists())
-                    .map(|p| p.clone());
-                return gpui_kit::gpui::image_cache(gpui_kit::gpui::retain_all(cache_id))
+                    .map(std::path::PathBuf::from);
+                let source = gpui_kit::gpui::ImageSource::Resource(
+                    gpui_kit::gpui::Resource::Path(std::sync::Arc::from(
+                        std::path::Path::new(path),
+                    )),
+                );
+                return div()
                     .w_full()
                     .aspect_ratio(16. / 9.)
                     .overflow_hidden()
                     .relative()
                     .rounded_t(px(11.))
                     .bg(t.preview_bg)
-                    .child({
-                        use gpui_kit::gpui::StyledImage as _;
-                        let source = gpui_kit::gpui::ImageSource::Resource(
-                            gpui_kit::gpui::Resource::Path(
-                                std::path::PathBuf::from(path).into(),
-                            ),
-                        );
-                        let img = gpui_kit::gpui::img(source)
+                    .child(
+                        gpui_kit::gpui::img(source)
+                            .id(gpui_kit::gpui::SharedString::from("hover-frame"))
                             .size_full()
                             .object_fit(gpui_kit::gpui::ObjectFit::Cover)
-                            .rounded_t(px(11.));
-                        match prev_path {
-                            Some(prev_path) => img.with_loading(move || {
-                                use gpui_kit::gpui::StyledImage as _;
-                                let source = gpui_kit::gpui::ImageSource::Resource(
-                                    gpui_kit::gpui::Resource::Path(
-                                        std::path::PathBuf::from(&prev_path).into(),
-                                    ),
-                                );
-                                gpui_kit::gpui::img(source)
+                            .rounded_t(px(11.))
+                            .with_loading(move || {
+                                let bg_img = prev_path.clone().map(|p| {
+                                    use gpui_kit::gpui::StyledImage as _;
+                                    gpui_kit::gpui::img(gpui_kit::gpui::ImageSource::Resource(
+                                        gpui_kit::gpui::Resource::Path(std::sync::Arc::from(
+                                            p.as_path(),
+                                        )),
+                                    ))
                                     .size_full()
                                     .object_fit(gpui_kit::gpui::ObjectFit::Cover)
                                     .rounded_t(px(11.))
+                                });
+                                div()
+                                    .size_full()
+                                    .relative()
+                                    .children(bg_img)
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .inset_0()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(
+                                                gpui_kit::component::spinner::Spinner::new()
+                                                    .color(gpui_kit::gpui::white()),
+                                            ),
+                                    )
                                     .into_any_element()
                             }),
-                            None => img,
-                        }
-                    })
+                    )
                     .into_any_element();
             }
         }
