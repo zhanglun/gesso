@@ -21,7 +21,7 @@ use super::app_state::{state, update, GessoState};
 use super::data::{Settings, SuspendPolicy};
 use super::strings::*;
 use super::theme::tokens;
-use super::widgets::set_row;
+use super::widgets::{select_slot, set_row};
 
 type StringSelect = Entity<SelectState<SearchableVec<String>>>;
 
@@ -204,19 +204,19 @@ impl Render for SettingsView {
             set_row(
                 SET_FPS_CAP,
                 None,
-                Select::new(&self.fps_cap).into_any_element(),
+                select_slot(Select::new(&self.fps_cap).into_any_element()),
                 cx,
             ),
             set_row(
                 SET_FULLSCREEN,
                 Some(SET_FULLSCREEN_DESC),
-                Select::new(&self.fullscreen).into_any_element(),
+                select_slot(Select::new(&self.fullscreen).into_any_element()),
                 cx,
             ),
             set_row(
                 SET_BATTERY,
                 None,
-                Select::new(&self.battery).into_any_element(),
+                select_slot(Select::new(&self.battery).into_any_element()),
                 cx,
             ),
             set_row(
@@ -251,7 +251,7 @@ impl Render for SettingsView {
             set_row(
                 SET_STARTUP_BEHAVIOR,
                 None,
-                Select::new(&self.startup).into_any_element(),
+                select_slot(Select::new(&self.startup).into_any_element()),
                 cx,
             ),
         ];
@@ -260,7 +260,7 @@ impl Render for SettingsView {
         let mut linkage = vec![set_row(
             SET_WEATHER,
             Some(SET_WEATHER_DESC),
-            Select::new(&self.weather).into_any_element(),
+            select_slot(Select::new(&self.weather).into_any_element()),
             cx,
         )];
         if s.weather_custom_key {

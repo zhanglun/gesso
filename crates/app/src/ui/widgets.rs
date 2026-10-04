@@ -195,6 +195,14 @@ pub fn set_row(
         .into_any_element()
 }
 
+/// Select 的行内槽位。kit 的 Select 根节点是 `size_full`：放进定高行（min_h +
+/// items_center）会撑满整行高，而触发器在其内部贴顶排布，控件整体不再随行居中
+/// （§4.5 表单行标签与控件错位）。槽位宽度撑满剩余行宽、高度塌缩到触发器自身，
+/// 行级 items_center 对槽位整体居中。
+pub fn select_slot(control: gpui_kit::gpui::AnyElement) -> gpui_kit::gpui::AnyElement {
+    div().w_full().child(control).into_any_element()
+}
+
 /// 空状态插画位（简线风格：虚线圆角框 + 图标）。
 pub fn empty_art(icon: IconName, cx: &App) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
