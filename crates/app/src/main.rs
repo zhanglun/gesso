@@ -686,12 +686,16 @@ fn main() {
                         cx.update(|cx| {
                             let next = snapshot_ui(&cx.global::<engine::AppState>().sm);
                             cx.update_global::<GessoState, _>(|g, _| {
-                                let (tab, selected, query, filter, demo_imports) = (
+                                // 浏览态与悬停态是 UI 本地状态：快照单向回灌必须保留
+                                // （AGENTS 规则 2；hovered 丢失曾导致卡片高亮/轮播闪烁）
+                                let (tab, selected, query, filter, demo_imports, hovered, hover_frame) = (
                                     g.active_tab,
                                     g.selected.clone(),
                                     g.query.clone(),
                                     g.filter,
                                     g.import_counter,
+                                    g.hovered.clone(),
+                                    g.hover_frame,
                                 );
                                 *g = next;
                                 g.active_tab = tab;
@@ -699,6 +703,8 @@ fn main() {
                                 g.query = query;
                                 g.filter = filter;
                                 g.import_counter = demo_imports;
+                                g.hovered = hovered;
+                                g.hover_frame = hover_frame;
                                 g.demo = false;
                             });
                             cx.refresh_windows();
