@@ -10,7 +10,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M1.5  macOS desktop layering spike (pin below icons, click-through, all-spaces)
 ✅ M2    video wallpaper end-to-end (pin + pause/resume + persistence)
 ✅ M3    sessions/config/UI engine + UI↔engine actions + import + settings + first-run
-✅ M4    renderer completeness — video / image / shader (WebGL2 + Shadertoy subset) / HTML (sandboxed iframe)
+✅ M4    renderer completeness — video / image / shader (WebGL2 + Shadertoy subset) / HTML (sandboxed iframe); all four kinds have real webview-captured thumbnails (static + 15-frame hover sequence)
 🚧 M5    system data bridge — ✅ fullscreen/battery auto-pause + time feed · ⬜ cursor feed (needs permission flow)
 ⬜ M1    Windows pinning (needs a Windows machine)
 ⬜ M6    Wallpaper Engine import I (video/web)
@@ -37,7 +37,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 
 - `gesso://` custom scheme non-functional on current webview stack (zero callbacks; serving via self-contained `file://` entries meanwhile).
 - Real-machine monitor outline (signature #1) and tray panel positioning on retina displays.
-- HTML thumbnails use the gradient placeholder (the webview capture pipeline currently covers shader/video only).
-- HTML wallpapers: iframe-internal navigation is not allow-listed yet (top-navigation / popups / forms are sandbox-blocked; `fps_cap` is advisory for the html kind).
+- ~~HTML thumbnails use the gradient placeholder~~ → Done (`372b4c4`): html captures live frames via the same persistent-window capture pipeline as shader/video.
+- HTML wallpapers: iframe-internal navigation is not allow-listed yet (top-navigation / popups / forms are sandbox-blocked; `fps_cap` is advisory for the html kind). Hover previews use a two-phase cycle — preload all 16 frames behind a spinner, then play at a fixed 125 ms/frame (`c6bd3ce`).
 - i18n: UI strings are centralized in `ui/strings.rs` (Chinese-first); English translation pass pending.
 - Tray polish: dynamic menu copy (muda handlers are `Send`-only — menu handle can't be mutated from the poller) and precise quick-panel positioning relative to the tray icon (retina coordinate conversion).

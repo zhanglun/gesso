@@ -46,6 +46,10 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - UI hover state (`hovered` / `hover_frame`) was wiped by every engine snapshot回灌 — card hover highlight and preview carousel flickered on each refresh cycle; the merge now preserves them like the other UI-local browsing state.
 - Library page could not scroll: the scroll container's `flex_1`/`min_h_0` sat under a non-flex wrapper, so its height was content-driven and never overflowed; the wrapper is now a flex container.
 - Library grid now matches the prototype contract (`repeat(auto-fill, minmax(196px, 1fr))`): column count adapts to the window width and cards divide each row evenly instead of a fixed 208px width leaving a large trailing gap.
+- Shader and HTML thumbnail capture: a persistent on-screen window (one level above the wallpaper, 2% alpha) runs the real host page and snapshots it via WKWebView — shader is frozen per frame via `__gessoSeek(t)`, html is sampled as live frames; captures run on one global serial queue and the capture window is never closed while a snapshot is pending (was an over-release SIGSEGV).
+- Hover preview flicker went through three root causes: (1) the dark base color was attached to an `image_cache` element, which only forwards children and never paints its own style — moved to an outer div; (2) the `img` had no element id, so GPUI created no `ImgState` and the loading fallback was skipped entirely — fixed shared id; (3) the frame index advanced on a fixed timer while frames were still decoding (shader/html frames are large), so the preview alternated black/image and played catch-up at variable speed — hover is now two-phase: preload all 16 frames behind a spinner (`fetch_asset`, shared with the display cache), then play at a fixed 125 ms/frame.
+- Library page scroll and responsive grid fixes (flex-container height chain; viewport-driven column count replacing the unavailable CSS `auto-fill`).
+- Monitors-page redesign: desktop sandbox layout with a per-display detail bar.
 - Compiler warnings in `gesso-app` cleared (32 → 0): mechanical fixes via `cargo fix`, `NSWindow::new`/`subviews`/`NSScreen::screens`/`setFrame_display` unsafe blocks adjusted to current objc2 bindings, deprecated `Retained::cast` → `downcast`, `NSColor::clearColor` safe call, dead leftover strings and helpers removed, the gesso:// protocol scaffolding and platform-window surface annotated as intentional (`#[allow(dead_code)]` with pointers to the protocol-fix todo / Windows M1).
 
 ### Known limitations (tracked in ROADMAP)
@@ -53,5 +57,5 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Windows pinning not yet verified (needs a machine).
 - `gesso://` custom scheme non-functional on the current webview stack; entries load via `file://`.
 - System data bridge: cursor feed + idle downscale pending (needs an Input Monitoring permission flow).
-- HTML thumbnails use the gradient placeholder; iframe-internal navigation of HTML wallpapers is not allow-listed yet (`fps_cap` advisory for the html kind).
-- `hovered` state is reset by snapshots (~150 ms) — in-window hover highlight may flicker.
+- iframe-internal navigation of HTML wallpapers is not allow-listed yet (`fps_cap` advisory for the html kind).
+- Hover preview preload is per-process cache: the first hover shows a spinner briefly; subsequent hovers play immediately.

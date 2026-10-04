@@ -56,6 +56,7 @@ LibraryEntry (library/<random-id>/index.html + index.<ext>)
 - The **source extension is preserved on import** (`webm` stays `webm`): webviews type media by extension, so normalizing to `index.mp4` breaks playback. Import, validity checking and host-spec generation all call this `main_asset_name` helper — keep it that way.
 - The host page exposes `window.__gesso.{pause, resume}`; the engine pauses via `evaluate_script` — pause is a **JS-level frame stop**, the window and webview stay resident.
 - Renderer coverage today: video, image (gif/webp), shader (WebGL2 + Shadertoy subset, source via `code=` base64url), html (user page fixed at `wallpaper.html`, loaded in a sandboxed iframe `allow-scripts` — opaque origin throws `SecurityError` on storage/IPC; pause/resume delivered via `postMessage {__gesso:"pause"|"resume"}`).
+- **Thumbnails are WYSIWYG captures, not translated previews**: a persistent on-screen capture window (one window-level above the wallpaper, `alphaValue(0.02)`) runs the real host page and takes WKWebView snapshots — one static `thumb.png` plus 15 hover frames. Shader is frozen per frame via `__gessoSeek(t)`; html is a live page sampled at fixed intervals. The window is never closed while a snapshot completion is pending (over-release crash; see ENGINEERING-NOTES), and captures run on one global serial queue.
 
 ## 4. Session state machine (gesso-core)
 
@@ -80,12 +81,12 @@ Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from
 
 ## 7. Performance notes
 
-- Pause really stops work (JS loop + decoding); `Autopause` triggers (fullscreen/battery) are M5.
+- Pause really stops work (JS loop + decoding). Fullscreen/battery triggers drive the state machine's `Autopause` state (M5, verified), with a per-display fullscreen-downscale policy (5 fps target via `__gesso.setFps`).
 - Multi-monitor: one wallpaper window per display; webview content processes are shared by the platform, decoders are not (accepted).
-- No frame-rate governor in the host page yet (M4, RAF gate with dynamic resolution scaling is specced).
+- Frame-rate control: the engine pushes the per-display fps cap to the host page (`__gesso.setFps`, live without reload) — shader frames are RAF-gated; for html it is an advisory value since the iframe owns its own RAF; video has no frame-rate lever.
 
 ## 8. Where the deeper history lives
 
 - `SPIKE-REPORT.md` — the three feasibility spikes and 14 API facts extracted from them.
-- `docs/ENGINEERING-NOTES.md` — binding rules + the pitfall ledger (15 entries).
+- `docs/ENGINEERING-NOTES.md` — binding rules + the pitfall ledger (~20 entries).
 - Design archive (interaction spec, visual tokens, prototype) is maintained alongside the project author; the repo carries its engineering conclusions.

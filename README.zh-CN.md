@@ -37,7 +37,7 @@
 | 首启向导 | ✅ |
 | Shader 渲染器（Shadertoy 子集，WebGL2） | ✅ |
 | HTML 渲染器（沙箱 iframe，拒绝存储/IPC） | ✅ |
-| 系统数据桥（光标 / 电源 / 全屏 / 音频） | 🚧 计划（M5） |
+| 系统数据桥（全屏 / 电池自动暂停 · 时间脉冲） | ✅ M5；光标/音频待后续 |
 | Wallpaper Engine 工坊素材（只读） | 🚧 计划（M6），见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
 ## 环境要求

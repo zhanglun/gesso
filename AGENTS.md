@@ -41,6 +41,7 @@ crates/core     纯领域逻辑（ContentSpec/配置/库/状态机）——零�
 crates/app      应用：
   ├─ pin/         平台贴壁层（macOS: AppKit；Windows: 计划中）——唯一允许碰原生窗口的模块
   ├─ session.rs   会话管理器（唯一编排者）
+  ├─ capture.rs   缩略图采集（持久窗口跑真实宿主页快照；shader 定格/html 实时帧）
   ├─ protocol.rs  gesso:// 资源协议（当前 file:// 自包含模式，协议修复待办）
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
@@ -54,7 +55,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ macOS 视频壁纸钉桌面全链路（贴壁/穿透/多空间/菜单栏带覆盖/暂停恢复/持久化）
 - ✅ 导入（对话框 + 拖入）、托盘（右键菜单）、设置持久化、开机自启、首启向导
 - ✅ 管理窗口三页签（真数据桥接）+ 缩略图悬停预览 + 显示器页「桌面沙盘 + 详情条」改版
-- ✅ M4 渲染器完备：shader（WebGL2 + Shadertoy 子集 uniforms + iChannel）+ html（沙箱 iframe，实机 DoD：storage/IPC 全部 SecurityError）+ 内置样例 ×5
+- ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（真实宿主页 WKWebView 快照：静态 + 15 hover 帧）+ 内置样例 ×5
 - ⬜ M1 Windows 贴壁验证（**缺 Windows 机器**）
 - ✅ M5 系统数据桥主体：全屏检测 + 电池策略 → 自动暂停/降帧（实机验证）+ 时间脉冲 feed；⬜ 光标 feed（需权限流）
 - ⬜ M6 WE 导入
