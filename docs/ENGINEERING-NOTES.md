@@ -31,7 +31,7 @@
 | 创建顺序 | 必须在 `gpui_kit::init(cx)` 之后、GPUI 窗口之前创建 AppKit 壁纸窗口；否则 tray-icon panic：`Ivar platform not found on class NSApplication` |
 | **`swap(true)` 当开关** | `AtomicBool::swap(true)` 永远写入 `true`、永远读到同一个旧值 → 开关变成"只单向"。**用 `fetch_xor(true)`**。（M0.5 的壁纸切换、托盘「暂停全部」各栽过一次） |
 | 媒体导入改名 | **保留源扩展名**：WKWebView 按扩展名判定媒体类型，`.webm` 存成 `index.mp4`、`.webp` 存成 `index.gif` 直接播不出来 |
-| 单实例多开 | 正常行为：锁生效（第三个实例会打印"已有实例运行，退出"）。开发期用 `GESSO_LOCK=<name>` 可并存多实例——**验证完记得杀掉旧实例**，否则两个壁纸窗口叠在桌面上 |
+| 单实例多开 | 正常行为：锁生效（第三个实例会打印"已有实例运行，退出"）。开发期用 `GESSO_LOCK=<name>` 可并存多实例——**验证完记得杀掉旧实例**，否则两个壁纸窗口叠在桌面上。**重启验证以日志内容为准**（如"会话数"行）：`pgrep` 只能证明"有进程"，旧实例存活时新实例已静默退出，pgrep 误报"运行中" |
 | 截图验证 | 若 `screencapture` 拍不到窗口内容：系统设置 → 隐私与安全性 → 屏幕录制 → 给终端打开（否则像素判读全部失真） |
 | `mkv` / HEVC | `.mkv` 需转封装；HEVC 依赖系统扩展/硬件——导入时给明确文案，不要静默失败 |
 | 裸 `msg_send!` 人肉维护 ObjC 引用计数 | v1 缩略图抽帧两处违约（alloc+init 被两次 `Retained::from_raw` 接管；`representationUsingType:properties:` 的 **autoreleased** 返回值被当 +1 接管）→ 对象提前释放，autorelease 池里的悬垂记录在 GCD drain 结束时二次释放 → **池弹出段错误**，且崩溃点远离案发现场（2026-10-03/04 两次线上崩溃同指纹）。正确做法：objc2 生成绑定 + ImageIO 编码 + `autoreleasepool` 包任务（见 `thumb.rs` v2）；PNG 等大对象的 over-release 会 munmap 掉整个 VM region，池弹出时是翻译 fault 而非静默损坏 |
