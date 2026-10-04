@@ -13,6 +13,7 @@ pub struct MonitorInfo {
     /// 稳定 ID：macOS v1 用 CGDirectDisplayID（`cg-<id>`）；
     /// 升级路径：EDID 哈希（技术方案 §4.3）
     pub id: String,
+    #[allow(dead_code)] // 展示名：macOS 枚举填充；UI 投影用自己的命名规则（主屏/屏N）
     pub name: String,
     /// AppKit 全局坐标（原点左下），含菜单栏/Dock 区域
     pub frame: (f64, f64, f64, f64), // x, y, w, h
@@ -20,6 +21,8 @@ pub struct MonitorInfo {
 }
 
 /// 壁纸窗口的统一操作面（由各平台模块实现）。
+/// 部分方法当前调用方未接（Windows M1 / 露桌面回退），属平台面而非死代码。
+#[allow(dead_code)]
 pub trait WallpaperWindow {
     /// 加载宿主页 URL（gesso://host/index.html?spec=...）。
     fn load(&mut self, url: &str);
@@ -34,7 +37,7 @@ pub trait WallpaperWindow {
     /// 透传 JS（M5 数据桥通道：时间 tick / 降帧 setFps；暂停仍走 set_paused）。
     fn evaluate(&mut self, _js: &str) {}
     /// 延迟诊断（窗口/webview 状态真值）
-    fn diag(&self, tag: &str) {}
+    fn diag(&self, _tag: &str) {}
 }
 
 /// 平台分派（M1 起补 Windows 分支；Linux 按非目标返回 Unsupported）。

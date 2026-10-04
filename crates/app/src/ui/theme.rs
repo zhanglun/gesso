@@ -7,7 +7,7 @@
 //! 系统外观跟随：启动时 `Theme::sync_system_appearance`，窗口收到外观变化事件后重放。
 
 use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode};
-use gpui_kit::gpui::{px, rgb, rgba, App, BorrowAppContext as _, Hsla, Rgba, Window};
+use gpui_kit::gpui::{rgb, rgba, App, BorrowAppContext as _, Hsla, Rgba, Window};
 
 /// 原型 CSS 变量的完整集合（DESIGN.md「Tokens」表；自绘组件专用）。
 #[derive(Clone, Copy)]

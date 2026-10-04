@@ -42,6 +42,9 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Tray "pause all" toggle used `AtomicBool::swap(true)` (only ever pauses) → `fetch_xor`.
 - Tray "管理窗口…" click went dead after closing the window via the red dot (cached handle activation failed on a closed window) → rebuild the window automatically on activation failure.
 - Settings rows: label and select were not vertically aligned — the kit Select's `size_full` root fills a fixed-height row while its trigger sits top-aligned inside; a `select_slot` wrapper (full-width, height collapsing to the trigger) restores row-level centering.
+- Monitors-page FPS dropdown never took effect: its subscription updated only the UI-local projection and never enqueued `SetMonitorFps` (the action existed and was handled but had zero constructors; snapshots also hardcoded `fps: 60`). Now the dropdown enqueues the engine action (hot-reloads that session's host page, persists `monitor_fps`) and snapshots report the real per-display fps.
+- UI hover state (`hovered` / `hover_frame`) was wiped by every engine snapshot回灌 — card hover highlight and preview carousel flickered on each refresh cycle; the merge now preserves them like the other UI-local browsing state.
+- Compiler warnings in `gesso-app` cleared (32 → 0): mechanical fixes via `cargo fix`, `NSWindow::new`/`subviews`/`NSScreen::screens`/`setFrame_display` unsafe blocks adjusted to current objc2 bindings, deprecated `Retained::cast` → `downcast`, `NSColor::clearColor` safe call, dead leftover strings and helpers removed, the gesso:// protocol scaffolding and platform-window surface annotated as intentional (`#[allow(dead_code)]` with pointers to the protocol-fix todo / Windows M1).
 
 ### Known limitations (tracked in ROADMAP)
 

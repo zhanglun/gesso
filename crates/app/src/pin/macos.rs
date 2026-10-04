@@ -55,7 +55,7 @@ pub fn diagnose(win: &MacWallpaperWindow, tag: &str) {
         win.webview.url().map(|u| u.to_string()).unwrap_or_else(|e| format!("<{e}>")),
     );
     if let Some(c) = w.contentView().as_ref() {
-        for (i, sub) in unsafe { c.subviews() }.iter().enumerate().take(3) {
+        for (i, sub) in c.subviews().iter().enumerate().take(3) {
             let sv: &NSView = unsafe { &*(std::ptr::from_ref(&**sub) as *const NSView) };
             let f = sv.frame();
             println!(
@@ -92,7 +92,7 @@ pub fn create(monitor: &MonitorInfo) -> Result<MacWallpaperWindow> {
     );
     window.setIgnoresMouseEvents(true);
     window.setOpaque(false);
-    let clear = unsafe { NSColor::clearColor() };
+    let clear = NSColor::clearColor();
     window.setBackgroundColor(Some(&clear));
 
     let (x, y, w, h) = monitor.frame;
@@ -137,7 +137,7 @@ pub fn create(monitor: &MonitorInfo) -> Result<MacWallpaperWindow> {
             subs,
         );
         if let Some(c) = content.as_ref() {
-            for (i, sub) in unsafe { c.subviews() }.iter().enumerate().take(3) {
+            for (i, sub) in c.subviews().iter().enumerate().take(3) {
                 let sv: &NSView = unsafe { &*(std::ptr::from_ref(&**sub) as *const NSView) };
                 let f = sv.frame();
                 println!(
@@ -215,7 +215,7 @@ pub fn enumerate_monitors() -> Vec<MonitorInfo> {
     };
     let mut out = Vec::new();
     // SAFETY: 主线程标记保证
-    for screen in unsafe { NSScreen::screens(mtm) }.iter() {
+    for screen in NSScreen::screens(mtm).iter() {
         // SAFETY: NSArray<NSScreen> 元素类型保证，指针级 cast 绕过 NSObject 外观
         let screen: &NSScreen = unsafe { &*(std::ptr::from_ref(&**screen) as *const NSScreen) };
         let frame = screen.frame();

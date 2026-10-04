@@ -22,8 +22,10 @@ struct CGRect {
     h: c_double,
 }
 
+// ABI 用 C-unwind：与 thumb.rs 对同一 CF 符号的声明保持一致（同符号在
+// 一个二进制里出现两种 ABI/签名会触发 redeclare 告警）
 #[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
+extern "C-unwind" {
     fn CFArrayGetCount(arr: *const c_void) -> isize;
     fn CFArrayGetValueAtIndex(arr: *const c_void, idx: isize) -> *const c_void;
     fn CFStringCreateWithCString(

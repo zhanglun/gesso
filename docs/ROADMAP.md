@@ -36,9 +36,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ## Known gaps (no milestone yet)
 
 - `gesso://` custom scheme non-functional on current webview stack (zero callbacks; serving via self-contained `file://` entries meanwhile).
-- `hovered` UI state reset by 150 ms snapshots → in-window hover highlight flickers; fix together with the real-machine monitor-outline window (signature #1).
 - Real-machine monitor outline (signature #1) and tray panel positioning on retina displays.
-- ~25 compiler warnings in `gesso-app`; example `m15.rs` is a reference, not a product surface.
 - HTML thumbnails use the gradient placeholder (the webview capture pipeline currently covers shader/video only).
 - HTML wallpapers: iframe-internal navigation is not allow-listed yet (top-navigation / popups / forms are sandbox-blocked; `fps_cap` is advisory for the html kind).
 - i18n: UI strings are centralized in `ui/strings.rs` (Chinese-first); English translation pass pending.

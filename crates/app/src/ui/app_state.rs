@@ -294,10 +294,3 @@ pub fn import_with_dialog(_window: &mut Window, cx: &mut App) {
         .detach();
 }
 
-/// 通过条目 ID 找素材目录（右键菜单「打开所在目录」用）。
-pub fn entry_source_dir(entry_id: &str) -> String {
-    crate::protocol::library_dir()
-        .join(entry_id)
-        .display()
-        .to_string()
-}

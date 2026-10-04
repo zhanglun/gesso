@@ -1,7 +1,6 @@
 //! 壁纸库页（§4.3，默认页）：筛选 / 搜索 / 卡片网格 / 状态条 / 空状态 /
 //! 右键菜单 / 拖拽发起 + 拖拽时的全屏投放区（signature #2）。
 
-use gpui_kit::component::Sizable as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};

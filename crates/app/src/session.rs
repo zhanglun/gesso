@@ -92,7 +92,6 @@ pub struct Session {
 /// 会话的 UI 投影视图（`views()` 产物）。
 pub struct SessionView {
     pub monitor_id: String,
-    pub entry_id: String,
     pub state: SessionState,
     pub autopause_reason: Option<AutopauseReason>,
 }
@@ -257,7 +256,8 @@ impl SessionManager {
         url
     }
 
-    fn fps_for(&self, monitor_id: &str) -> u8 {
+    /// 会话帧率 = 显示器覆盖值 → 全局默认（UI 快照与策略共用同一解析）
+    pub(crate) fn fps_for(&self, monitor_id: &str) -> u8 {
         self.config
             .monitor_fps
             .get(monitor_id)
@@ -606,7 +606,6 @@ impl SessionManager {
             .iter()
             .map(|(m, s)| SessionView {
                 monitor_id: m.clone(),
-                entry_id: s.entry_id.clone(),
                 state: s.state,
                 autopause_reason: s.autopause_reason,
             })

@@ -33,6 +33,7 @@ pub fn config_dir() -> PathBuf {
 }
 
 /// 库资源 URL
+#[allow(dead_code)] // gesso:// 协议修复待办（协议面保留，见 ROADMAP/AGENTS）
 pub fn library_url(entry: &str, rel: &str) -> String {
     format!("gesso://library/{entry}/{rel}")
 }
@@ -43,11 +44,13 @@ pub fn library_dir() -> PathBuf {
 }
 
 /// 宿主页入口 URL
+#[allow(dead_code)] // gesso:// 协议修复待办
 pub fn host_url() -> &'static str {
     "gesso://host/index.html"
 }
 
 /// 带内容规格（urlencoded JSON）的宿主页 URL
+#[allow(dead_code)] // gesso:// 协议修复待办
 pub fn host_url_with_spec(spec_json: &str) -> String {
     let mut enc = String::with_capacity(spec_json.len() * 3);
     for b in spec_json.bytes() {
@@ -76,10 +79,11 @@ pub fn create_webview<H: HasWindowHandle + 'static>(
 }
 
 /// 处理 gesso:// 请求。
+#[allow(dead_code)] // gesso:// 协议修复待办（零回调问题，当前 file:// 自包含）
 fn handle_request(
     request: &lb_wry::http::Request<Vec<u8>>,
 ) -> lb_wry::http::Response<Cow<'static, [u8]>> {
-    use lb_wry::http::{Response, StatusCode};
+    use lb_wry::http::StatusCode;
 
     // host 自动带上 scheme://host 前缀；uri.path() 即我们路由
     let path = request.uri().path().to_string(); // "/host/index.html"
@@ -131,6 +135,7 @@ fn handle_request(
     }
 }
 
+#[allow(dead_code)] // gesso:// 协议修复待办
 fn err(status: lb_wry::http::StatusCode, msg: &str) -> lb_wry::http::Response<Cow<'static, [u8]>> {
     lb_wry::http::Response::builder()
         .status(status)
@@ -138,6 +143,7 @@ fn err(status: lb_wry::http::StatusCode, msg: &str) -> lb_wry::http::Response<Co
         .unwrap()
 }
 
+#[allow(dead_code)] // gesso:// 协议修复待办
 fn mime_of(p: &Path) -> &'static str {
     match p.extension().and_then(|e| e.to_str()).unwrap_or("") {
         "html" => "text/html; charset=utf-8",

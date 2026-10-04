@@ -11,7 +11,6 @@
 //!    （2026-10-04 崩溃实证，同 thumb.rs v1 指纹）。
 //! 3. **全局串行**：同一时刻只有一个采集任务在跑（并发多 webview 是崩溃放大器）。
 
-use std::cell::RefCell;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -44,6 +43,7 @@ struct CaptureWindow {
     /// 字段序 = drop 序：窗口最后释放（本设计中进程级存活，正常路径永不 drop）
     wk: Retained<WKWebView>,
     webview: lb_wry::WebView,
+    #[allow(dead_code)] // 只为 drop 顺序占位（字段序 = 释放序），运行期不读
     window: Retained<NSWindow>,
 }
 
@@ -77,20 +77,18 @@ fn take_window(mtm: MainThreadMarker) -> CaptureWindow {
         // 屏内窗口 + 2% 透明 + 壁纸层之上一档：屏幕外或被壁纸完全盖住（遮挡）都会
         // 让 WebKit 停摆 RAF/合成 → 快照全黑（两次实测）。几何上不被任何窗口盖住
         // WebKit 才全速渲染；2% 透明肉眼不可见，采集窗口整进程常驻。
-        let window = unsafe { NSWindow::new(mtm) };
+        let window = unsafe { NSWindow::new(mtm) }; // SAFETY: 主线程标记保证
         window.setStyleMask(NSWindowStyleMask::Borderless);
         window.setOpaque(false);
         window.setAlphaValue(0.02);
         window.setLevel(crate::pin::macos::PIN_LEVEL + 1);
-        unsafe {
-            window.setFrame_display(
-                NSRect::new(
-                    objc2_foundation::NSPoint::new(0.0, 0.0),
-                    objc2_foundation::NSSize::new(CAP_W, CAP_H),
-                ),
-                true,
-            );
-        }
+        window.setFrame_display(
+            NSRect::new(
+                objc2_foundation::NSPoint::new(0.0, 0.0),
+                objc2_foundation::NSSize::new(CAP_W, CAP_H),
+            ),
+            true,
+        );
         window.orderFrontRegardless();
 
         let content = window
@@ -118,7 +116,7 @@ fn take_window(mtm: MainThreadMarker) -> CaptureWindow {
                 .next()
                 .expect("WKWebView 未挂载")
                 .clone();
-            unsafe { Retained::cast::<WKWebView>(v) }
+            Retained::downcast(v).expect("WKWebView 已挂载 contentView[0]")
         };
 
         CaptureWindow {

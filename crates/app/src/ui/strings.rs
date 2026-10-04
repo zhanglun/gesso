@@ -13,7 +13,6 @@ pub const TAB_SETTINGS: &str = "设置";
 // 库页工具条
 pub const SEARCH_PLACEHOLDER: &str = "搜索壁纸";
 pub const BTN_IMPORT: &str = "导入";
-pub const BTN_SCAN_WORKSHOP: &str = "扫描工坊";
 pub const FILTER_ALL: &str = "全部";
 pub const FILTER_WE: &str = "WE";
 
@@ -33,8 +32,6 @@ pub const MENU_ALL_MONITORS: &str = "全部";
 pub const MENU_OPEN_FOLDER: &str = "打开所在目录";
 pub const MENU_DETAILS: &str = "查看详情";
 pub const MENU_REMOVE: &str = "从库中移除";
-pub const TOAST_SCAN_FOUND: &str = "未检测到 Wallpaper Engine（需要 Steam 版）";
-pub const TOAST_OPEN_FOLDER: &str = "已在访达中显示";
 
 /// 导入失败文案（§7：失败文案带原因和出路）。
 pub fn import_err_unsupported() -> String {
@@ -89,7 +86,6 @@ pub const ST_BATTERY: &str = "电池省电";
 pub const ST_UNASSIGNED: &str = "未指派";
 pub const NOTICE_NEW_MONITOR: &str = "检测到新显示器「DELL U2723QE」";
 pub const BTN_GO_ASSIGN: &str = "去指派";
-pub const EDID_NOTE: &str = "显示器标识取自 EDID；配置随显示器保留，重新接入自动恢复";
 pub const TOAST_REDETECT: &str = "已重新检测显示器";
 pub const TOAST_CHANGE_HINT: &str = "在壁纸库双击即设为主显示器";
 
@@ -119,7 +115,6 @@ pub const BTN_OPEN: &str = "打开";
 pub const SET_RESET: &str = "重置全部设置";
 pub const BTN_RESET: &str = "重置…";
 pub const BTN_RESET_CONFIRM: &str = "确认重置？";
-pub const TOAST_LOG_DIR: &str = "已打开配置目录";
 pub const TOAST_RESET: &str = "设置已恢复默认";
 
 // 向导
