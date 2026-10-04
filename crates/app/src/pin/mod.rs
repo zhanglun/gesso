@@ -31,6 +31,8 @@ pub trait WallpaperWindow {
     fn set_frame(&mut self, frame: (f64, f64, f64, f64));
     /// 当前 URL（诊断用：判断导航是否被 WKWebView 拒绝）
     fn current_url(&self) -> String;
+    /// 透传 JS（M5 数据桥通道：时间 tick / 降帧 setFps；暂停仍走 set_paused）。
+    fn evaluate(&mut self, _js: &str) {}
     /// 延迟诊断（窗口/webview 状态真值）
     fn diag(&self, tag: &str) {}
 }

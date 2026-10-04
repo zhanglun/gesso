@@ -224,9 +224,9 @@
     frame.style.display = "block";
   }
 
-  function postToFrame(kind) {
+  function postToFrame(msg) {
     if (htmlFrame) {
-      try { htmlFrame.contentWindow.postMessage({ __gesso: kind }, "*"); } catch (e) {}
+      try { htmlFrame.contentWindow.postMessage(msg, "*"); } catch (e) {}
     }
   }
 
@@ -247,8 +247,21 @@
 
   // §5.3 暂停契约：JS 层停帧，窗口常驻
   window.__gesso = {
-    pause: function () { v.pause(); stopShaderLoop(); postToFrame("pause"); },
-    resume: function () { v.play().catch(function () {}); startShaderLoop(); postToFrame("resume"); }
+    pause: function () { v.pause(); stopShaderLoop(); postToFrame({ __gesso: "pause" }); },
+    resume: function () { v.play().catch(function () {}); startShaderLoop(); postToFrame({ __gesso: "resume" }); }
+  };
+
+  // ===== M5 数据桥（Rust 引擎驱动）=====
+  // setFps：Downscale 策略的实时降帧——shader 门控每帧读 spec.fps_cap 即时生效；
+  // html 经 postMessage 递建议值（壁纸自管 RAF）；video 无帧率杠杆，维持播放。
+  window.__gesso.setFps = function (n) {
+    spec.fps_cap = Math.max(1, n | 0 || 60);
+    postToFrame({ __gesso: "fps", fps: spec.fps_cap });
+  };
+  // tick：时间脉冲（每秒由引擎 evaluate 驱动，时钟类壁纸的挂钟真源）
+  window.__gesso.tick = function (ms) {
+    try { window.dispatchEvent(new CustomEvent("gesso:time", { detail: ms })); } catch (e) {}
+    postToFrame({ __gesso: "time", t: ms });
   };
 })();
 </script>

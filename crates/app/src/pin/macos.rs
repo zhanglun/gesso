@@ -177,6 +177,10 @@ impl WallpaperWindow for MacWallpaperWindow {
         let _ = self.webview.evaluate_script(js);
     }
 
+    fn evaluate(&mut self, js: &str) {
+        let _ = self.webview.evaluate_script(js);
+    }
+
     fn set_visible(&mut self, visible: bool) {
         let _ = self.webview.set_visible(visible);
     }

@@ -39,6 +39,8 @@
 | `file://` 页面里 fetch/XHR 被拦 | WKWebView 的 file 源是 opaque origin，`fetch("./index.glsl")` 直接 CORS 拒绝——**shader 源码改走 URL 查询参数**（`code=base64url`，无填充免转义），宿主页 `atob` + `TextDecoder` 解码。img/video/script 子资源不受限，别混为一谈 |
 | shader 缩略图采集（shader_thumb.rs） | 两条纪律，均实测踩过：① **采集窗口必须「屏内 + 不被遮挡」**——屏幕外或被壁纸完全盖住时 WebKit 停摆 RAF/合成，快照全黑（RAF 探针 400ms 增量=0 可确诊）；现为壁纸层之上一档 + alphaValue(0.02) 常驻，肉眼不可见。② **快照 completion 悬挂期间绝不能 close 窗口**——WebKit 异步回调摸已释放层 → 池排出时 over-release SIGSEGV（同 thumb v1 指纹）；窗口进程级持久永不 close + 采集全局串行 |
 | WebGL 像素判读 | 默认帧缓冲合成后即被清空：合成器清屏后 `readPixels`/`toDataURL` 全读到黑。验证渲染要**在同一次 JS 任务里 `drawArrays` 后立刻 `readPixels`**，或建上下文时 `preserveDrawingBuffer: true` |
+| IOKit 电源 API 的符号在新 SDK 被移除 | 借用式 `IOPSGetPowerSourceList` 在 macOS 15.4 SDK 的 IOKit.tbd 里**已无导出**（链接期 undefined）——改用 `IOPSCopyPowerSourcesList`（+1，用完 `CFRelease`），`IOPSGetPowerSourceDescription` 仍是借用随 info 释放。纯 C API 也会踩符号可用性，extern 前先 `grep` 本机 tbd |
+| 全屏检测的坐标系 | `CGWindowList` bounds 是**全局顶左原点**，`MonitorInfo.frame` 是 AppKit **底左原点**——y 不能直接比。翻转基准 = 主显示器高度：`y_appkit = primary_h - win_y - win_h`。全屏判定：layer 0 窗口 bounds 与显示器 frame 重合（±3pt），菜单栏(24)/Dock(20)/壁纸(-2147483604) 天然被 layer 过滤 |
 
 ## 3. 关键路径（调试用）
 

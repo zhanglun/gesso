@@ -3,6 +3,7 @@
 //! UI 数据链（API.md）：读 = 引擎快照 → GessoState（main.rs 装配处单向回灌）；
 //! 写 = UI 把 EngineAction 入队（engine.rs），引擎 150ms 轮询执行——与托盘同一通道。
 //! UI 不直接触碰 pin/protocol/壁纸窗口生命周期（sync_monitors 独占）。
+mod bridge;
 mod engine;
 mod pin;
 mod protocol;
@@ -258,17 +259,14 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
         .collect();
 
     let monitors = sm.monitors();
-    let states = sm.states();
+    let views = sm.views();
     g.monitors = monitors
         .iter()
         .enumerate()
         .map(|(i, m)| {
             let entry_id = sm.config().monitors.get(&m.id).cloned();
-            let state = states
-                .iter()
-                .find(|(mid, _, _)| mid == &m.id)
-                .map(|(_, _, s)| *s)
-                .unwrap_or(SessionState::Idle);
+            let view = views.iter().find(|v| v.monitor_id == m.id);
+            let state = view.map(|v| v.state).unwrap_or(SessionState::Idle);
             ui::data::MonitorEntry {
                 name: if m.is_main {
                     "主显示器".into()
@@ -292,7 +290,14 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 state: match state {
                     SessionState::Playing | SessionState::Loading => ui::data::PlayState::Playing,
                     SessionState::PausedUser => ui::data::PlayState::UserPaused,
-                    SessionState::Autopause => ui::data::PlayState::FullscreenPaused,
+                    SessionState::Autopause => match
+                        view.and_then(|v| v.autopause_reason)
+                    {
+                        Some(session::AutopauseReason::Battery) => {
+                            ui::data::PlayState::BatteryPaused
+                        }
+                        _ => ui::data::PlayState::FullscreenPaused,
+                    },
                     _ => ui::data::PlayState::UserPaused,
                 },
                 fps: 60,
@@ -656,6 +661,25 @@ fn main() {
                     if tick.is_multiple_of(13) {
                         cx.update(|cx| cx.global_mut::<engine::AppState>().sm.sync_monitors());
                         refresh_ui = true;
+                    }
+                    // M5 数据桥（与显示器同步同节奏，错开半拍）：全屏检测 + 电源态
+                    // → 策略解析 → 自动暂停/降帧；有状态变化才刷新 UI
+                    if tick % 13 == 6 {
+                        let changed = cx.update(|cx| {
+                            let snap = bridge::sample();
+                            cx.global_mut::<engine::AppState>()
+                                .sm
+                                .apply_autopause(&snap.fullscreen, snap.on_battery)
+                        });
+                        refresh_ui |= changed;
+                    }
+                    // 时间脉冲（≈1.05s）：时钟类壁纸的挂钟由引擎驱动
+                    if tick % 7 == 0 {
+                        cx.update(|cx| {
+                            cx.global_mut::<engine::AppState>()
+                                .sm
+                                .broadcast_time_tick()
+                        });
                     }
                     if refresh_ui {
                         // 会话 → UI 单向回灌（托盘/界面动作 / 显示器热插拔后的跨面同步）

@@ -19,6 +19,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Hover preview on library cards: paused still-frame by default, extracted-frame carousel on hover.
 - Shader renderer (M4 part 1): WebGL2 host branch with Shadertoy-subset uniforms (`iTime/iResolution/iMouse/iTimeDelta/iFrame` + `iChannel0..3` bound to runtime-generated 256×256 noise textures), `code=` base64url source param（file:// 下 fetch/XHR 被拦）, Shadertoy `mainImage` auto-wrap, RAF-timestamp fps gating, red-screen diagnostics on compile/link failure; 3 built-in samples (plasma / aurora / noiseflow) with static + hover-carousel thumbnails.
 - HTML renderer (M4 part 2): the wallpaper's HTML (fixed at `wallpaper.html` — `index.html` stays the host page) loads in a sandboxed iframe (`sandbox="allow-scripts"` only, so the opaque origin rejects storage/IPC — hardware-verified DoD: `localStorage`/`sessionStorage`/`document.cookie`/`IndexedDB`/`window.top` all throw `SecurityError`, XHR is a `NetworkError`); pause/resume reach the frame via `postMessage {__gesso:"pause"|"resume"}`; built-in Clock sample as the contract reference.
+- System data bridge (M5): fullscreen detection (`CGWindowList` layer-0 window covering a display frame, CG top-left ↔ AppKit bottom-left y-flip via primary display height) and battery state (IOKit `IOPSCopyPowerSourcesList`) drive the `Autopause` state machine per settings policy — pause / downscale-to-5fps (live `__gesso.setFps`: shader immediate, html advisory, video keeps playing) / ignore; user pause wins over auto-pause; hardware-verified (fullscreening the manager window pauses, exiting releases). Time feed: engine drives `__gesso.tick` at ~1 Hz so clock wallpapers tick from Rust events.
 
 **UI (manager window, gpui-kit)**
 
@@ -46,6 +47,6 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 - Windows pinning not yet verified (needs a machine).
 - `gesso://` custom scheme non-functional on the current webview stack; entries load via `file://`.
-- System data bridge (fullscreen/battery pause detection) pending.
+- System data bridge: cursor feed + idle downscale pending (needs an Input Monitoring permission flow).
 - HTML thumbnails use the gradient placeholder; iframe-internal navigation of HTML wallpapers is not allow-listed yet (`fps_cap` advisory for the html kind).
 - `hovered` state is reset by snapshots (~150 ms) — in-window hover highlight may flicker.

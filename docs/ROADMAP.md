@@ -11,7 +11,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M2    video wallpaper end-to-end (pin + pause/resume + persistence)
 ✅ M3    sessions/config/UI engine + UI↔engine actions + import + settings + first-run
 ✅ M4    renderer completeness — video / image / shader (WebGL2 + Shadertoy subset) / HTML (sandboxed iframe)
-⬜ M5    system data bridge — fullscreen/battery auto-pause, cursor/time feeds
+🚧 M5    system data bridge — ✅ fullscreen/battery auto-pause + time feed · ⬜ cursor feed (needs permission flow)
 ⬜ M1    Windows pinning (needs a Windows machine)
 ⬜ M6    Wallpaper Engine import I (video/web)
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
@@ -19,9 +19,11 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 
 ## Next up, in priority order
 
-### M5 — system data bridge
-- Fullscreen detection (macOS `NSWorkspace` notifications) and battery policy → drives the `Autopause` state; cursor/time feeds for interactive wallpapers (global cursor polling — desktop-level windows receive no mouse events).
-- DoD: entering a fullscreen app pauses with zero GPU cost; clock wallpaper keeps ticking from Rust-driven events.
+### M5 — system data bridge（主体已落地）
+- ✅ fullscreen detection: `CGWindowList` layer-0 window covering a display frame（±3pt 容差，y 轴按主显示器高度翻转）→ 按全屏策略执行：暂停（经状态机 `AutoPauseTrigger/Clear`）/ 降帧到 5 fps（`__gesso.setFps` 实时透传：shader 即时、html 建议值、video 无帧率杠杆维持播放）/ 忽略。实机验证：管理窗口全屏 → `[bridge] 自动暂停（Fullscreen）`，退出 → 解除。
+- ✅ battery: IOKit power sources（`IOPSCopyPowerSourcesList`——借用式 `IOPSGetPowerSourceList` 在新 SDK tbd 已移除）。电池供电作用于全部显示器，本屏全屏优先。
+- ✅ time feed: 引擎 ~1 Hz `evaluate` 驱动 `__gesso.tick(Date.now())`；html 壁纸收 `postMessage {__gesso:"time"}`（Clock 样例从脉冲渲染，本地 interval 仅作兜底）。
+- ⬜ cursor feed + `idle_downscale`：全局光标轮询需要 Input Monitoring / 辅助功能权限的申请与引导流（独立待办，与 `hovered` 快照修复同批）。
 
 ### M1 — Windows pinning
 - Own Win32 window + WebView2 child (`GPUI_DISABLE_DIRECT_COMPOSITION=1`), `SetParent` onto `WorkerW`, icon-hidden fallback path, `TaskbarCreated` re-pin, DPI/multi-monitor placement.

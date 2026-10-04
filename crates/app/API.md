@@ -86,5 +86,5 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 | 壁纸窗口 | 纯 AppKit 非 GPUI 窗口（M1.5 定稿），UI 无法也不应嵌入它 |
 | 渲染器 | video / image / shader（WebGL2 + Shadertoy 子集）生效；html（沙箱 iframe）在 M4 收尾 |
 | 显示器热插拔 | 2s 轮询 diff（平台通知未接，候选 M5+） |
-| 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；**自动暂停事件源**（全屏/电池检测）仍未接（M5） |
+| 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；**自动暂停事件源已接（M5）**：全屏 CGWindowList 轮询 + 电池 IOKit，经 `apply_autopause` 驱动；光标/空闲降帧待权限流 |
 | 导入 I/O 失败反馈 | 引擎侧仅日志；UI 预检（扩展名）已给红字/气泡，拷贝失败暂静默 |

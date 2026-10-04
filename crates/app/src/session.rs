@@ -7,7 +7,8 @@
 use std::collections::BTreeMap;
 
 use gesso_core::{
-    transfer, AppConfig, ContentSpec, LibraryEntry, SessionEvent, SessionState, WallpaperKind,
+    transfer, AppConfig, ContentSpec, LibraryEntry, PausePolicy, SessionEvent, SessionState,
+    WallpaperKind,
 };
 
 use crate::pin::{self, MonitorInfo, WallpaperWindow};
@@ -32,11 +33,68 @@ pub enum ImportCheck {
     Err(ImportError),
 }
 
+/// 自动暂停的原因（同一 Autopause 状态的 UI 投影区分；技术方案 §418 的
+/// Paused(fullscreen)/Paused(battery)）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutopauseReason {
+    Fullscreen,
+    Battery,
+}
+
+/// 策略解析结果（纯函数 `suspend_effect` 的输出；执行在 apply_autopause）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuspendEffect {
+    /// 不干预。
+    None,
+    /// 自动暂停（经状态机 AutoPauseTrigger/Clear）。
+    Pause(AutopauseReason),
+    /// 降帧到 5 fps（时钟类壁纸需求，技术方案 §423；引擎经 setFps 透传，
+    /// shader 实时生效、html 建议值、video 无帧率杠杆维持播放）。
+    Downscale,
+}
+
+/// M5 数据桥策略解析：全屏优先于电池（本屏全屏时按全屏策略）。
+pub fn suspend_effect(
+    fullscreen_on_monitor: bool,
+    on_battery: bool,
+    fullscreen_policy: PausePolicy,
+    battery_policy: PausePolicy,
+) -> SuspendEffect {
+    if fullscreen_on_monitor {
+        match fullscreen_policy {
+            PausePolicy::Pause => SuspendEffect::Pause(AutopauseReason::Fullscreen),
+            PausePolicy::Downscale => SuspendEffect::Downscale,
+            PausePolicy::Ignore => SuspendEffect::None,
+        }
+    } else if on_battery {
+        match battery_policy {
+            PausePolicy::Pause => SuspendEffect::Pause(AutopauseReason::Battery),
+            PausePolicy::Downscale => SuspendEffect::Downscale,
+            PausePolicy::Ignore => SuspendEffect::None,
+        }
+    } else {
+        SuspendEffect::None
+    }
+}
+
 pub struct Session {
     pub state: SessionState,
     pub monitor: MonitorInfo,
     pub entry_id: String,
     pub window: Option<Box<dyn WallpaperWindow>>,
+    /// 当前生效的自动暂停原因（None = 非自动暂停态；进 PausedUser 也不清它——
+    /// 状态机里用户暂停压住自动暂停，退出全屏后仍由 AutoPauseClear 恢复）。
+    pub autopause_reason: Option<AutopauseReason>,
+    /// M5 降帧生效中（恢复时按会话配置回设 fps）。
+    pub downscaled: bool,
+}
+
+/// 会话的 UI 投影视图（`views()` 产物）。
+pub struct SessionView {
+    pub monitor_id: String,
+    pub entry_id: String,
+    pub state: SessionState,
+    pub autopause_reason: Option<AutopauseReason>,
 }
 
 pub struct SessionManager {
@@ -218,6 +276,8 @@ impl SessionManager {
             monitor,
             entry_id: entry.id,
             window: Some(window),
+            autopause_reason: None,
+            downscaled: false,
         })
     }
 
@@ -293,6 +353,9 @@ impl SessionManager {
                     w.load(&Self::entry_host_url(&entry, fps));
                     s.window = Some(w);
                     s.state = transfer(s.state, SessionEvent::Loaded);
+                    // 新会话页不继承旧桥状态（autopause/降帧随指派清零）
+                    s.autopause_reason = None;
+                    s.downscaled = false;
                 }
             }
         } else {
@@ -430,6 +493,96 @@ impl SessionManager {
         }
     }
 
+    /// M5 数据桥：把一次桥采样落成会话状态（全屏/电池自动暂停 + 降帧）。
+    /// 返回是否有状态变化（调用方据此刷新 UI）。用户暂停（PausedUser）压住
+    /// 自动暂停——状态机里 AutoPauseTrigger 对 PausedUser 是 no-op，这里同步跳过。
+    pub fn apply_autopause(
+        &mut self,
+        fullscreen: &std::collections::BTreeSet<String>,
+        on_battery: Option<bool>,
+    ) -> bool {
+        let fs_policy = self.config.settings.fullscreen_policy;
+        let bat_policy = self.config.settings.battery_policy;
+        let battery = on_battery == Some(true);
+        let mut changed = false;
+        let ids: Vec<String> = self.sessions.keys().cloned().collect();
+        for id in ids {
+            let fps = self.fps_for(&id);
+            let effect = suspend_effect(fullscreen.contains(&id), battery, fs_policy, bat_policy);
+            let Some(s) = self.sessions.get_mut(&id) else {
+                continue;
+            };
+            match effect {
+                SuspendEffect::None => {
+                    if s.state == SessionState::Autopause {
+                        s.state = transfer(s.state, SessionEvent::AutoPauseClear);
+                        s.autopause_reason = None;
+                        if let Some(w) = s.window.as_mut() {
+                            w.set_paused(false);
+                        }
+                        changed = true;
+                        println!("[bridge] {id} 自动暂停解除");
+                    }
+                    if s.downscaled {
+                        s.downscaled = false;
+                        if let Some(w) = s.window.as_mut() {
+                            w.evaluate(&format!("__gesso&&__gesso.setFps({fps})"));
+                        }
+                        println!("[bridge] {id} 恢复帧率 {fps} fps");
+                    }
+                }
+                SuspendEffect::Pause(reason) => {
+                    if s.state == SessionState::Playing {
+                        s.state = transfer(s.state, SessionEvent::AutoPauseTrigger);
+                        s.autopause_reason = Some(reason);
+                        if let Some(w) = s.window.as_mut() {
+                            w.set_paused(true);
+                        }
+                        changed = true;
+                        println!("[bridge] {id} 自动暂停（{reason:?}）");
+                    } else if s.state == SessionState::Autopause && s.autopause_reason != Some(reason)
+                    {
+                        // 原因切换（全屏退出但仍电池供电）：窗口保持暂停，仅换投影
+                        s.autopause_reason = Some(reason);
+                        changed = true;
+                    }
+                    s.downscaled = false; // 暂停压过降帧
+                }
+                SuspendEffect::Downscale => {
+                    if s.state == SessionState::Autopause {
+                        s.state = transfer(s.state, SessionEvent::AutoPauseClear);
+                        s.autopause_reason = None;
+                        if let Some(w) = s.window.as_mut() {
+                            w.set_paused(false);
+                        }
+                        changed = true;
+                    }
+                    if !s.downscaled {
+                        s.downscaled = true;
+                        if let Some(w) = s.window.as_mut() {
+                            w.evaluate("__gesso&&__gesso.setFps(5)");
+                        }
+                        println!("[bridge] {id} 降帧 → 5 fps");
+                        changed = true;
+                    }
+                }
+            }
+        }
+        changed
+    }
+
+    /// M5 时间脉冲：Rust 每秒驱动一次宿主页时钟（时钟类壁纸 DoD——
+    /// 挂钟时间由引擎事件推进，壁纸不必自起高频轮询）。
+    pub fn broadcast_time_tick(&mut self) {
+        const JS: &str = "__gesso&&__gesso.tick&&__gesso.tick(Date.now())";
+        // evaluate 需要 &mut（与 set_paused 同一 wry 接口），这里仅为透传
+        for s in self.sessions.values_mut() {
+            if let Some(w) = s.window.as_mut() {
+                w.evaluate(JS);
+            }
+        }
+    }
+
     /// UI 只读快照（API.md §1）
     pub fn library(&self) -> &[gesso_core::LibraryEntry] {
         &self.library
@@ -447,10 +600,16 @@ impl SessionManager {
         self.sessions.len()
     }
 
-    pub fn states(&self) -> Vec<(String, String, SessionState)> {
+    /// 会话视图（UI 快照数据源；autopause_reason 供 FullscreenPaused/BatteryPaused 投影）
+    pub fn views(&self) -> Vec<SessionView> {
         self.sessions
             .iter()
-            .map(|(m, s)| (m.clone(), s.entry_id.clone(), s.state))
+            .map(|(m, s)| SessionView {
+                monitor_id: m.clone(),
+                entry_id: s.entry_id.clone(),
+                state: s.state,
+                autopause_reason: s.autopause_reason,
+            })
             .collect()
     }
 }
@@ -569,6 +728,44 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    fn suspend_effect_fullscreen_wins_over_battery() {
+        use PausePolicy as P;
+        // 全屏优先于电池（本屏全屏按全屏策略）
+        assert_eq!(
+            suspend_effect(true, true, P::Pause, P::Downscale),
+            SuspendEffect::Pause(AutopauseReason::Fullscreen)
+        );
+        // 电池供电单独触发
+        assert_eq!(
+            suspend_effect(false, true, P::Pause, P::Pause),
+            SuspendEffect::Pause(AutopauseReason::Battery)
+        );
+        // 接通电源 + 无全屏 = 不干预
+        assert_eq!(
+            suspend_effect(false, false, P::Pause, P::Pause),
+            SuspendEffect::None
+        );
+        // 降帧策略（时钟类壁纸，技术方案 §423）
+        assert_eq!(
+            suspend_effect(true, false, P::Downscale, P::Pause),
+            SuspendEffect::Downscale
+        );
+        assert_eq!(
+            suspend_effect(false, true, P::Pause, P::Downscale),
+            SuspendEffect::Downscale
+        );
+        // 忽略策略
+        assert_eq!(
+            suspend_effect(true, false, P::Ignore, P::Pause),
+            SuspendEffect::None
+        );
+        assert_eq!(
+            suspend_effect(false, true, P::Pause, P::Ignore),
+            SuspendEffect::None
+        );
+    }
+
+    #[test]
     fn base64url_known_vectors() {
         // RFC 4648 测试向量（标准字母表）经 url 字母表映射
         assert_eq!(base64url(b""), "");
@@ -607,8 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn html_entry_asset_is_wallpaper_html_never_host() {
-        let dir = std::env::temp_dir().join(format!("gesso-html-{}", std::process::id()));
+    fn html_entry_asset_is_wallpaper_html_never_host() {        let dir = std::env::temp_dir().join(format!("gesso-html-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
         // 只有宿主页 index.html（导入半途）→ None：index.html 永远不是壁纸资源

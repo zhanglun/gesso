@@ -34,28 +34,41 @@
   var dateEl = document.getElementById("date");
   var pausedEl = document.getElementById("paused");
   var timer = 0;
+  var lastTick = 0;  // 引擎时间脉冲真源（M5：Rust 每秒 evaluate 驱动）
+  var isPaused = false; // 暂停期间忽略时间脉冲（真停语义）
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
-  function render() {
-    var d = new Date();
+  function renderAt(ms) {
+    var d = new Date(ms);
     timeEl.textContent = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
     var week = ["日", "一", "二", "三", "四", "五", "六"][d.getDay()];
     dateEl.textContent = d.getFullYear() + " 年 " + (d.getMonth() + 1) + " 月 " + d.getDate() + " 日 · 周" + week;
   }
   function start() {
     if (timer) return;
-    render();
-    timer = setInterval(render, 1000);
+    renderAt(Date.now());
+    // 本地兜底：引擎脉冲缺席（旧宿主页/异常）时自走；脉冲活跃时不重复渲染
+    timer = setInterval(function () {
+      if (Date.now() - lastTick > 3000) renderAt(Date.now());
+    }, 1000);
   }
   function stop() {
     if (timer) { clearInterval(timer); timer = 0; }
     pausedEl.style.opacity = "0.7";
   }
 
-  // 宿主页暂停契约：postMessage {__gesso:"pause"|"resume"}（沙箱内唯一通信面）
+  // 宿主页契约：postMessage {__gesso:"pause"|"resume"|"time"|"fps"}
+  // （沙箱内唯一通信面；time 由引擎 __gesso.tick 每秒驱动）
   window.addEventListener("message", function (e) {
-    if (e.data && e.data.__gesso === "pause") stop();
-    else if (e.data && e.data.__gesso === "resume") { pausedEl.style.opacity = "0"; start(); }
+    var d = e.data || {};
+    if (d.__gesso === "pause") { isPaused = true; stop(); }
+    else if (d.__gesso === "resume") { isPaused = false; pausedEl.style.opacity = "0"; start(); }
+    else if (d.__gesso === "time" && d.t && !isPaused) {
+      lastTick = d.t;
+      if (!timer) start();
+      pausedEl.style.opacity = "0";
+      renderAt(d.t);
+    }
   });
   start();
 })();
