@@ -20,6 +20,8 @@ use super::strings::*;
 use super::theme::tokens;
 use super::widgets::{badge, empty_art, preview};
 
+/// 卡片最小宽（原型 .wall-grid minmax(196px, 1fr)）；拖拽 ghost 沿用固定宽。
+const CARD_MIN_W: f32 = 196.;
 const CARD_W: f32 = 208.;
 
 pub struct LibraryView {
@@ -141,7 +143,7 @@ impl LibraryView {
             .into_any_element()
     }
 
-    fn card(&self, item: &LibraryItem, cx: &mut Context<Self>) -> AnyElement {
+    fn card(&self, item: &LibraryItem, card_w: f32, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let hairline2 = t.hairline2;
         let id = item.id.clone();
@@ -196,7 +198,7 @@ impl LibraryView {
         };
         let mut card = div()
             .id(SharedString::from(format!("card-{}", item.id)))
-            .w(px(CARD_W))
+            .w(px(card_w))
             .rounded(px(12.))
             .bg(t.panel)
             .border_1()
@@ -319,7 +321,7 @@ impl LibraryView {
         card.into_any_element()
     }
 
-    fn grid(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn grid(&self, card_w: f32, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let visible = state(cx).visible_items();
         if state(cx).library.is_empty() {
@@ -335,7 +337,10 @@ impl LibraryView {
                 .filter_map(|i| g.library.get(*i).cloned())
                 .collect()
         };
-        let cards: Vec<AnyElement> = items.into_iter().map(|item| self.card(&item, cx)).collect();
+        let cards: Vec<AnyElement> = items
+            .into_iter()
+            .map(|item| self.card(&item, card_w, cx))
+            .collect();
         let grid_accent = t.accent;
         div()
             .id("library-grid")
@@ -462,10 +467,19 @@ impl LibraryView {
 }
 
 impl Render for LibraryView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = tokens(cx);
+
+        // 响应式网格（原型 .wall-grid：repeat(auto-fill, minmax(196px, 1fr))）：
+        // 列数随可用宽度适配，卡片等分撑满一行——不做固定宽 + wrap（放不下
+        // 时右侧留大空）。gap 14 与原型一致。
+        const GAP: f32 = 14.;
+        let avail: f32 = (window.viewport_size().width - px(28.)).into(); // 网格左右 px(14)
+        let cols = (((avail + GAP) / (CARD_MIN_W + GAP)).floor() as usize).max(1);
+        let card_w = (avail - (cols as f32 - 1.) * GAP) / cols as f32;
+
         let toolbar = self.toolbar(cx);
-        let grid = self.grid(cx);
+        let grid = self.grid(card_w, cx);
         let statusbar = self.statusbar(cx);
         let overlay = self.drag_overlay(cx);
         v_flex()
@@ -473,8 +487,11 @@ impl Render for LibraryView {
             .text_color(t.text1)
             .child(toolbar)
             .child(
+                // .flex() 必须有：滚动容器的 flex_1/min_h_0 只在 flex 父级里生效，
+                // 普通块级父级下高度被内容撑开 → 永不产生溢出（库页不能滚动的根因）
                 div()
                     .flex_1()
+                    .flex()
                     .relative()
                     .min_h_0()
                     .child(grid)
