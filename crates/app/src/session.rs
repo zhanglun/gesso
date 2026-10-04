@@ -389,7 +389,13 @@ impl SessionManager {
             .and_then(|s| s.to_str())
             .unwrap_or("未命名")
             .to_string();
-        std::fs::copy(path, dst_dir.join(format!("index.{ext}"))).map_err(|_| ImportError::Io)?;
+        // Html 条目的用户页面固定存为 wallpaper.html：index.html 留给宿主页
+        // （ensure_entry_host 启动时会覆盖写 index.html）
+        let asset = match kind {
+            WallpaperKind::Html => "wallpaper.html".to_string(),
+            _ => format!("index.{ext}"),
+        };
+        std::fs::copy(path, dst_dir.join(asset)).map_err(|_| ImportError::Io)?;
         // 抽帧不在本函数做：import_entry 跑在引擎主线程，v1 在这里同步抽 ~1s
         // （导入即卡顿），且经裸 FFI 路径。视频条目的补帧由 main.rs 的 Import
         // 分支在动作处理后异步调度（ThumbScheduler 去重/限额，完成经 ThumbsDone 回灌）。
@@ -522,7 +528,15 @@ pub fn default_ext(kind: WallpaperKind) -> &'static str {
 /// 条目主资源文件名：优先目录内真实存在的 `index.*`（导入保留源扩展名），
 /// 找不到时回退到类型默认名。**导入 / 失效判定 / 宿主页 spec 三处必须共用本函数**，
 /// 否则 webm/webp 这类条目会出现"能导入但被判失效"或"宿主页请求错文件名"。
+///
+/// Html 条目例外：主资源固定 `wallpaper.html`——条目里的 `index.html` 永远是
+/// 宿主页（`ensure_entry_host` 每次启动覆盖写入），绝不能被"任意 index.*"回退
+/// 命中成壁纸资源（否则未完成导入的空壳条目看起来永远有效）。
 pub fn main_asset_name(source_dir: &str, kind: WallpaperKind) -> Option<String> {
+    if kind == WallpaperKind::Html {
+        let p = std::path::Path::new(source_dir).join("wallpaper.html");
+        return p.is_file().then(|| "wallpaper.html".to_string());
+    }
     let dir = std::path::Path::new(source_dir);
     let pref = std::fs::read_dir(dir).ok()?;
     let mut fallback: Option<String> = None;
@@ -543,8 +557,10 @@ pub fn main_asset_name(source_dir: &str, kind: WallpaperKind) -> Option<String> 
 
 /// 条目主资源（相对宿主页同目录；条目自包含）
 fn entry_main_source(entry: &LibraryEntry) -> String {
-    main_asset_name(&entry.source_dir, entry.kind)
-        .unwrap_or_else(|| format!("index.{}", default_ext(entry.kind)))
+    main_asset_name(&entry.source_dir, entry.kind).unwrap_or_else(|| match entry.kind {
+        WallpaperKind::Html => "wallpaper.html".to_string(),
+        k => format!("index.{}", default_ext(k)),
+    })
 }
 
 #[cfg(test)]
@@ -588,6 +604,28 @@ mod tests {
             import_ext(Path::new("/tmp/noext"), WallpaperKind::Html),
             "html"
         );
+    }
+
+    #[test]
+    fn html_entry_asset_is_wallpaper_html_never_host() {
+        let dir = std::env::temp_dir().join(format!("gesso-html-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 只有宿主页 index.html（导入半途）→ None：index.html 永远不是壁纸资源
+        std::fs::write(dir.join("index.html"), b"<html>host</html>").unwrap();
+        assert_eq!(
+            main_asset_name(&dir.display().to_string(), WallpaperKind::Html),
+            None
+        );
+
+        // wallpaper.html 就位 → 命中
+        std::fs::write(dir.join("wallpaper.html"), b"<html>wallpaper</html>").unwrap();
+        assert_eq!(
+            main_asset_name(&dir.display().to_string(), WallpaperKind::Html).as_deref(),
+            Some("wallpaper.html")
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

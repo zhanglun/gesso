@@ -36,7 +36,7 @@
 | 设置持久化、开机自启 | ✅ |
 | 首启向导 | ✅ |
 | Shader 渲染器（Shadertoy 子集，WebGL2） | ✅ |
-| HTML 渲染器（沙箱 iframe） | 🚧 计划（M4） |
+| HTML 渲染器（沙箱 iframe，拒绝存储/IPC） | ✅ |
 | 系统数据桥（光标 / 电源 / 全屏 / 音频） | 🚧 计划（M5） |
 | Wallpaper Engine 工坊素材（只读） | 🚧 计划（M6），见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 

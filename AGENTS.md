@@ -54,8 +54,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ macOS 视频壁纸钉桌面全链路（贴壁/穿透/多空间/菜单栏带覆盖/暂停恢复/持久化）
 - ✅ 导入（对话框 + 拖入）、托盘（右键菜单）、设置持久化、开机自启、首启向导
 - ✅ 管理窗口三页签（真数据桥接）+ 缩略图悬停预览 + 显示器页「桌面沙盘 + 详情条」改版
-- ✅ M4 前半：shader 渲染器（WebGL2 + Shadertoy 子集 uniforms + iChannel 噪声纹理）+ shader 缩略图 + 内置样例 ×3
-- ⬜ M4 后半：html 渲染器（沙箱 iframe）
+- ✅ M4 渲染器完备：shader（WebGL2 + Shadertoy 子集 uniforms + iChannel）+ html（沙箱 iframe，实机 DoD：storage/IPC 全部 SecurityError）+ 内置样例 ×5
 - ⬜ M1 Windows 贴壁验证（**缺 Windows 机器**）
 - ⬜ M5 系统数据桥（全屏/电池自动暂停）· M6 WE 导入
 - ⬜ 协议修复（`gesso://` 自定义协议零回调，当前 file:// 自包含模式）、app 侧 warning 清理（~25 条）

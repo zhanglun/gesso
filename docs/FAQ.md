@@ -44,7 +44,14 @@ macOS（已验证）与 Windows（进行中，需要真机验证贴壁）。**v1
 
 ## 我想写一个 HTML 壁纸，契约是什么？
 
-M4 之前请先看 [ARCHITECTURE](ARCHITECTURE.md) §3：宿主页接收 urlencoded 的 `ContentSpec`，素材只可用相对路径引用。完整的 HTML 壁纸 SDK（沙箱、导航白名单、数据桥 API）会随 M4 一起给出文档。
+单文件自包含即可（相对路径的子资源可以带；`fetch`/`XHR` 不可用）。Gesso 把它存为条目里的 `wallpaper.html`，宿主页以**沙箱 iframe**（`sandbox="allow-scripts"`）装载：
+
+- **无存储 / IPC**：opaque origin 下 `localStorage`、`sessionStorage`、`document.cookie`、`IndexedDB`、`window.top` 一律抛 `SecurityError`（实机 DoD 已验）；
+- **无导航逃逸**：顶页导航、弹窗、表单被沙箱静默拦截（iframe 内部自身跳转暂无白名单，见 ROADMAP 已知缺口）；
+- **暂停 / 恢复**：监听 `message` 事件，收 `{__gesso: "pause"}` / `{__gesso: "resume"}` 后自行停/启动动画（引擎不硬杀帧）；
+- **fps_cap 是建议值**：html 壁纸自管 RAF。
+
+内置样例 Clock（`builtin-html-clock`）就是这套契约的参考实现。背景知识见 [ARCHITECTURE](ARCHITECTURE.md) §3。
 
 ## 为什么选 GPUI 而不是 Electron/Tauri？
 

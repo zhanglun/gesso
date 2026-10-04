@@ -18,6 +18,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Thumbnail pipeline: AVFoundation frame extraction (generated objc2 bindings + ImageIO PNG encode, background `autoreleasepool`), `ThumbScheduler` (30s scan, in-flight dedup, 3 attempts/entry), import schedules extraction asynchronously.
 - Hover preview on library cards: paused still-frame by default, extracted-frame carousel on hover.
 - Shader renderer (M4 part 1): WebGL2 host branch with Shadertoy-subset uniforms (`iTime/iResolution/iMouse/iTimeDelta/iFrame` + `iChannel0..3` bound to runtime-generated 256×256 noise textures), `code=` base64url source param（file:// 下 fetch/XHR 被拦）, Shadertoy `mainImage` auto-wrap, RAF-timestamp fps gating, red-screen diagnostics on compile/link failure; 3 built-in samples (plasma / aurora / noiseflow) with static + hover-carousel thumbnails.
+- HTML renderer (M4 part 2): the wallpaper's HTML (fixed at `wallpaper.html` — `index.html` stays the host page) loads in a sandboxed iframe (`sandbox="allow-scripts"` only, so the opaque origin rejects storage/IPC — hardware-verified DoD: `localStorage`/`sessionStorage`/`document.cookie`/`IndexedDB`/`window.top` all throw `SecurityError`, XHR is a `NetworkError`); pause/resume reach the frame via `postMessage {__gesso:"pause"|"resume"}`; built-in Clock sample as the contract reference.
 
 **UI (manager window, gpui-kit)**
 
@@ -45,5 +46,6 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 - Windows pinning not yet verified (needs a machine).
 - `gesso://` custom scheme non-functional on the current webview stack; entries load via `file://`.
-- HTML renderer (M4 part 2), system data bridge (fullscreen/battery pause detection) pending.
+- System data bridge (fullscreen/battery pause detection) pending.
+- HTML thumbnails use the gradient placeholder; iframe-internal navigation of HTML wallpapers is not allow-listed yet (`fps_cap` advisory for the html kind).
 - `hovered` state is reset by snapshots (~150 ms) — in-window hover highlight may flicker.

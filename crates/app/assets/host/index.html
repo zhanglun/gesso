@@ -1,10 +1,14 @@
 <!DOCTYPE html>
-<!-- Gesso 壁纸宿主页 · M4（video / image / shader）
+<!-- Gesso 壁纸宿主页 · M4（video / image / shader / html）
      契约（技术方案 §5.1）：URL query 的 spec= 为 urlencode(JSON ContentSpec)。
      shader 额外携带 code=（base64url 源码）——file:// 页面里 fetch/XHR 被 WKWebView
      拦截，查询参数不受限，故源码随 URL 直达。
+     html 条目：用户页面固定为同目录 wallpaper.html，以沙箱 iframe 装载
+     （sandbox="allow-scripts"，无 allow-same-origin → opaque origin，storage/
+     cookie/IPC 一律抛 SecurityError）；暂停经 postMessage {__gesso:"pause"}
+     递入 iframe，由壁纸自行配合（引擎不硬杀帧）。
      window.__gesso.pause()/resume() 由 pin 层经 evaluate_script 调用（§5.3）：
-     video 停播放器、shader 停 RAF 循环，窗口常驻。 -->
+     video 停播放器、shader 停 RAF 循环、html 发暂停消息，窗口常驻。 -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -12,6 +16,7 @@
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
   video, img { width: 100%; height: 100%; object-fit: cover; display: block; }
   #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: none; }
+  #frame { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: none; background: #000; }
   #msg { position: fixed; left: 8px; bottom: 6px; font: 11px monospace; color: #f66; }
 </style>
 </head>
@@ -19,6 +24,7 @@
 <video id="media" autoplay muted loop playsinline></video>
 <img id="imgmedia" alt="" style="display:none">
 <canvas id="gl"></canvas>
+<iframe id="frame" title="wallpaper" sandbox="allow-scripts" scrolling="no"></iframe>
 <div id="msg"></div>
 <script>
 (function () {
@@ -26,6 +32,7 @@
   const v = document.getElementById("media");
   const img = document.getElementById("imgmedia");
   const cvs = document.getElementById("gl");
+  const frame = document.getElementById("frame");
   const msg = document.getElementById("msg");
   let spec = null;
   try { spec = JSON.parse(q.get("spec") || "null"); } catch (e) {}
@@ -201,6 +208,28 @@
     }
   }
 
+  // ============ html 渲染器（沙箱 iframe · M4 part 2）============
+  // 用户页面 = 同目录 wallpaper.html（spec.source 相对路径）。沙箱只给
+  // allow-scripts：无 allow-same-origin → opaque origin，localStorage/
+  // document.cookie/IndexedDB 抛 SecurityError；无 allow-top-navigation/
+  // allow-popups/allow-forms → 顶页导航、弹窗、表单一律静默失败。
+  // 暂停/恢复经 postMessage 递入（壁纸侧监听 message 事件自行配合）。
+  let htmlFrame = null;
+
+  function initHtml(src) {
+    v.style.display = "none";
+    img.style.display = "none";
+    htmlFrame = frame;
+    frame.src = src;
+    frame.style.display = "block";
+  }
+
+  function postToFrame(kind) {
+    if (htmlFrame) {
+      try { htmlFrame.contentWindow.postMessage({ __gesso: kind }, "*"); } catch (e) {}
+    }
+  }
+
   // ============ 分派 ============
   if (spec.kind === "video") {
     v.src = spec.source; v.play().catch(function () {});
@@ -210,14 +239,16 @@
     const code = q.get("code");
     if (!code) { msg.textContent = "Gesso: shader 源码缺失（code 参数）"; state("#FF0000"); }
     else { initShader(code); }
+  } else if (spec.kind === "html") {
+    initHtml(spec.source);
   } else {
     msg.textContent = "Gesso: 暂不支持的类型 " + spec.kind;
   }
 
   // §5.3 暂停契约：JS 层停帧，窗口常驻
   window.__gesso = {
-    pause: function () { v.pause(); stopShaderLoop(); },
-    resume: function () { v.play().catch(function () {}); startShaderLoop(); }
+    pause: function () { v.pause(); stopShaderLoop(); postToFrame("pause"); },
+    resume: function () { v.play().catch(function () {}); startShaderLoop(); postToFrame("resume"); }
   };
 })();
 </script>

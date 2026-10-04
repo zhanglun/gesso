@@ -126,7 +126,8 @@ fn bootstrap() -> (session::SessionManager, bool) {
             .unwrap_or_default()
             .entries
     };
-    // 内置样例：视频 1 + shader 3（M4 DoD：shader 三样例渲染，noiseflow 含 iChannel 纹理）
+    // 内置样例：视频 1 + shader 3 + html 1（M4 DoD：shader 三样例渲染，noiseflow 含 iChannel 纹理；
+    // html 样例演示沙箱契约与 postMessage 暂停配合）
     let builtin_samples: &[(&str, WallpaperKind, &str, &str)] = &[
         (
             "builtin-testsrc",
@@ -152,6 +153,12 @@ fn bootstrap() -> (session::SessionManager, bool) {
             "samples/shader/noiseflow.glsl",
             "Noise Flow（内置 Shader · iChannel0）",
         ),
+        (
+            "builtin-html-clock",
+            WallpaperKind::Html,
+            "samples/html/clock.html",
+            "Clock（内置 HTML）",
+        ),
     ];
     for (id, kind, asset, title) in builtin_samples {
         if library.iter().any(|e| e.id == *id) {
@@ -163,8 +170,15 @@ fn bootstrap() -> (session::SessionManager, bool) {
         }
         let dst = protocol::library_dir().join(id);
         std::fs::create_dir_all(&dst).ok();
-        let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-        std::fs::copy(&src, dst.join(format!("index.{ext}"))).ok();
+        // Html 条目的用户页面固定落为 wallpaper.html（index.html 留给宿主页，
+        // ensure_entry_host 启动时覆盖写入）；其余类型保持 index.<ext>
+        let asset_name = if *kind == WallpaperKind::Html {
+            "wallpaper.html".to_string()
+        } else {
+            let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+            format!("index.{ext}")
+        };
+        std::fs::copy(&src, dst.join(asset_name)).ok();
         library.push(LibraryEntry {
             id: (*id).into(),
             kind: *kind,

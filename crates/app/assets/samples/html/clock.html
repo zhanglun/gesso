@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<!-- Gesso 内置 HTML 样例 · Clock
+     演示 HTML 壁纸契约：自包含单文件（相对子资源可用，fetch/XHR 不可用）、
+     沙箱 iframe（无 storage/IPC）、经 postMessage 接收 {__gesso:"pause"|"resume"}
+     自行配合暂停（引擎不硬杀帧）。fps_cap 对 html 类型是建议值，作者自管 RAF。 -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: -apple-system, "PingFang SC", sans-serif; color: #eaf0ff;
+    background: linear-gradient(135deg, #101426 0%, #1b2a4a 55%, #14324a 100%);
+  }
+  #time { font-size: 9vw; font-weight: 200; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  #date { font-size: 2vw; opacity: 0.55; margin-top: 1vh; font-variant-numeric: tabular-nums; }
+  #ring {
+    position: absolute; width: 44vmin; height: 44vmin; border-radius: 50%;
+    border: 1px solid rgba(120, 170, 255, 0.25);
+    box-shadow: 0 0 80px rgba(90, 140, 255, 0.15) inset;
+  }
+  #paused { position: fixed; left: 14px; bottom: 10px; font-size: 11px; opacity: 0; transition: opacity .3s; }
+</style>
+</head>
+<body>
+<div id="ring"></div>
+<div id="time">--:--:--</div>
+<div id="date"></div>
+<div id="paused">⏸ 已暂停（Gesso postMessage）</div>
+<script>
+(function () {
+  var timeEl = document.getElementById("time");
+  var dateEl = document.getElementById("date");
+  var pausedEl = document.getElementById("paused");
+  var timer = 0;
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function render() {
+    var d = new Date();
+    timeEl.textContent = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+    var week = ["日", "一", "二", "三", "四", "五", "六"][d.getDay()];
+    dateEl.textContent = d.getFullYear() + " 年 " + (d.getMonth() + 1) + " 月 " + d.getDate() + " 日 · 周" + week;
+  }
+  function start() {
+    if (timer) return;
+    render();
+    timer = setInterval(render, 1000);
+  }
+  function stop() {
+    if (timer) { clearInterval(timer); timer = 0; }
+    pausedEl.style.opacity = "0.7";
+  }
+
+  // 宿主页暂停契约：postMessage {__gesso:"pause"|"resume"}（沙箱内唯一通信面）
+  window.addEventListener("message", function (e) {
+    if (e.data && e.data.__gesso === "pause") stop();
+    else if (e.data && e.data.__gesso === "resume") { pausedEl.style.opacity = "0"; start(); }
+  });
+  start();
+})();
+</script>
+</body>
+</html>
