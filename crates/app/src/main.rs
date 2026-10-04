@@ -7,18 +7,7 @@ mod engine;
 mod pin;
 mod protocol;
 mod session;
-#[cfg(target_os = "macos")]
 mod thumb;
-#[cfg(not(target_os = "macos"))]
-mod thumb {
-    // Windows（M1）落地的占位：缩略图抽帧走平台 API，当前仅 macOS 实现
-    pub fn existing_frames(_source_dir: &str) -> Vec<String> {
-        Vec::new()
-    }
-    pub fn extract_frames(_source_dir: &str) -> Vec<String> {
-        Vec::new()
-    }
-}
 mod ui;
 
 use std::time::Duration;
@@ -70,6 +59,19 @@ fn apply_dock_icon() {
     unsafe {
         NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
     }
+}
+
+/// 起一个后台抽帧任务（完成经 `EngineAction::ThumbsDone` 回灌）。
+///
+/// 调用方必须先经 `ThumbScheduler`（should_start + mark_started）去重/限额——
+/// 统一从这两个入口走：导入后立即补帧、30s 扫描兜底。
+fn spawn_thumb_job(bg: gpui_kit::gpui::BackgroundExecutor, dir: String) {
+    bg.spawn(async move {
+        let written = thumb::extract_frames(&dir).written;
+        println!("[thumbs] {dir} → 新增 {written} 帧");
+        engine::enqueue(engine::EngineAction::ThumbsDone { dir });
+    })
+    .detach();
 }
 
 fn bootstrap() -> (session::SessionManager, bool) {
@@ -372,9 +374,27 @@ fn main() {
                         .timer(Duration::from_millis(150))
                         .await;
                     // UI/托盘写动作入队（API.md §4）——引擎轮询统一执行
-                    let engine_actions = engine::drain();
-                    let mut refresh_ui = !engine_actions.is_empty();
+                    // ThumbsDone 单独分流：它写 AppState.thumbs（与 sm 无关），
+                    // 独立 update 避免 &mut sm 与 &mut thumbs 的借用冲突
+                    let (thumb_done, engine_actions): (Vec<_>, Vec<_>) =
+                        engine::drain().into_iter().partition(|a| {
+                            matches!(a, engine::EngineAction::ThumbsDone { .. })
+                        });
+                    let mut refresh_ui =
+                        !engine_actions.is_empty() || !thumb_done.is_empty();
                     let mut deferred_window_actions: Vec<engine::EngineAction> = Vec::new();
+                    let mut deferred_thumb_requests: Vec<String> = Vec::new();
+                    if !thumb_done.is_empty() {
+                        cx.update(|cx| {
+                            let thumbs =
+                                &mut cx.global_mut::<engine::AppState>().thumbs;
+                            for a in thumb_done {
+                                if let engine::EngineAction::ThumbsDone { dir } = a {
+                                    thumbs.mark_finished(&dir);
+                                }
+                            }
+                        });
+                    }
                     if !engine_actions.is_empty() {
                         cx.update(|cx| {
                             let sm = &mut cx.global_mut::<engine::AppState>().sm;

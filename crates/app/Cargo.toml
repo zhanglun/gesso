@@ -27,7 +27,6 @@ auto-launch = "0.5"
 tray-icon = "0.26.0"
 # 托盘图标 PNG 解码（内嵌 assets/icons/tray/*.png → RGBA）
 png = "0.17"
-objc2-av-foundation = "0.3"
 
 # 平台依赖（贴壁层 §4；M1 起使用，先声明锁定版本）
 [target.'cfg(windows)'.dependencies]
@@ -41,5 +40,17 @@ windows = { version = "0.62", features = [
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSWindow", "NSWorkspace", "NSScreen", "NSColor", "NSResponder"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSDictionary", "NSString"] }
+# 缩略图抽帧（thumb.rs）：AVFoundation 走 objc2 生成绑定——所有权（init/copy 家族 →
+# Retained<T>、autorelease 语义）由类型承载，杜绝 v1 裸 msg_send 的人肉引用计数。
+# 最小 feature 集（非默认全量 158 个），AVAsset 含 AVURLAsset 子类声明。
+objc2-av-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "AVAsset",
+  "AVAssetImageGenerator",
+  "objc2-core-graphics",
+  "objc2-core-media",
+] }
+# CMTime（CMTime::new / with_seconds / seconds）+ 自链接 CoreMedia 框架
+objc2-core-media = "0.3"
 
 

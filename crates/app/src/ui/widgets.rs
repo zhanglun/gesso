@@ -109,7 +109,7 @@ pub fn preview(
         }
     }
 
-    // 3) 兜底：渐变底色（永不白屏）
+    // 3) 兜底：渐变底色 + 居中加载指示（缩略图后台生成中）
     let from: Hsla = rgb(art.from).into();
     let to: Hsla = rgb(art.to).into();
     div()
@@ -123,6 +123,17 @@ pub fn preview(
             linear_color_stop(from, 0.),
             linear_color_stop(to, 1.),
         ))
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .opacity(0.35)
+                .text_color(t.text2)
+                .child(Icon::new(IconName::RefreshCw).size_5()),
+        )
         .into_any_element()
 }
 
