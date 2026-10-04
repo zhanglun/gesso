@@ -88,6 +88,20 @@ pub fn preview(
                         linear_color_stop(gf, 0.),
                         linear_color_stop(gt, 1.),
                     ))
+                    // 加载指示：类型图标居中淡显，img 加载完自动覆盖
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .opacity(0.4)
+                            .text_color(t.text2)
+                            .child(
+                                Icon::new(kind_icon(kind.unwrap_or(Kind::Video))).size_6(),
+                            ),
+                    )
                     .child({
                         use gpui_kit::gpui::StyledImage as _;
                         // ⚠️ img(&str) 把非 URL 字符串当「应用内置资源」名（Embedded），
