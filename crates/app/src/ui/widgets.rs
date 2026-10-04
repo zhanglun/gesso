@@ -62,6 +62,7 @@ pub fn preview(
     broken: bool,
     thumbs: &[String],
     frame: usize,
+    cache_id: impl Into<gpui_kit::gpui::ElementId>,
     cx: &App,
 ) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
@@ -83,11 +84,19 @@ pub fn preview(
             .into_any_element();
     }
 
-    // 2) 有缩略图 → 显示缩略图帧
+    // 2) 有缩略图 → 显示缩略图帧。
+    // 防闪双保险（hover 换帧实测底色闪烁）：① retain_all 卡片级缓存——16 帧
+    // 一旦加载过就不被默认缓存卸载，换帧是同步取图；② with_loading——首遍加载
+    // 的间隙直接画上一帧（首帧无上图时露 preview_bg，与加载中状态一致）。
     if !thumbs.is_empty() {
         if let Some(path) = thumbs.get(frame.min(thumbs.len() - 1)) {
             if std::path::Path::new(path).exists() {
-                return div()
+                let prev_path = frame
+                    .checked_sub(1)
+                    .and_then(|p| thumbs.get(p))
+                    .filter(|p| std::path::Path::new(p).exists())
+                    .map(|p| p.clone());
+                return gpui_kit::gpui::image_cache(gpui_kit::gpui::retain_all(cache_id))
                     .w_full()
                     .aspect_ratio(16. / 9.)
                     .overflow_hidden()
@@ -97,12 +106,30 @@ pub fn preview(
                     .child({
                         use gpui_kit::gpui::StyledImage as _;
                         let source = gpui_kit::gpui::ImageSource::Resource(
-                            gpui_kit::gpui::Resource::Path(std::path::PathBuf::from(path).into()),
+                            gpui_kit::gpui::Resource::Path(
+                                std::path::PathBuf::from(path).into(),
+                            ),
                         );
-                        gpui_kit::gpui::img(source)
+                        let img = gpui_kit::gpui::img(source)
                             .size_full()
                             .object_fit(gpui_kit::gpui::ObjectFit::Cover)
-                            .rounded_t(px(11.))
+                            .rounded_t(px(11.));
+                        match prev_path {
+                            Some(prev_path) => img.with_loading(move || {
+                                use gpui_kit::gpui::StyledImage as _;
+                                let source = gpui_kit::gpui::ImageSource::Resource(
+                                    gpui_kit::gpui::Resource::Path(
+                                        std::path::PathBuf::from(&prev_path).into(),
+                                    ),
+                                );
+                                gpui_kit::gpui::img(source)
+                                    .size_full()
+                                    .object_fit(gpui_kit::gpui::ObjectFit::Cover)
+                                    .rounded_t(px(11.))
+                                    .into_any_element()
+                            }),
+                            None => img,
+                        }
                     })
                     .into_any_element();
             }

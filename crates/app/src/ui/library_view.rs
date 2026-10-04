@@ -277,6 +277,7 @@ impl LibraryView {
                 broken,
                 &item.thumbs,
                 hover_frame,
+                gpui_kit::gpui::SharedString::from(format!("previewcache-{}", item.id)),
                 cx,
             ))
             .child(
@@ -723,7 +724,7 @@ impl Render for CardGhost {
             .shadow_lg()
             .opacity(0.9)
             .bg(t.panel)
-            .child(preview(self.art, None, false, &[], 0, cx))
+            .child(preview(self.art, None, false, &[], 0, gpui_kit::gpui::SharedString::from("previewcache-ghost"), cx))
             .child(
                 div()
                     .px_3()

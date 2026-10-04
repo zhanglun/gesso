@@ -1,7 +1,8 @@
-//! Shader 缩略图采集（macOS · 主线程）：隐藏窗口 + wry 宿主页渲染 → WKWebView 快照 → PNG。
+//! Shader / Html 缩略图采集（macOS · 主线程）：隐藏窗口 + wry 宿主页渲染 → WKWebView 快照 → PNG。
 //!
-//! 复用宿主页渲染器（同 GLSL / 同 uniforms / 同预置 iChannel 纹理），产出与视频条目
+//! 复用宿主页渲染器（shader 走 GLSL，html 走沙箱 iframe），产出与视频条目
 //! 同构的 `thumb.png + thumb-1..15.png` —— 卡片静态预览与 hover 轮播零改动复用。
+//! shader 经 `__gessoSeek(t)` 定格目标时刻；html 是活页面，按固定间隔截真时间帧。
 //!
 //! 线程与生命周期纪律（踩坑沉淀）：
 //! 1. AppKit / wry / WKWebView 快照全部要求主线程——任务跑在 GPUI 前台执行器，
@@ -24,6 +25,7 @@ use objc2_web_kit::WKWebView;
 use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
 
 use crate::thumb::{self, HOVER_FRAMES, SAMPLE_FPS};
+use gesso_core::WallpaperKind;
 
 /// 采集分辨率：640×360 覆盖卡片预览与 hover 轮播（retina 快照 2x = 1280×720）
 const CAP_W: f64 = 640.0;
@@ -36,7 +38,7 @@ const FRAME_SETTLE: Duration = Duration::from_millis(140);
 const SHOT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 进程级采集队列（串行消费）；`false` = 工作任务未在跑
-pub(crate) static CAPTURE_QUEUE: Mutex<Vec<String>> = Mutex::new(Vec::new());
+pub(crate) static CAPTURE_QUEUE: Mutex<Vec<(String, WallpaperKind)>> = Mutex::new(Vec::new());
 pub(crate) static WORKER_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 struct CaptureWindow {
@@ -167,13 +169,14 @@ pub(crate) async fn capture_entry(
     bg: gpui_kit::gpui::BackgroundExecutor,
     url: String,
     dir: String,
+    kind: WallpaperKind,
 ) -> usize {
     let Some(mtm) = MainThreadMarker::new() else {
         println!("[thumbs] shader 采集必须在主线程");
         return 0;
     };
     let mut cap = take_window(mtm);
-    let written = capture_with(&mut cap, &bg, url, &dir).await;
+    let written = capture_with(&mut cap, &bg, url, &dir, kind).await;
     put_window(cap);
     written
 }
@@ -183,10 +186,11 @@ async fn capture_with(
     bg: &gpui_kit::gpui::BackgroundExecutor,
     url: String,
     dir: &str,
+    kind: WallpaperKind,
 ) -> usize {
     let _ = cap.webview.load_url(&url);
 
-    // —— 就绪轮询：__gessoReady 由宿主页 shader 渲染器初始化成功后置位 ——
+    // —— 就绪轮询：shader 初始化成功 / html iframe 开始装载即置 __gessoReady ——
     let ready: Arc<Mutex<Option<bool>>> = Arc::new(Mutex::new(None));
     let deadline = Instant::now() + READY_TIMEOUT;
     let mut ok = false;
@@ -230,13 +234,15 @@ async fn capture_with(
         println!("[thumbs] RAF 活性（400ms 增量）：{delta}");
     }
 
-    // —— 帧序列：t = i / SAMPLE_FPS（与视频抽帧同时刻表，轮播节奏一致）——
+    // —— 帧序列：shader t = i/SAMPLE_FPS 定格；html 活页面按间隔截真时间帧 ——
     let mut written = 0usize;
     for i in 0..=HOVER_FRAMES {
-        let t = i as f64 / SAMPLE_FPS as f64;
-        let _ = cap
-            .webview
-            .evaluate_script(&format!("window.__gessoSeek && window.__gessoSeek({t})"));
+        if kind == WallpaperKind::Shader {
+            let t = i as f64 / SAMPLE_FPS as f64;
+            let _ = cap
+                .webview
+                .evaluate_script(&format!("window.__gessoSeek && window.__gessoSeek({t})"));
+        }
         bg.timer(FRAME_SETTLE).await;
 
         let mut image = snapshot(bg, &cap.wk).await;

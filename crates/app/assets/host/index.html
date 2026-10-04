@@ -222,6 +222,12 @@
     htmlFrame = frame;
     frame.src = src;
     frame.style.display = "block";
+    // 采集就绪：iframe 装载已发起（页面自己的加载失败 = 空白帧，采集侧照常截图，
+    // 与壁纸失效路径一致：宿主页不白屏）；RAF 探针给活页面计数
+    window.__gessoReady = true;
+    window.__rafN = 0;
+    (function tick() { window.__rafN++; requestAnimationFrame(tick); })();
+    window.__gessoSeek = null; // 活页面不支持定格
   }
 
   function postToFrame(msg) {

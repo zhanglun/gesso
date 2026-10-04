@@ -8,7 +8,7 @@ mod engine;
 mod pin;
 mod protocol;
 mod session;
-mod shader_thumb;
+mod capture;
 mod thumb;
 mod ui;
 
@@ -78,19 +78,21 @@ fn spawn_thumb_job(bg: gpui_kit::gpui::BackgroundExecutor, dir: String) {
     .detach();
 }
 
-/// shader 缩略图采集：入串行队列，惰性起一个主线程工作任务逐个消化。
+/// shader/html 缩略图采集：入串行队列，惰性起一个主线程工作任务逐个消化。
 /// 串行是崩溃纪律：并发多 webview + 快照 completion 是崩溃放大器（2026-10-04）。
-fn spawn_shader_thumb_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String) {
+fn spawn_capture_job(
+    cx: &mut gpui_kit::gpui::AsyncApp,
+    dir: String,
+    kind: WallpaperKind,
+) {
     use std::sync::atomic::Ordering;
-    shader_thumb::CAPTURE_QUEUE.lock().unwrap().push(dir);
-    if shader_thumb::WORKER_RUNNING.swap(true, Ordering::SeqCst) {
+    capture::CAPTURE_QUEUE.lock().unwrap().push((dir, kind));
+    if capture::WORKER_RUNNING.swap(true, Ordering::SeqCst) {
         return; // 已有工作任务在消化队列
     }
     cx.spawn(async move |cx| {
         loop {
-            let Some(dir) =
-                shader_thumb::CAPTURE_QUEUE.lock().unwrap().pop()
-            else {
+            let Some((dir, kind)) = capture::CAPTURE_QUEUE.lock().unwrap().pop() else {
                 break;
             };
             let url = cx.update(|cx| {
@@ -104,14 +106,14 @@ fn spawn_shader_thumb_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String) {
             let written = match url {
                 Some(url) => {
                     let bg = cx.background_executor().clone();
-                    shader_thumb::capture_entry(bg, url, dir.clone()).await
+                    capture::capture_entry(bg, url, dir.clone(), kind).await
                 }
                 None => 0,
             };
-            println!("[thumbs] shader {dir} → 新增 {written} 帧");
+            println!("[thumbs] {kind:?} {dir} → 新增 {written} 帧");
             engine::enqueue(engine::EngineAction::ThumbsDone { dir });
         }
-        shader_thumb::WORKER_RUNNING.store(false, Ordering::SeqCst);
+        capture::WORKER_RUNNING.store(false, Ordering::SeqCst);
     })
     .detach();
 }
@@ -511,7 +513,7 @@ fn main() {
                     let mut refresh_ui = !engine_actions.is_empty();
                     let mut deferred_window_actions: Vec<engine::EngineAction> = Vec::new();
                     let mut deferred_thumb_requests: Vec<String> = Vec::new();
-                    let mut deferred_shader_thumb_dirs: Vec<String> = Vec::new();
+                    let mut deferred_capture_dirs: Vec<(String, WallpaperKind)> = Vec::new();
                     if !engine_actions.is_empty() {
                         cx.update(|cx| {
                             // app（整个全局）与 sm（字段）分开绑定：ThumbsDone 分支
@@ -557,9 +559,10 @@ fn main() {
                                                     }
                                                     // shader 缩略图：主线程 webview 采集，
                                                     // 标记在途后独立派发（动作循环外 spawn）
-                                                    WallpaperKind::Shader => {
-                                                        deferred_shader_thumb_dirs
-                                                            .push(e.source_dir);
+                                                    WallpaperKind::Shader
+                                                    | WallpaperKind::Html => {
+                                                        deferred_capture_dirs
+                                                            .push((e.source_dir, e.kind));
                                                     }
                                                     _ => {}
                                                 }
@@ -641,14 +644,14 @@ fn main() {
                         });
                         spawn_thumb_job(cx.background_executor().clone(), dir);
                     }
-                    // shader 缩略图采集：必须主线程（AppKit/wry/快照），走前台执行器任务
-                    for dir in deferred_shader_thumb_dirs {
+                    // shader/html 缩略图采集：必须主线程（AppKit/wry/快照），走前台执行器任务
+                    for (dir, kind) in deferred_capture_dirs {
                         cx.update(|cx| {
                             cx.global_mut::<engine::AppState>()
                                 .thumbs
                                 .mark_started(&dir);
                         });
-                        spawn_shader_thumb_job(cx, dir);
+                        spawn_capture_job(cx, dir, kind);
                     }
                     tick += 1;
                     if tick == 20 || tick == 40 {
@@ -731,7 +734,8 @@ fn main() {
                             .library()
                             .iter()
                             .filter(|e| {
-                                matches!(e.kind, WallpaperKind::Video | WallpaperKind::Shader)
+                                matches!(e.kind, WallpaperKind::Video | WallpaperKind::Shader
+                                    | WallpaperKind::Html)
                             })
                             .map(|e| (e.source_dir.clone(), e.kind))
                             .filter(|(dir, _)| {
@@ -747,7 +751,9 @@ fn main() {
                                 .mark_started(&dir);
                         });
                         match kind {
-                            WallpaperKind::Shader => spawn_shader_thumb_job(cx, dir),
+                            WallpaperKind::Shader | WallpaperKind::Html => {
+                                spawn_capture_job(cx, dir, kind)
+                            }
                             _ => spawn_thumb_job(cx.background_executor().clone(), dir),
                         }
                     }

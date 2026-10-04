@@ -114,7 +114,7 @@ impl FirstRun {
                     .w(px(132.))
                     .gap_1()
                     .items_center()
-                    .child(preview(sample_art(k), Some(k), false, &[], 0, cx))
+                    .child(preview(sample_art(k), Some(k), false, &[], 0, gpui_kit::gpui::SharedString::from(format!("previewcache-firstrun-{k:?}")), cx))
                     .child(
                         div()
                             .text_size(px(12.))
@@ -160,7 +160,7 @@ impl FirstRun {
                             }
                         }
                     }))
-                    .child(preview(w.art, Some(w.kind), false, &w.thumbs, 0, cx))
+                    .child(preview(w.art, Some(w.kind), false, &w.thumbs, 0, gpui_kit::gpui::SharedString::from(format!("previewcache-firstrun-{}", w.name)), cx))
                     .child(
                         h_flex()
                             .items_center()
