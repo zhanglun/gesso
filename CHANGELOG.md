@@ -12,6 +12,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - macOS wallpaper pinning: native `NSWindow` at `level = -2147483604`, click-through, all-spaces, transparent fallback to the system desktop (verified by a dedicated spike; GPUI windows are *not* used for wallpaper — see ARCHITECTURE).
 - Wallpaper host pipeline: self-contained `file://` entries (host page copied per entry, relative media paths), `ContentSpec` query contract, `__gesso.pause/resume` JS API.
 - Session manager: per-monitor sessions driven by the core state machine (`Idle→Loading→Playing→Paused…`), monitor diff sync, config + library persistence, single-instance lock.
+- Cursor feed (M5): global mouse location routed to the display it is on → shader `iMouse` (30 Hz push, per-frame smoothing) and html `postMessage`; idle 5 min auto-downscale to 5 fps. No Input Monitoring permission needed — position via `NSEvent::mouseLocation`, buttons/idle via CoreGraphics HID source state (polling, not an event tap).
+- Built-in `Cursor Glow` shader sample demonstrating mouse tracking.
 - Import flow: extension validation (`mp4/webm/gif/webp/glsl/html`; `mkv`/HEVC rejected with actionable copy), source-extension preservation, random unguessable entry IDs.
 - Tray: full menu (pause-all / cycle / manager / autostart / quit).
 - First-run wizard wired to the real library; autostart via `auto-launch`.
@@ -56,6 +58,6 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 - Windows pinning not yet verified (needs a machine).
 - `gesso://` custom scheme non-functional on the current webview stack; entries load via `file://`.
-- System data bridge: cursor feed + idle downscale pending (needs an Input Monitoring permission flow).
+
 - iframe-internal navigation of HTML wallpapers is not allow-listed yet (`fps_cap` advisory for the html kind).
 - Hover preview preload is per-process cache: the first hover shows a spinner briefly; subsequent hovers play immediately.

@@ -83,7 +83,7 @@ Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from
 
 - Pause really stops work (JS loop + decoding). Fullscreen/battery triggers drive the state machine's `Autopause` state (M5, verified), with a per-display fullscreen-downscale policy (5 fps target via `__gesso.setFps`).
 - Multi-monitor: one wallpaper window per display; webview content processes are shared by the platform, decoders are not (accepted).
-- Frame-rate control: the engine pushes the per-display fps cap to the host page (`__gesso.setFps`, live without reload) — shader frames are RAF-gated; for html it is an advisory value since the iframe owns its own RAF; video has no frame-rate lever.
+- Frame-rate control: the engine pushes the per-display fps cap to the host page (`__gesso.setFps`, live without reload) — shader frames are RAF-gated; for html it is an advisory value since the iframe owns its own RAF; video has no frame-rate lever. Cursor feed: the engine routes the global mouse location to the display it is on and pushes it at 30 Hz (`__gesso.mouse`); the host stores only the latest target and smooths per-frame into `iMouse` (read on the main thread — background reads of `NSEvent.mouseLocation` are stale during fast movement). Idle 5 min → 5 fps.
 
 ## 8. Where the deeper history lives
 

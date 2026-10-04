@@ -87,6 +87,11 @@ pub struct Session {
     pub autopause_reason: Option<AutopauseReason>,
     /// M5 降帧生效中（恢复时按会话配置回设 fps）。
     pub downscaled: bool,
+    /// 光标 feed：本会话上次推送的量化状态（present,x_q,y_q,bits）。
+    /// None = 尚未推送过；present=false 表示光标已离开本屏。
+    pub mouse_last: Option<(bool, u16, u16, u8)>,
+    /// 鼠标静止空闲降帧生效中（与全屏降帧互斥，恢复时回设 fps）。
+    pub idle_down: bool,
 }
 
 /// 会话的 UI 投影视图（`views()` 产物）。
@@ -278,6 +283,8 @@ impl SessionManager {
             window: Some(window),
             autopause_reason: None,
             downscaled: false,
+            mouse_last: None,
+            idle_down: false,
         })
     }
 
@@ -583,6 +590,96 @@ impl SessionManager {
         }
     }
 
+    /// M5 光标 feed：把全局光标位置路由到它所在显示器的会话。
+    ///
+    /// 设计（性能纪律）：① 归一化到 [0,1] 后量化 u16 再比较，亚像素抖动不
+    /// 触发推送；② 状态没变零 IPC，鼠标静止时只做空闲判断；③ 离开某屏推送
+    /// 一次 present=0；④ 仅推给光标所在的那一个屏，其余屏不打扰；
+    /// ⑤ 暂停 / Autopause / 全屏降帧期间不喂光标。
+    /// 空闲降帧：静止超阈值（当前固定 5 分钟）降到 5fps，一动即恢复。
+    pub fn poll_mouse(&mut self, m: &crate::bridge::MouseSample) {
+        /// ponytail: 空闲阈值先固定 5 分钟；需要 per-user 时挪进 settings
+        const IDLE_AFTER: f64 = 300.0;
+        const Q: f64 = 10_000.0;
+        let fps_by_id: std::collections::BTreeMap<String, u8> = self
+            .sessions
+            .keys()
+            .map(|id| (id.clone(), self.fps_for(id)))
+            .collect();
+
+        // 光标落在哪个显示器（AppKit 全局坐标，矩形包含判定）
+        let target: Option<String> = self
+            .sessions
+            .values()
+            .find(|s| {
+                let (x, y, w, h) = s.monitor.frame;
+                m.x >= x && m.x <= x + w && m.y >= y && m.y <= y + h
+            })
+            .map(|s| s.monitor.id.clone());
+
+        let ids: Vec<String> = self.sessions.keys().cloned().collect();
+        for id in ids {
+            let Some(s) = self.sessions.get_mut(&id) else { continue };
+            let here = target.as_deref() == Some(id.as_str());
+
+            // 空闲降帧只在 Playing 且无自动暂停降帧时有意义；其它态一律收敛
+            let normal_fps = fps_by_id[&id];
+            let can_idle = s.state == SessionState::Playing && !s.downscaled;
+
+            if !here || !can_idle {
+                // 光标离屏或本会话不该响应：推送一次 present=0（shader 可据此淡出）
+                if s.mouse_last != Some((false, 0, 0, 0)) {
+                    if let Some(w) = s.window.as_mut() {
+                        w.evaluate("__gesso&&__gesso.mouse&&__gesso.mouse(0,0,0,0)");
+                    }
+                    s.mouse_last = Some((false, 0, 0, 0));
+                }
+                if s.idle_down {
+                    s.idle_down = false;
+                    if let Some(w) = s.window.as_mut() {
+                        w.evaluate(&format!("__gesso&&__gesso.setFps({normal_fps})"));
+                    }
+                    println!("[bridge] {id} 空闲降帧解除");
+                }
+                continue;
+            }
+
+            // 归一化（原点左下）并量化
+            let (mx, my, mw, mh) = s.monitor.frame;
+            let nx = ((m.x - mx) / mw).clamp(0.0, 1.0);
+            let ny = ((m.y - my) / mh).clamp(0.0, 1.0);
+            let xq = (nx * Q).round() as u16;
+            let yq = (ny * Q).round() as u16;
+            let cur = (true, xq, yq, m.buttons);
+            if s.mouse_last != Some(cur) {
+                if let Some(w) = s.window.as_mut() {
+                    w.evaluate(&format!(
+                        "__gesso&&__gesso.mouse&&__gesso.mouse(1,{xq},{yq},{})",
+                        m.buttons
+                    ));
+                }
+                s.mouse_last = Some(cur);
+            }
+
+            // 空闲降帧 / 恢复
+            if m.idle_secs >= IDLE_AFTER {
+                if !s.idle_down {
+                    s.idle_down = true;
+                    if let Some(w) = s.window.as_mut() {
+                        w.evaluate("__gesso&&__gesso.setFps(5)");
+                    }
+                    println!("[bridge] {id} 空闲降帧 → 5 fps");
+                }
+            } else if s.idle_down {
+                s.idle_down = false;
+                if let Some(w) = s.window.as_mut() {
+                    w.evaluate(&format!("__gesso&&__gesso.setFps({normal_fps})"));
+                }
+                println!("[bridge] {id} 空闲降帧解除");
+            }
+        }
+    }
+
     /// UI 只读快照（API.md §1）
     pub fn library(&self) -> &[gesso_core::LibraryEntry] {
         &self.library
@@ -849,5 +946,22 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 光标归一化量化（poll_mouse 内联逻辑的纯函数镜像，防坐标系改坏）
+    fn quantize(v: f64) -> u16 {
+        (v.clamp(0.0, 1.0) * 10_000.0).round() as u16
+    }
+
+    #[test]
+    fn mouse_normalize_quantize() {
+        assert_eq!(quantize(0.0), 0);
+        assert_eq!(quantize(1.0), 10_000);
+        assert_eq!(quantize(0.5), 5_000);
+        assert_eq!(quantize(-0.3), 0); // 越界收敛
+        assert_eq!(quantize(1.7), 10_000);
+        // 亚量化步长（1/10000）内抖动被同一量化值吸收 = 不触发推送
+        // 亚量化步长（1/10000）内的抖动被同一量化值吸收 = 不触发推送
+        assert_eq!(quantize(0.50003), quantize(0.50004));
     }
 }

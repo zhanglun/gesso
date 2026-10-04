@@ -48,6 +48,12 @@ extern "C-unwind" {
 extern "C" {
     fn CGWindowListCopyWindowInfo(option: u32, relative: u32) -> *const c_void;
     fn CGRectMakeWithDictionaryRepresentation(dict: *const c_void, rect: *mut CGRect) -> u8;
+    // 光标轮询（无需权限）：按键态与空闲时长直接读 HID 源状态。
+    // 位置不用 CGEventGetLocation——它是左上原点的 CG 坐标，与 MonitorInfo
+    // （左下 AppKit 坐标）混用会上下颠倒（实测 830 vs 250）；
+    // 位置改走 NSEvent::mouseLocation（见 mouse_sample）。
+    fn CGEventSourceButtonState(state: u32, button: u16) -> u8;
+    fn CGEventSourceSecondsSinceLastEventType(state: u32, event_type: u32) -> f64;
 }
 
 #[link(name = "IOKit", kind = "framework")]
@@ -204,3 +210,24 @@ pub fn on_battery() -> Option<bool> {
         result
     }
 }
+
+/// 光标位置（AppKit 左下坐标，仅位置，供后台高频比对）。
+pub fn mouse_location() -> (f64, f64) {
+    let p = objc2_app_kit::NSEvent::mouseLocation();
+    (p.x, p.y)
+}
+
+/// 按键态与空闲秒数（CoreGraphics HID 源，无需权限）。
+/// 常量：`kCGEventSourceStateHIDSystemState = 1`、`kCGEventMouseMoved = 5`。
+pub fn mouse_buttons_idle() -> (u8, f64) {
+    const HID_STATE: u32 = 1;
+    const MOUSE_MOVED: u32 = 5;
+    unsafe {
+        let buttons = (CGEventSourceButtonState(HID_STATE, 0) != 0) as u8
+            | (((CGEventSourceButtonState(HID_STATE, 1) != 0) as u8) << 1)
+            | (((CGEventSourceButtonState(HID_STATE, 2) != 0) as u8) << 2);
+        let idle = CGEventSourceSecondsSinceLastEventType(HID_STATE, MOUSE_MOVED);
+        (buttons, idle)
+    }
+}
+

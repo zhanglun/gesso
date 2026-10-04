@@ -38,7 +38,7 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 | First-run wizard | ✅ |
 | Shader renderer (Shadertoy subset, WebGL2) | ✅ |
 | HTML renderer (sandboxed iframe, storage/IPC denied) | ✅ |
-| System data bridge (fullscreen/battery auto-pause · time feed) | ✅ M5; cursor/audio later |
+| System data bridge (fullscreen/battery auto-pause · time · cursor · idle) | ✅ M5 |
 | Wallpaper Engine workshop assets (read-only) | 🚧 planned (M6) — see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
 ## Requirements

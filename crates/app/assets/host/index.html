@@ -51,6 +51,12 @@
   // 覆盖 Shadertoy 标准预设纹理里的 noise 子集；自备贴图的作品不在 M4 范围。
   let gl = null, glU = null, glRaf = 0, glRunning = false;
   const glT = { t0: 0, last: 0, lastDraw: -1e9, frame: 0 };
+  // 光标桥状态（__gesso.mouse 喂入，归一化 [0,1] 原点左下）。
+  // dx/dy = 当前/悬停位置（CSS 像素，顶左原点供 iMouse）；px/py = 最近一次
+  // 按下的位置，初始 -1e6 = 从未点击（Shadertoy 惯例 z<0 判"无点击"）。
+  // tx/ty = Rust 推送的最新目标（只存最新值，evaluate 突发也只取最新）；
+  // dx/dy = 每帧快速平滑后的显示位置。与 fragCoord 同为左下原点。
+  const gMouse = { tx: 0, ty: 0, dx: 0, dy: 0, px: -1e6, py: -1e6, aligned: false };
 
   const VS_SRC =
     "#version 300 es\n" +
@@ -142,7 +148,12 @@
     gl.uniform1f(glU.time, (now - glT.t0) / 1000);
     gl.uniform1f(glU.delta, dt);
     gl.uniform1f(glU.frame, glT.frame);
-    gl.uniform4f(glU.mouse, 0, 0, 0, 0); // 桌面级窗口收不到鼠标事件，恒零（M5 接光标桥）
+    // 帧率无关平滑：k=1-e^{-35·dt} ≈ 0.43/帧@60fps，约2帧追上目标——
+    // 抹平推送/帧不同步导致的闪现，又不产生可感滞后。
+    const kM = 1.0 - Math.exp(-dt * 35.0);
+    gMouse.dx += (gMouse.tx - gMouse.dx) * kM;
+    gMouse.dy += (gMouse.ty - gMouse.dy) * kM;
+    gl.uniform4f(glU.mouse, gMouse.dx, gMouse.dy, gMouse.px, gMouse.py);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -268,6 +279,30 @@
   window.__gesso.tick = function (ms) {
     try { window.dispatchEvent(new CustomEvent("gesso:time", { detail: ms })); } catch (e) {}
     postToFrame({ __gesso: "time", t: ms });
+  };
+  // mouse：光标 feed（引擎 20Hz 采样、去重后仅在变化时调用）。
+  // present=1 时 x/y 为 0..10000 量化的归一化坐标（原点左下）；bit0..2 为
+  // 左/右/中键。iMouse 用顶左 CSS 像素；按下瞬间锁存 px/py，松开保持
+  // （Shadertoy 拖拽语义）。present=0 = 光标离屏，悬停位置移出画布。
+  let gPrevButtons = 0;
+  window.__gesso.mouse = function (present, x, y, buttons) {
+    if (present) {
+      // Rust 发左下原点归一化坐标，fragCoord/iMouse 同系——只更新目标，勿翻转
+      gMouse.tx = (x / 10000) * cvs.clientWidth;
+      gMouse.ty = (y / 10000) * cvs.clientHeight;
+      if (!gMouse.aligned) { gMouse.dx = gMouse.tx; gMouse.dy = gMouse.ty; gMouse.aligned = true; }
+      const pressed = buttons & ~gPrevButtons;
+      if (pressed & 1) { gMouse.px = gMouse.tx; gMouse.py = gMouse.ty; }
+      gPrevButtons = buttons;
+    } else {
+      gMouse.tx = -10; gMouse.ty = -10; gPrevButtons = 0;
+    }
+    try {
+      window.dispatchEvent(new CustomEvent("gesso:mouse", {
+        detail: { x: gMouse.dx, y: gMouse.dy, buttons: buttons, present: !!present }
+      }));
+    } catch (e) {}
+    postToFrame({ __gesso: "mouse", x: gMouse.dx, y: gMouse.dy, buttons: buttons, present: !!present });
   };
 })();
 </script>

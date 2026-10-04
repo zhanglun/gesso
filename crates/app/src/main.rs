@@ -129,7 +129,7 @@ fn bootstrap() -> (session::SessionManager, bool) {
             .unwrap_or_default()
             .entries
     };
-    // 内置样例：视频 1 + shader 3 + html 1（M4 DoD：shader 三样例渲染，noiseflow 含 iChannel 纹理；
+    // 内置样例：视频 1 + shader 4 + html 1（M4 DoD：shader 三样例渲染，noiseflow 含 iChannel 纹理；
     // html 样例演示沙箱契约与 postMessage 暂停配合）
     let builtin_samples: &[(&str, WallpaperKind, &str, &str)] = &[
         (
@@ -155,6 +155,12 @@ fn bootstrap() -> (session::SessionManager, bool) {
             WallpaperKind::Shader,
             "samples/shader/noiseflow.glsl",
             "Noise Flow（内置 Shader · iChannel0）",
+        ),
+        (
+            "builtin-shader-cursor",
+            WallpaperKind::Shader,
+            "samples/shader/cursor.glsl",
+            "Cursor Glow（内置 Shader · 光标跟随）",
         ),
         (
             "builtin-html-clock",
@@ -757,6 +763,25 @@ fn main() {
                             _ => spawn_thumb_job(cx.background_executor().clone(), dir),
                         }
                     }
+                }
+            })
+            .detach();
+
+            // M5 光标 feed：后台只出 33ms 节拍，读 AppKit 位置 + 比对 + 推送
+            // 全在主线程。根因教训：NSEvent.mouseLocation 从后台线程读在快速
+            // 更新时是陈旧值（光团卡住、停后才闪现到终点）——AppKit 界面状态
+            // 必须主线程读。poll_mouse 内部量化去重，静止不产生 evaluate。
+            cx.spawn(async move |cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(33))
+                        .await;
+                    let sample = cx.update(|_| bridge::sample_mouse());
+                    cx.update(|cx| {
+                        cx.global_mut::<engine::AppState>()
+                            .sm
+                            .poll_mouse(&sample)
+                    });
                 }
             })
             .detach();

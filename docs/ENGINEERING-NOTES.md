@@ -44,6 +44,8 @@
 | `flex_1`/`min_h_0` 在非 flex 父级无效 | 嵌在普通 `div()` 里的滚动容器（`overflow_y_scroll`）高度被内容撑开、永不溢出（库页滚不动的根因）——中间包裹层必须也是 flex（交叉轴默认 stretch 给子级定高）。对照：设置页滚动容器直接挂在 `v_flex` 下所以一直正常。排查口诀：滚动不动先查**高度约束链**上有没有断点 |
 | 网格响应式列数 | GPUI 没有 CSS `auto-fill`：在 `render` 里用 `window.viewport_size()` 按容器宽算列数（min 宽 + gap），卡片等分宽撑满整行；窗口 resize 会触发重渲，无需额外监听（库页 880→4 列 / 1200→5 列实机验证）。所有卡片同一渲染帧必须同一宽度，否则最后一行参差 |
 | GPUI 图片元素三条机制（hover 预览多轮踩坑） | ① **`image_cache` 元素不绘制自身样式**——只转发子元素，`.bg()` 挂它上面是死的（底色必须画在外层普通 div 上）；② **`img` 无元素 id → 不建 `ImgState`** → `with_loading` fallback 分支整体跳过；③ **默认 loading 延迟 200ms** 且同一帧的资源加载完成会批量 notify——固定节奏轮播未就绪帧 = 底色/图片交替 + 播速忽快忽慢。正解：hover 两段式，`fetch_asset::<ImgResourceLoader>` 预载全部帧（与显示共用同一缓存）后再固定节奏播放 |
+| 光标跟随三个坐标系/线程坑（M5 光标 feed 多轮实测） | ① **`CGEventGetLocation` 是左上原点 CG 坐标**，与 MonitorInfo/NSEvent（左下 AppKit 坐标）混用上下颠倒——位置用 `NSEvent::mouseLocation()`；② 左下原点的归一化坐标喂给 Shadertoy `fragCoord`/`iMouse`（本就左下原点）要**直接映射，别再 `1-y`** 翻一次；③ **`NSEvent.mouseLocation` 绝不能从后台线程读**——快速移动时是陈旧值，光团卡住、鼠标停下才闪现到终点；后台线程只出节拍，读 AppKit 状态必须主线程 |
+| 光标跟随的推送节奏 | 60Hz 连续 `evaluate_script` 会在跨进程 FIFO 队列堆积→滞后；推送/渲染两个独立时钟→有的帧空转有的帧双跳→闪现。正解：**Rust 30Hz 推送（队列不堆积）+ 宿主页只存最新目标 + 每帧帧率无关平滑**（`k=1-e^{-35·dt}`≈2 帧追上），视觉 60fps 连续、无堆积 |
 
 ## 3. 关键路径（调试用）
 

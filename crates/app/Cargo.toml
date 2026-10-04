@@ -39,7 +39,7 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSWindow", "NSWorkspace", "NSScreen", "NSColor", "NSResponder"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSWindow", "NSWorkspace", "NSScreen", "NSColor", "NSResponder", "NSEvent"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSDictionary", "NSString"] }
 # 缩略图抽帧（thumb.rs）：AVFoundation 走 objc2 生成绑定——所有权（init/copy 家族 →
 # Retained<T>、autorelease 语义）由类型承载，杜绝 v1 裸 msg_send 的人肉引用计数。
