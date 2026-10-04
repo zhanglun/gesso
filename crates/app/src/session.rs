@@ -398,6 +398,10 @@ impl SessionManager {
             .unwrap_or("未命名")
             .to_string();
         std::fs::copy(path, dst_dir.join(format!("index.{ext}"))).map_err(|_| ImportError::Io)?;
+        // 导入后立即抽帧（不等 30s 后台轮询；~1s/条目，同步执行确保缩略图就绪）
+        if kind == WallpaperKind::Video {
+            crate::thumb::extract_frames(dst_dir.display().to_string().as_str());
+        }
         let entry = LibraryEntry {
             id: id.clone(),
             kind,
