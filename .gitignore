@@ -8,3 +8,6 @@
 
 # 图标构建工具依赖
 /crates/app/assets/icons/tools/node_modules/
+
+# UI 审查工具产物
+/.impeccable/
