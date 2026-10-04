@@ -55,7 +55,7 @@ LibraryEntry (library/<random-id>/index.html + index.<ext>)
 - Each library entry is **self-contained**: the host page is copied into the entry directory at startup (dev behavior; frozen per-entry later) and media is referenced relatively. This sidesteps the currently-broken custom scheme (see pitfalls) and matches how Wallpaper Engine structures its projects.
 - The **source extension is preserved on import** (`webm` stays `webm`): webviews type media by extension, so normalizing to `index.mp4` breaks playback. Import, validity checking and host-spec generation all call this `main_asset_name` helper — keep it that way.
 - The host page exposes `window.__gesso.{pause, resume}`; the engine pauses via `evaluate_script` — pause is a **JS-level frame stop**, the window and webview stay resident.
-- Renderer coverage today: video, image (gif/webp). Shader (WebGL2) and HTML (sandboxed iframe) are planned (M4).
+- Renderer coverage today: video, image (gif/webp), shader (WebGL2 + Shadertoy subset, source via `code=` base64url). HTML (sandboxed iframe) lands with M4.
 
 ## 4. Session state machine (gesso-core)
 

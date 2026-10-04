@@ -9,7 +9,7 @@ Gesso：跨平台（Windows/macOS）动态壁纸引擎——视频/动图/Shader
 
 ## 必读文档（按顺序）
 
-1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 5 条架构规则 + 15 条实测踩坑，改代码前先读。
+1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 5 条架构规则 + 21 条实测踩坑，改代码前先读。
 2. **[crates/app/API.md](crates/app/API.md)** —— UI 层唯一允许调用的引擎接口。
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** —— 分层、窗口模型、贴壁参数、状态机。
 4. **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 当前进度与已知缺口。
@@ -45,20 +45,20 @@ crates/app      应用：
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
   ├─ ui/          管理窗口 UI（gpui-kit）
-  └─ assets/      宿主页 / 内置样例 / 产品图标（icons/ 产出 + 再生成管线，见其 README）
-host/           壁纸宿主页（TS，跑在 wry webview 内）
+  └─ assets/      宿主页（host/index.html）/ 内置样例（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）
 docs/           工程文档 + design/（设计归档）
-assets/         内置样例 + 宿主页静态资源
 ```
 
 ## 当前状态速览（截至本文件更新）
 
 - ✅ macOS 视频壁纸钉桌面全链路（贴壁/穿透/多空间/菜单栏带覆盖/暂停恢复/持久化）
 - ✅ 导入（对话框 + 拖入）、托盘（右键菜单）、设置持久化、开机自启、首启向导
-- ✅ 管理窗口三页签（真数据桥接）
+- ✅ 管理窗口三页签（真数据桥接）+ 缩略图悬停预览 + 显示器页「桌面沙盘 + 详情条」改版
+- ✅ M4 前半：shader 渲染器（WebGL2 + Shadertoy 子集 uniforms + iChannel 噪声纹理）+ shader 缩略图 + 内置样例 ×3
+- ⬜ M4 后半：html 渲染器（沙箱 iframe）
 - ⬜ M1 Windows 贴壁验证（**缺 Windows 机器**）
-- ⬜ M4 shader/html 渲染器 · M5 系统数据桥（全屏/电池自动暂停）· M6 WE 导入
-- ⬜ 协议修复（`gesso://` 自定义协议零回调，当前 file:// 自包含模式）、app 侧 15 条 warning 清理
+- ⬜ M5 系统数据桥（全屏/电池自动暂停）· M6 WE 导入
+- ⬜ 协议修复（`gesso://` 自定义协议零回调，当前 file:// 自包含模式）、app 侧 warning 清理（~25 条）
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 

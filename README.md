@@ -36,7 +36,8 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 | Import files (dialog + drag & drop) | ✅ |
 | Settings persistence, autostart | ✅ |
 | First-run wizard | ✅ |
-| Shader / HTML renderers | 🚧 planned (M4) |
+| Shader renderer (Shadertoy subset, WebGL2) | ✅ |
+| HTML renderer (sandboxed iframe) | 🚧 planned (M4) |
 | System data bridge (cursor / power / fullscreen / audio) | 🚧 planned (M5) |
 | Wallpaper Engine workshop assets (read-only) | 🚧 planned (M6) — see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 

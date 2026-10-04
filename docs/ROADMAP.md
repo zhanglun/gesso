@@ -40,7 +40,6 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - `gesso://` custom scheme non-functional on current webview stack (zero callbacks; serving via self-contained `file://` entries meanwhile).
 - `hovered` UI state reset by 150 ms snapshots → in-window hover highlight flickers; fix together with the real-machine monitor-outline window (signature #1).
 - Real-machine monitor outline (signature #1) and tray panel positioning on retina displays.
-- Hover previews (extracted-frame animation pipeline) vs. current gradient art.
-- ~15 compiler warnings in `gesso-app`; example `m15.rs` is a reference, not a product surface.
+- ~25 compiler warnings in `gesso-app`; example `m15.rs` is a reference, not a product surface.
 - i18n: UI strings are centralized in `ui/strings.rs` (Chinese-first); English translation pass pending.
 - Tray polish: dynamic menu copy (muda handlers are `Send`-only — menu handle can't be mutated from the poller) and precise quick-panel positioning relative to the tray icon (retina coordinate conversion).

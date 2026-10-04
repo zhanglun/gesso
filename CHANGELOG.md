@@ -15,10 +15,13 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Import flow: extension validation (`mp4/webm/gif/webp/glsl/html`; `mkv`/HEVC rejected with actionable copy), source-extension preservation, random unguessable entry IDs.
 - Tray: full menu (pause-all / cycle / manager / autostart / quit).
 - First-run wizard wired to the real library; autostart via `auto-launch`.
+- Thumbnail pipeline: AVFoundation frame extraction (generated objc2 bindings + ImageIO PNG encode, background `autoreleasepool`), `ThumbScheduler` (30s scan, in-flight dedup, 3 attempts/entry), import schedules extraction asynchronously.
+- Hover preview on library cards: paused still-frame by default, extracted-frame carousel on hover.
+- Shader renderer (M4 part 1): WebGL2 host branch with Shadertoy-subset uniforms (`iTime/iResolution/iMouse/iTimeDelta/iFrame` + `iChannel0..3` bound to runtime-generated 256×256 noise textures), `code=` base64url source param（file:// 下 fetch/XHR 被拦）, Shadertoy `mainImage` auto-wrap, RAF-timestamp fps gating, red-screen diagnostics on compile/link failure; 3 built-in samples (plasma / aurora / noiseflow) with static + hover-carousel thumbnails.
 
 **UI (manager window, gpui-kit)**
 
-- Library page (filter segments, search, cards, status bar, drag-to-monitor assignment overlay), monitors page (topology, per-monitor controls), settings page (persisted, applied live).
+- Library page (filter segments, search, cards, status bar, drag-to-monitor assignment overlay), monitors page (desktop-sandbox canvas + detail strip, per-monitor controls), settings page (persisted, applied live).
 - Unified engine bridge: `AppState` global + `EngineAction` queue; snapshots preserve UI-local state.
 
 **Project / docs**
@@ -35,10 +38,12 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Percent-encode library paths (`Application Support` contains a space).
 - Import no longer renames `.webm`/`.webp` to `index.mp4`/`index.gif` (webviews type media by extension); import/validity/host-spec now share one `main_asset_name`.
 - Tray "pause all" toggle used `AtomicBool::swap(true)` (only ever pauses) → `fetch_xor`.
+- Tray "管理窗口…" click went dead after closing the window via the red dot (cached handle activation failed on a closed window) → rebuild the window automatically on activation failure.
+- Settings rows: label and select were not vertically aligned — the kit Select's `size_full` root fills a fixed-height row while its trigger sits top-aligned inside; a `select_slot` wrapper (full-width, height collapsing to the trigger) restores row-level centering.
 
 ### Known limitations (tracked in ROADMAP)
 
 - Windows pinning not yet verified (needs a machine).
 - `gesso://` custom scheme non-functional on the current webview stack; entries load via `file://`.
-- Shader/HTML renderers, system data bridge (fullscreen/battery pause detection) pending.
+- HTML renderer (M4 part 2), system data bridge (fullscreen/battery pause detection) pending.
 - `hovered` state is reset by snapshots (~150 ms) — in-window hover highlight may flicker.
