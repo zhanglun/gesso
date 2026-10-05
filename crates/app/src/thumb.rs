@@ -1,4 +1,13 @@
-//! 壁纸缩略图：视频抽帧（首帧 + 悬停预览帧序列）。
+//! 壁纸缩略图：统一的预览帧策略 + 视频抽帧（首帧 + 悬停预览帧序列）。
+//!
+//! # 统一模型
+//! 缩略图 = "从条目得到可显示的帧序列"。按类型只有来源策略不同，输出契约
+//! （卡片首帧 + hover 帧）、调度（ThumbScheduler 去重/重试/回灌）、消费
+//! （widgets::preview）全统一。策略查 `gesso_core::content_type`，帧发现见 [`preview_frames`]：
+//! - `Direct`（image：jpg/png/jpeg/avif/gif/webp）：源文件本身即位图，
+//!   **零生成、零拷贝直引**；gif/webp 由 GPUI `img` 自动循环，无需抽帧。
+//! - `Extract`（video）：后台 AVFoundation 抽帧。
+//! - `Capture`（shader/html）：主线程 webview 快照（见 `capture.rs`）。
 //!
 //! v2 重写（2026-10-04）。v1 在后台线程裸调 `msg_send!` 人肉维护 ObjC 引用计数，
 //! 有两处所有权违约（两次线上崩溃同指纹：GCD 池弹出时对已释放对象 release）：
@@ -18,6 +27,8 @@
 //! 目录的缺帧补齐"这一件事。
 
 use std::path::{Path, PathBuf};
+
+use gesso_core::WallpaperKind;
 
 /// 悬停轮播：以【原速】回放视频开头一个短片段。
 ///
@@ -58,6 +69,31 @@ pub fn existing_frames(source_dir: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// 统一的预览帧发现（snapshot / 兜底扫描共用）：
+/// - Direct：直引源文件（找 `index.<图片扩展名>`），无生成帧也能立即显示；
+/// - 其余：`existing_frames` 的 `thumb.png` 连续序列。
+pub fn preview_frames(source_dir: &str, kind: WallpaperKind) -> Vec<String> {
+    let ct = gesso_core::content_type(kind);
+    if ct.thumb == gesso_core::ThumbStrategy::Direct {
+        let dir = Path::new(source_dir);
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for ent in rd.flatten() {
+                let name = ent.file_name();
+                let n = name.to_string_lossy();
+                let is_img = n
+                    .strip_prefix("index.")
+                    .map(|e| ct.extensions.contains(&e.to_ascii_lowercase().as_str()))
+                    .unwrap_or(false);
+                if is_img {
+                    return vec![ent.path().display().to_string()];
+                }
+            }
+        }
+        return Vec::new();
+    }
+    existing_frames(source_dir)
 }
 
 /// 采样时刻表（纯逻辑）：第 i 帧取 t = i / SAMPLE_FPS；不足 2 秒的短视频按
@@ -271,6 +307,32 @@ mod ffi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_frames_reference_source_file() {
+        let dir = std::env::temp_dir().join(format!("gesso-direct-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.png"), b"P").unwrap();
+        // Direct：直接引用源文件，即便没有 thumb.png 也有帧
+        let frames = preview_frames(&dir.display().to_string(), WallpaperKind::Image);
+        assert_eq!(frames.len(), 1);
+        assert!(frames[0].ends_with("index.png"));
+        // 非 Direct 类型不读 index.png（它要 thumb.png 序列）
+        assert!(preview_frames(&dir.display().to_string(), WallpaperKind::Video).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn direct_picks_first_index_image_ext() {
+        let dir = std::env::temp_dir().join(format!("gesso-direct-jpg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.jpg"), b"J").unwrap();
+        let frames = preview_frames(&dir.display().to_string(), WallpaperKind::Image);
+        assert!(frames[0].ends_with("index.jpg"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn frame_times_long_video_is_exact_grid() {

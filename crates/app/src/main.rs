@@ -10,6 +10,8 @@ mod protocol;
 mod session;
 mod capture;
 mod thumb;
+mod we;
+mod we_shim;
 mod ui;
 
 use std::time::Duration;
@@ -224,6 +226,8 @@ fn bootstrap() -> (session::SessionManager, bool) {
 fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
     let mut g = GessoState {
         demo: false, // 快照覆盖本地投影；调用方回灌时保留浏览状态
+        // 找到 Steam 才显示「工坊」入口；WE 是否真有订阅内容点开再看
+        we_available: we::find_steam().is_some(),
         ..GessoState::default()
     };
     // 设置真源 = AppConfig.settings（设置页写经 UpdateSettings 动作落盘）
@@ -243,7 +247,21 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
         .map(|e| {
             let kind = match e.kind {
                 WallpaperKind::Video => ui::data::Kind::Video,
-                WallpaperKind::Image => ui::data::Kind::Gif,
+                WallpaperKind::Image => {
+                    // 底层同一 Image 渲染器；UI 按主资源扩展名细分动图/静态图
+                    if let Some(name) = session::main_asset_name(&e.source_dir, e.kind) {
+                        let ext = std::path::Path::new(&name)
+                            .extension().and_then(|x| x.to_str())
+                            .unwrap_or("");
+                        if gesso_core::is_animated_image_ext(ext) {
+                            ui::data::Kind::Gif
+                        } else {
+                            ui::data::Kind::Photo
+                        }
+                    } else {
+                        ui::data::Kind::Photo
+                    }
+                }
                 WallpaperKind::Shader => ui::data::Kind::Shader,
                 WallpaperKind::Html => ui::data::Kind::Web,
             };
@@ -251,7 +269,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 id: e.id.clone().into(),
                 name: e.title.clone().into(),
                 kind,
-                we: e.origin.starts_with("we-"),
+                we: e.origin == "wallpaper-engine",
                 meta: if e.origin == "builtin" {
                     "内置样例".into()
                 } else {
@@ -261,7 +279,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 broken: session::main_asset_name(&e.source_dir, e.kind).is_none(),
                 real: true,
                 art: kind_art(e.kind),
-                thumbs: thumb::existing_frames(&e.source_dir),
+                thumbs: thumb::preview_frames(&e.source_dir, e.kind),
             }
         })
         .collect();
@@ -518,8 +536,9 @@ fn main() {
                     let engine_actions = engine::drain();
                     let mut refresh_ui = !engine_actions.is_empty();
                     let mut deferred_window_actions: Vec<engine::EngineAction> = Vec::new();
-                    let mut deferred_thumb_requests: Vec<String> = Vec::new();
-                    let mut deferred_capture_dirs: Vec<(String, WallpaperKind)> = Vec::new();
+                    // 导入后需要"生成"缩略图的条目（Extract/Capture）；Direct（图片）
+                    // 源文件即可显示，不入列、不生成
+                    let mut pending_thumbs: Vec<(String, WallpaperKind)> = Vec::new();
                     if !engine_actions.is_empty() {
                         cx.update(|cx| {
                             // app（整个全局）与 sm（字段）分开绑定：ThumbsDone 分支
@@ -552,28 +571,46 @@ fn main() {
                                         sm.cycle_main();
                                     }
                                     engine::EngineAction::Import { path } => {
-                                        match sm.import_entry(std::path::Path::new(&path)) {
+                                        // 选中 WE 的 project.json → 转 WE 整目录导入
+                                        let p0 = std::path::Path::new(&path);
+                                        let we_entry = if p0.file_name().and_then(|n| n.to_str())
+                                            == Some("project.json") {
+                                            let dir = p0.parent().unwrap_or(p0);
+                                            let wid = dir.file_name().and_then(|n| n.to_str())
+                                                .unwrap_or_default().to_string();
+                                            we::import_we_at(dir, &wid)
+                                        } else { None };
+
+                                        let import_result = match we_entry {
+                                            Some(we_e) => sm.import_we_entry(&we_e),
+                                            None => sm.import_entry(p0),
+                                        };
+                                        match import_result {
                                             Ok(e) => {
                                                 println!("[ui] 已导入「{}」→ {}", e.title, e.id);
-                                                // 导入后立即后台抽帧（v1 在 import_entry
-                                                // 里主线程同步抽 ~1s，导入即卡顿）；统一
-                                                // 走 ThumbScheduler 去重/限额
-                                                match e.kind {
-                                                    WallpaperKind::Video => {
-                                                        deferred_thumb_requests
-                                                            .push(e.source_dir);
-                                                    }
-                                                    // shader 缩略图：主线程 webview 采集，
-                                                    // 标记在途后独立派发（动作循环外 spawn）
-                                                    WallpaperKind::Shader
-                                                    | WallpaperKind::Html => {
-                                                        deferred_capture_dirs
-                                                            .push((e.source_dir, e.kind));
-                                                    }
-                                                    _ => {}
+                                                // 统一按策略调度：只有需"生成"的入列
+                                                if gesso_core::content_type(e.kind).thumb
+                                                    != gesso_core::ThumbStrategy::Direct {
+                                                    pending_thumbs.push((e.source_dir, e.kind));
                                                 }
                                             }
                                             Err(err) => println!("[ui] 导入失败：{err:?}"),
+                                        }
+                                    }
+                                    engine::EngineAction::ImportWe { dir, workshop_id } => {
+                                        // 重新解析该目录（避免把项目数据塞进动作）
+                                        match we::import_we_at(std::path::Path::new(&dir), &workshop_id) {
+                                            Some(entry) => match sm.import_we_entry(&entry) {
+                                                Ok(e) => {
+                                                    println!("[ui] 已导入 WE「{}」→ {}", e.title, e.id);
+                                                    if gesso_core::content_type(e.kind).thumb
+                                                        != gesso_core::ThumbStrategy::Direct {
+                                                        pending_thumbs.push((e.source_dir, e.kind));
+                                                    }
+                                                }
+                                                Err(err) => println!("[ui] WE 导入失败：{err:?}"),
+                                            },
+                                            None => println!("[ui] WE 条目解析失败：{dir}"),
                                         }
                                     }
                                     engine::EngineAction::UpdateSettings(settings) => {
@@ -641,23 +678,21 @@ fn main() {
                             }
                         });
                     }
-                    // 导入触发的立即补帧（已在 ThumbScheduler 标记在途，直接起任务）
-                    for dir in deferred_thumb_requests {
+                    // 导入触发的缩略图生成：统一标记在途，按策略起对应任务
+                    // （Direct 图片类型不在此列——源文件直接可显示）
+                    for (dir, kind) in pending_thumbs {
                         cx.update(|cx| {
                             cx.global_mut::<engine::AppState>()
                                 .thumbs
                                 .mark_started(&dir);
                         });
-                        spawn_thumb_job(cx.background_executor().clone(), dir);
-                    }
-                    // shader/html 缩略图采集：必须主线程（AppKit/wry/快照），走前台执行器任务
-                    for (dir, kind) in deferred_capture_dirs {
-                        cx.update(|cx| {
-                            cx.global_mut::<engine::AppState>()
-                                .thumbs
-                                .mark_started(&dir);
-                        });
-                        spawn_capture_job(cx, dir, kind);
+                        match gesso_core::content_type(kind).thumb {
+                            gesso_core::ThumbStrategy::Capture => spawn_capture_job(cx, dir, kind),
+                            gesso_core::ThumbStrategy::Extract => {
+                                spawn_thumb_job(cx.background_executor().clone(), dir)
+                            }
+                            gesso_core::ThumbStrategy::Direct => {}
+                        }
                     }
                     tick += 1;
                     if tick == 20 || tick == 40 {
@@ -730,24 +765,22 @@ fn main() {
             cx.spawn(async move |cx| {
                 loop {
                     cx.background_executor().timer(Duration::from_secs(30)).await;
-                    // 扫描缺帧的视频条目：真源 = 库目录文件系统（existing_frames），
-                    // 不依赖 UI 快照投影的新鲜度
-                    // 缺帧条目扫描：video（AVFoundation 后台抽帧）+ shader（主线程
-                    // webview 采集）；真源 = 库目录文件系统（existing_frames）
+                    // 缺帧兜底：统一按策略扫描——Direct（图片）帧发现本就直引源文件，
+                    // 只对需"生成"且当前缺帧的 Extract/Capture 起任务。
+                    // 真源 = 库目录文件系统，不依赖 UI 快照新鲜度。
                     let targets: Vec<(String, WallpaperKind)> = cx.update(|cx| -> _ {
                         let app = cx.global::<engine::AppState>();
                         app.sm
                             .library()
                             .iter()
                             .filter(|e| {
-                                matches!(e.kind, WallpaperKind::Video | WallpaperKind::Shader
-                                    | WallpaperKind::Html)
+                                gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct
+                            })
+                            .filter(|e| {
+                                app.thumbs.should_start(&e.source_dir)
+                                    && thumb::preview_frames(&e.source_dir, e.kind).len() < 2
                             })
                             .map(|e| (e.source_dir.clone(), e.kind))
-                            .filter(|(dir, _)| {
-                                app.thumbs.should_start(dir)
-                                    && thumb::existing_frames(dir).len() < 2
-                            })
                             .collect()
                     });
                     for (dir, kind) in targets {
@@ -756,11 +789,12 @@ fn main() {
                                 .thumbs
                                 .mark_started(&dir);
                         });
-                        match kind {
-                            WallpaperKind::Shader | WallpaperKind::Html => {
-                                spawn_capture_job(cx, dir, kind)
+                        match gesso_core::content_type(kind).thumb {
+                            gesso_core::ThumbStrategy::Capture => spawn_capture_job(cx, dir, kind),
+                            gesso_core::ThumbStrategy::Extract => {
+                                spawn_thumb_job(cx.background_executor().clone(), dir)
                             }
-                            _ => spawn_thumb_job(cx.background_executor().clone(), dir),
+                            gesso_core::ThumbStrategy::Direct => {}
                         }
                     }
                 }

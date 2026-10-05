@@ -10,9 +10,9 @@ pub struct LibraryEntry {
     pub id: String,
     pub kind: WallpaperKind,
     pub title: String,
-    /// 来源：`local` 或 `we-video:<workshopid>` 等。
+    /// 来源：`local`（普通导入）/ `builtin`（内置样例）/ `wallpaper-engine`（WE 导入）。
     pub origin: String,
-    /// 素材根目录（库内拷贝路径或 workshop 只读引用路径）。
+    /// 素材根目录（库内拷贝路径；v1 统一拷贝制，直引待 gesso:// 协议修复）。
     pub source_dir: String,
 }
 

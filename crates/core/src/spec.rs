@@ -21,7 +21,8 @@ pub enum Fit {
     Fill,
 }
 
-/// 素材元信息。`origin` 标记来源，WE 导入项形如 `"we-video:<workshopid>"`。
+/// 素材元信息。`origin` 标记来源；Wallpaper Engine 导入项固定为
+/// `"wallpaper-engine"`（普通导入为 `"local"`、内置样例为 `"builtin"`）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpecMeta {
     pub title: String,

@@ -429,18 +429,20 @@ impl SessionManager {
     }
 
     /// 导入结果的类型判定（UI 预检与引擎执行共用同一套规则）。
+    /// 类型知识查 core 描述表；这里只保留"已知但拒绝"的特殊错误。
     pub fn classify_import(path: &std::path::Path) -> ImportCheck {
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
             return ImportCheck::Err(ImportError::Unsupported);
         };
-        match ext.to_ascii_lowercase().as_str() {
-            "mp4" | "webm" => ImportCheck::Ok(WallpaperKind::Video),
-            "gif" | "webp" => ImportCheck::Ok(WallpaperKind::Image),
-            "glsl" => ImportCheck::Ok(WallpaperKind::Shader),
-            "html" => ImportCheck::Ok(WallpaperKind::Html),
-            "mkv" => ImportCheck::Err(ImportError::Mkv),
-            "hevc" | "h265" | "heic" => ImportCheck::Err(ImportError::Hevc),
-            _ => ImportCheck::Err(ImportError::Unsupported),
+        let ext = ext.to_ascii_lowercase();
+        match ext.as_str() {
+            "mkv" => return ImportCheck::Err(ImportError::Mkv),
+            "hevc" | "h265" | "heic" => return ImportCheck::Err(ImportError::Hevc),
+            _ => {}
+        }
+        match gesso_core::kind_from_ext(&ext) {
+            Some(kind) => ImportCheck::Ok(kind),
+            None => ImportCheck::Err(ImportError::Unsupported),
         }
     }
 
@@ -482,6 +484,67 @@ impl SessionManager {
         }
         .save(&crate::protocol::library_dir().join("library.json"))
         .map_err(|_| ImportError::Io)?;
+        Ok(entry)
+    }
+
+    /// M6：导入一个 WE 工坊条目（video/web；scene/application 已在 UI 过滤）。
+    ///
+    /// video：拷主文件（project.file）为 index.<ext>，复用视频管线；
+    /// web：拷贝整个条目目录，把入口（project.file）改名为 wallpaper.html
+    /// 并注入 WE API shim，其余子资源相对路径不动，复用 html 管线。
+    /// ponytail: 当前拷贝制（video 文档设想的零拷贝直引待 gesso:// 修复）。
+    pub fn import_we_entry(&mut self, e: &crate::we::WeEntry) -> Result<LibraryEntry, ImportError> {
+        use crate::we::WeKind;
+        let title = if e.project.title.is_empty() {
+            e.workshop_id.clone()
+        } else {
+            e.project.title.clone()
+        };
+        let id = gesso_core::generate_id();
+        let dst = crate::protocol::library_dir().join(&id);
+        std::fs::create_dir_all(&dst).map_err(|_| ImportError::Io)?;
+
+        let kind = match e.kind() {
+            WeKind::Video => WallpaperKind::Video,
+            WeKind::Web => WallpaperKind::Html,
+            WeKind::Unsupported(_) | WeKind::UnsupportedStr(_) => return Err(ImportError::Unsupported),
+        };
+
+        if kind == WallpaperKind::Video {
+            let src = e.dir.join(&e.project.file);
+            let ext = std::path::Path::new(&e.project.file)
+                .extension().and_then(|x| x.to_str()).unwrap_or("mp4");
+            std::fs::copy(&src, dst.join(format!("index.{ext}"))).map_err(|_| ImportError::Io)?;
+        } else {
+            // web：递归拷贝整目录（跳过 project.json，它不是页面资源）
+            copy_dir_except(&e.dir, &dst, &["project.json"])?;
+            // 入口 → wallpaper.html（entry_main_source 约定），注入 shim
+            let entry_name = if e.project.file.is_empty() {
+                "index.html".to_string()
+            } else {
+                e.project.file.clone()
+            };
+            let src_entry = dst.join(&entry_name);
+            let html = std::fs::read_to_string(&src_entry).map_err(|_| ImportError::Io)?;
+            let out = crate::we_shim::inject(&html);
+            std::fs::write(dst.join("wallpaper.html"), out).map_err(|_| ImportError::Io)?;
+            // 若入口原名不是 wallpaper.html，删掉旧入口避免冗余
+            if entry_name != "wallpaper.html" {
+                std::fs::remove_file(&src_entry).ok();
+            }
+        }
+
+        let entry = LibraryEntry {
+            id: id.clone(),
+            kind,
+            title,
+            origin: "wallpaper-engine".into(),
+            source_dir: dst.display().to_string(),
+        };
+        self.library.push(entry.clone());
+        gesso_core::LibraryManifest { entries: self.library.clone() }
+            .save(&crate::protocol::library_dir().join("library.json"))
+            .map_err(|_| ImportError::Io)?;
         Ok(entry)
     }
 
@@ -762,22 +825,44 @@ fn urlencode(s: &str) -> String {
 /// 导入落盘用的扩展名：**保留源文件扩展名**（WKWebView 按扩展名判定媒体类型，
 /// 把 `.webm` 存成 `index.mp4`、`.webp` 存成 `index.gif` 会直接播不出来）；
 /// 源文件无扩展名时退回类型默认名。
+/// 递归拷贝目录（跳过指定顶层文件名）；用于 WE web 条目整目录复制。
+fn copy_dir_except(src: &std::path::Path, dst: &std::path::Path, except: &[&str]) -> Result<(), ImportError> {
+    std::fs::create_dir_all(dst).map_err(|_| ImportError::Io)?;
+    let rd = std::fs::read_dir(src).map_err(|_| ImportError::Io)?;
+    for ent in rd.flatten() {
+        let name = ent.file_name();
+        if name.to_str().map(|n| except.contains(&n)).unwrap_or(false) {
+            continue;
+        }
+        let from = ent.path();
+        let to = dst.join(&name);
+        let ft = ent.file_type().map_err(|_| ImportError::Io)?;
+        if ft.is_dir() {
+            copy_dir_except(&from, &to, &[])?;
+        } else {
+            std::fs::copy(&from, &to).map_err(|_| ImportError::Io)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn import_ext(path: &std::path::Path, kind: WallpaperKind) -> String {
     path.extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase())
         .filter(|e| !e.is_empty())
-        .unwrap_or_else(|| default_ext(kind).to_string())
+        .unwrap_or_else(|| gesso_core::content_type(kind).default_ext.to_string())
 }
 
-/// 类型对应的默认扩展名（导入时源文件无扩展名的兜底）
+/// 类型对应的默认扩展名（core 描述表的薄包装）。
 pub fn default_ext(kind: WallpaperKind) -> &'static str {
-    match kind {
-        WallpaperKind::Video => "mp4",
-        WallpaperKind::Image => "gif",
-        WallpaperKind::Shader => "glsl",
-        WallpaperKind::Html => "html",
-    }
+    gesso_core::content_type(kind).default_ext
+}
+
+/// 该类型合法的源资源扩展名（core 描述表的薄包装）。
+/// 主资源发现只在此集合内匹配，避免把宿主页 `index.html` 误判为主资源。
+pub fn valid_exts(kind: WallpaperKind) -> &'static [&'static str] {
+    gesso_core::content_type(kind).extensions
 }
 
 /// 条目主资源文件名：优先目录内真实存在的 `index.*`（导入保留源扩展名），
@@ -798,8 +883,11 @@ pub fn main_asset_name(source_dir: &str, kind: WallpaperKind) -> Option<String> 
     for ent in pref.flatten() {
         let name = ent.file_name().to_string_lossy().to_string();
         if let Some(rest) = name.strip_prefix("index.") {
-            if !rest.is_empty() {
-                // 类型默认扩展名优先，其次任意 index.*
+            // 只认该类型合法扩展名（排除宿主页 index.html 等异名污染）
+            let valid = valid_exts(kind)
+                .iter().any(|e| rest.eq_ignore_ascii_case(e));
+            if valid {
+                // 类型默认扩展名优先，其次任意合法 index.*
                 if rest.eq_ignore_ascii_case(default_ext(kind)) {
                     return Some(name);
                 }
@@ -878,6 +966,28 @@ mod tests {
     }
 
     #[test]
+    fn main_asset_ignores_host_html_pollution() {
+        // 真实场景：图片条目目录混入宿主页 index.html + index.png
+        let dir = std::env::temp_dir().join(format!("gesso-poll-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), b"HOST").unwrap();
+        std::fs::write(dir.join("index.png"), b"IMG").unwrap();
+        let got = main_asset_name(&dir.display().to_string(), WallpaperKind::Image);
+        assert_eq!(got.as_deref(), Some("index.png"), "不得误选宿主页 index.html");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn classify_static_images() {
+        for f in ["a.jpg", "a.jpeg", "a.png", "a.avif"] {
+            assert_eq!(
+                SessionManager::classify_import(Path::new(&format!("/tmp/{f}"))),
+                ImportCheck::Ok(WallpaperKind::Image),
+                "{f} 应识别为图片"
+            );
+        }
+    }
+
     fn import_ext_preserves_source_extension() {
         // webm/webp 不能被改名成 mp4/gif（WKWebView 按扩展名判定类型）
         assert_eq!(
@@ -963,5 +1073,79 @@ mod tests {
         // 亚量化步长（1/10000）内抖动被同一量化值吸收 = 不触发推送
         // 亚量化步长（1/10000）内的抖动被同一量化值吸收 = 不触发推送
         assert_eq!(quantize(0.50003), quantize(0.50004));
+    }
+}
+
+#[cfg(test)]
+mod we_import_tests {
+    use super::*;
+    use std::fs;
+
+    fn fixture() -> (tempfile_lite::TempHome, crate::we::WeEntry) {
+        let home = tempfile_lite::TempHome::new();
+        let root = home.path.join("workshop/content/431960/222");
+        fs::create_dir_all(root.join("assets")).unwrap();
+        fs::write(root.join("project.json"),
+            r#"{"type":"web","file":"index.html","title":"My Web"}"#).unwrap();
+        fs::write(root.join("index.html"),
+            "<html><head><title>T</title></head><body><h1>hi</h1></body></html>").unwrap();
+        fs::write(root.join("assets/a.js"), b"JSCODE").unwrap();
+        let entry = crate::we::import_we_at(&root, "222").unwrap();
+        (home, entry)
+    }
+
+    #[test]
+    fn imports_web_with_shim_and_assets() {
+        let (home, entry) = fixture();
+        let mut sm = SessionManager::new(Default::default(), Vec::new());
+        let got = sm.import_we_entry(&entry).expect("导入成功");
+        assert_eq!(got.kind, WallpaperKind::Html);
+        assert_eq!(got.title, "My Web");
+        assert_eq!(got.origin, "wallpaper-engine");
+        let dir = std::path::Path::new(&got.source_dir);
+        // 入口已改名 + 注入 shim
+        let wp = fs::read_to_string(dir.join("wallpaper.html")).unwrap();
+        assert!(wp.contains("wallpaperRegisterAudioListener"));
+        assert!(wp.contains("<title>T</title>"));
+        // 旧入口已删，子资源保留
+        assert!(!dir.join("index.html").exists());
+        assert_eq!(fs::read(dir.join("assets/a.js")).unwrap(), b"JSCODE");
+        // project.json 未拷入
+        assert!(!dir.join("project.json").exists());
+        // 入库 + manifest 落盘
+        assert_eq!(sm.library.len(), 1);
+        assert!(crate::protocol::library_dir().join("library.json").exists());
+    }
+
+    #[test]
+    fn rejects_scene() {
+        let home = tempfile_lite::TempHome::new();
+        let root = home.path.join("workshop/content/431960/9");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("project.json"), r#"{"type":"scene","file":"s.pkg","title":"S"}"#).unwrap();
+        let entry = crate::we::import_we_at(&root, "9").unwrap();
+        let mut sm = SessionManager::new(Default::default(), Vec::new());
+        assert_eq!(sm.import_we_entry(&entry), Err(ImportError::Unsupported));
+    }
+}
+
+/// 最小临时 HOME：设置 HOME 环境变量指向临时目录，drop 时清理。
+#[cfg(test)]
+mod tempfile_lite {
+    pub struct TempHome {
+        pub path: std::path::PathBuf,
+    }
+    impl TempHome {
+        pub fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("gesso-home-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            // SAFETY: 测试串行（--test-threads=1 依赖见下方）；同一进程内 set_var 安全
+            unsafe { std::env::set_var("HOME", &path); }
+            TempHome { path }
+        }
+    }
+    impl Drop for TempHome {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.path); }
     }
 }

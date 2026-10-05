@@ -4,11 +4,12 @@
 
 use gpui_kit::SharedString;
 
-/// 壁纸内容类型（§1 能力：video / image(GIF·WebP) / shader / html）。
+/// 壁纸内容类型（§1 能力：video / 动图(GIF·WebP) / 静态图片 / shader / html）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
     Video,
     Gif,
+    Photo,
     Shader,
     Web,
 }
@@ -19,6 +20,7 @@ impl Kind {
         match self {
             Kind::Video => "VIDEO",
             Kind::Gif => "GIF",
+            Kind::Photo => "PHOTO",
             Kind::Shader => "SHADER",
             Kind::Web => "WEB",
         }
@@ -29,6 +31,7 @@ impl Kind {
         match self {
             Kind::Video => "视频",
             Kind::Gif => "动图",
+            Kind::Photo => "图片",
             Kind::Shader => "Shader",
             Kind::Web => "网页",
         }

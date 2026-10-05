@@ -145,18 +145,8 @@ fn err(status: lb_wry::http::StatusCode, msg: &str) -> lb_wry::http::Response<Co
 
 #[allow(dead_code)] // gesso:// 协议修复待办
 fn mime_of(p: &Path) -> &'static str {
-    match p.extension().and_then(|e| e.to_str()).unwrap_or("") {
-        "html" => "text/html; charset=utf-8",
-        "js" => "text/javascript",
-        "css" => "text/css",
-        "mp4" | "m4v" => "video/mp4",
-        "webm" => "video/webm",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "json" => "application/json",
-        "glsl" => "text/plain",
-        _ => "application/octet-stream",
-    }
+    p.extension()
+        .and_then(|e| e.to_str())
+        .and_then(gesso_core::mime_for_ext)
+        .unwrap_or("application/octet-stream")
 }

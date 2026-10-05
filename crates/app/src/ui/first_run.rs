@@ -376,5 +376,9 @@ fn sample_art(kind: Kind) -> super::data::Art {
             from: 0x2E3E50,
             to: 0x0E0F13,
         },
+        Kind::Photo => super::data::Art {
+            from: 0x30302A,
+            to: 0x0E0F13,
+        },
     }
 }
