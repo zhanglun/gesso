@@ -5,6 +5,7 @@
 //! UI 不直接触碰 pin/protocol/壁纸窗口生命周期（sync_monitors 独占）。
 mod bridge;
 mod engine;
+mod host_cmd;
 mod pin;
 mod protocol;
 mod session;

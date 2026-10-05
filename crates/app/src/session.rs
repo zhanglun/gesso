@@ -596,7 +596,7 @@ impl SessionManager {
                     if s.downscaled {
                         s.downscaled = false;
                         if let Some(w) = s.window.as_mut() {
-                            w.evaluate(&format!("__gesso&&__gesso.setFps({fps})"));
+                            w.send(crate::host_cmd::HostCommand::SetFps(fps));
                         }
                         println!("[bridge] {id} 恢复帧率 {fps} fps");
                     }
@@ -630,7 +630,7 @@ impl SessionManager {
                     if !s.downscaled {
                         s.downscaled = true;
                         if let Some(w) = s.window.as_mut() {
-                            w.evaluate("__gesso&&__gesso.setFps(5)");
+                            w.send(crate::host_cmd::HostCommand::SetFps(5));
                         }
                         println!("[bridge] {id} 降帧 → 5 fps");
                         changed = true;
@@ -644,11 +644,9 @@ impl SessionManager {
     /// M5 时间脉冲：Rust 每秒驱动一次宿主页时钟（时钟类壁纸 DoD——
     /// 挂钟时间由引擎事件推进，壁纸不必自起高频轮询）。
     pub fn broadcast_time_tick(&mut self) {
-        const JS: &str = "__gesso&&__gesso.tick&&__gesso.tick(Date.now())";
-        // evaluate 需要 &mut（与 set_paused 同一 wry 接口），这里仅为透传
         for s in self.sessions.values_mut() {
             if let Some(w) = s.window.as_mut() {
-                w.evaluate(JS);
+                w.send(crate::host_cmd::HostCommand::Tick);
             }
         }
     }
@@ -693,14 +691,14 @@ impl SessionManager {
                 // 光标离屏或本会话不该响应：推送一次 present=0（shader 可据此淡出）
                 if s.mouse_last != Some((false, 0, 0, 0)) {
                     if let Some(w) = s.window.as_mut() {
-                        w.evaluate("__gesso&&__gesso.mouse&&__gesso.mouse(0,0,0,0)");
+                        w.send(crate::host_cmd::HostCommand::MouseLeave);
                     }
                     s.mouse_last = Some((false, 0, 0, 0));
                 }
                 if s.idle_down {
                     s.idle_down = false;
                     if let Some(w) = s.window.as_mut() {
-                        w.evaluate(&format!("__gesso&&__gesso.setFps({normal_fps})"));
+                        w.send(crate::host_cmd::HostCommand::SetFps(normal_fps));
                     }
                     println!("[bridge] {id} 空闲降帧解除");
                 }
@@ -716,10 +714,11 @@ impl SessionManager {
             let cur = (true, xq, yq, m.buttons);
             if s.mouse_last != Some(cur) {
                 if let Some(w) = s.window.as_mut() {
-                    w.evaluate(&format!(
-                        "__gesso&&__gesso.mouse&&__gesso.mouse(1,{xq},{yq},{})",
-                        m.buttons
-                    ));
+                    w.send(crate::host_cmd::HostCommand::Mouse {
+                        x: xq,
+                        y: yq,
+                        buttons: m.buttons,
+                    });
                 }
                 s.mouse_last = Some(cur);
             }
@@ -729,14 +728,14 @@ impl SessionManager {
                 if !s.idle_down {
                     s.idle_down = true;
                     if let Some(w) = s.window.as_mut() {
-                        w.evaluate("__gesso&&__gesso.setFps(5)");
+                        w.send(crate::host_cmd::HostCommand::SetFps(5));
                     }
                     println!("[bridge] {id} 空闲降帧 → 5 fps");
                 }
             } else if s.idle_down {
                 s.idle_down = false;
                 if let Some(w) = s.window.as_mut() {
-                    w.evaluate(&format!("__gesso&&__gesso.setFps({normal_fps})"));
+                    w.send(crate::host_cmd::HostCommand::SetFps(normal_fps));
                 }
                 println!("[bridge] {id} 空闲降帧解除");
             }

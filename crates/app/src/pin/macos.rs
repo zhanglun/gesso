@@ -168,13 +168,13 @@ impl WallpaperWindow for MacWallpaperWindow {
     }
 
     fn set_paused(&mut self, paused: bool) {
-        // 宿主页契约：window.__gesso.pause()/resume()（技术方案 §5.1/§5.3）
-        let js = if paused {
-            "__gesso&&__gesso.pause()"
+        // 复用类型化命令契约（§5.3：暂停 = 停 RAF / video.pause，窗口常驻）
+        let cmd = if paused {
+            crate::host_cmd::HostCommand::Pause
         } else {
-            "__gesso&&__gesso.resume()"
+            crate::host_cmd::HostCommand::Resume
         };
-        let _ = self.webview.evaluate_script(js);
+        let _ = self.webview.evaluate_script(&cmd.to_js());
     }
 
     fn evaluate(&mut self, js: &str) {
