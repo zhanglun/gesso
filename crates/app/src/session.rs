@@ -220,7 +220,7 @@ impl SessionManager {
                                          // 裸空格会拼出非法 URL 被 WKWebView 拒载
         format!(
             "file://{}",
-            percent_encode_path(&host.display().to_string())
+            crate::encoding::percent_encode_path(&host.display().to_string())
         )
     }
 
@@ -228,7 +228,7 @@ impl SessionManager {
     pub(crate) fn content_spec(entry: &LibraryEntry, fps: u8) -> ContentSpec {
         ContentSpec {
             kind: entry.kind,
-            source: entry_main_source(&entry),
+            source: crate::encoding::entry_main_source(&entry),
             fit: gesso_core::Fit::Cover,
             fps_cap: fps,
             audio: gesso_core::AudioPolicy::Muted,
@@ -247,14 +247,14 @@ impl SessionManager {
         let mut url = format!(
             "{}?spec={}",
             Self::ensure_entry_host(entry),
-            urlencode(&serde_json::to_string(&spec).expect("ContentSpec 序列化"))
+            crate::encoding::urlencode(&serde_json::to_string(&spec).expect("ContentSpec 序列化"))
         );
         if entry.kind == WallpaperKind::Shader {
-            if let Some(name) = main_asset_name(&entry.source_dir, entry.kind) {
+            if let Some(name) = crate::encoding::main_asset_name(&entry.source_dir, entry.kind) {
                 if let Ok(bytes) = std::fs::read(std::path::Path::new(&entry.source_dir).join(name))
                 {
                     url.push_str("&code=");
-                    url.push_str(&base64url(&bytes));
+                    url.push_str(&crate::encoding::base64url(&bytes));
                 }
             }
         }
@@ -452,7 +452,7 @@ impl SessionManager {
             ImportCheck::Ok(kind) => kind,
             ImportCheck::Err(e) => return Err(e),
         };
-        let ext = import_ext(path, kind);
+        let ext = crate::encoding::import_ext(path, kind);
         let id = gesso_core::generate_id();
         let dst_dir = crate::protocol::library_dir().join(&id);
         std::fs::create_dir_all(&dst_dir).map_err(|_| ImportError::Io)?;
@@ -517,7 +517,7 @@ impl SessionManager {
             std::fs::copy(&src, dst.join(format!("index.{ext}"))).map_err(|_| ImportError::Io)?;
         } else {
             // web：递归拷贝整目录（跳过 project.json，它不是页面资源）
-            copy_dir_except(&e.dir, &dst, &["project.json"])?;
+            crate::encoding::copy_dir_except(&e.dir, &dst, &["project.json"])?;
             // 入口 → wallpaper.html（entry_main_source 约定），注入 shim
             let entry_name = if e.project.file.is_empty() {
                 "index.html".to_string()
@@ -772,139 +772,6 @@ impl SessionManager {
     }
 }
 
-/// base64url（无填充：base64url 字母表全属 unreserved，查询参数免转义；
-/// 浏览器侧 atob 按 forgiving-base64 规则接受无填充输入）
-fn base64url(data: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        out.push(T[(n >> 18) as usize & 63] as char);
-        out.push(T[(n >> 12) as usize & 63] as char);
-        if chunk.len() > 1 {
-            out.push(T[(n >> 6) as usize & 63] as char);
-        }
-        if chunk.len() > 2 {
-            out.push(T[n as usize & 63] as char);
-        }
-    }
-    out
-}
-
-/// 文件路径 → URL 路径段编码（保留分隔符 /，其余非 unreserved 全部编码）
-fn percent_encode_path(p: &str) -> String {
-    let mut out = String::with_capacity(p.len());
-    for b in p.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' | b':' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-/// urlencode（spec 传参）
-fn urlencode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 3);
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-/// 导入落盘用的扩展名：**保留源文件扩展名**（WKWebView 按扩展名判定媒体类型，
-/// 把 `.webm` 存成 `index.mp4`、`.webp` 存成 `index.gif` 会直接播不出来）；
-/// 源文件无扩展名时退回类型默认名。
-/// 递归拷贝目录（跳过指定顶层文件名）；用于 WE web 条目整目录复制。
-fn copy_dir_except(src: &std::path::Path, dst: &std::path::Path, except: &[&str]) -> Result<(), ImportError> {
-    std::fs::create_dir_all(dst).map_err(|_| ImportError::Io)?;
-    let rd = std::fs::read_dir(src).map_err(|_| ImportError::Io)?;
-    for ent in rd.flatten() {
-        let name = ent.file_name();
-        if name.to_str().map(|n| except.contains(&n)).unwrap_or(false) {
-            continue;
-        }
-        let from = ent.path();
-        let to = dst.join(&name);
-        let ft = ent.file_type().map_err(|_| ImportError::Io)?;
-        if ft.is_dir() {
-            copy_dir_except(&from, &to, &[])?;
-        } else {
-            std::fs::copy(&from, &to).map_err(|_| ImportError::Io)?;
-        }
-    }
-    Ok(())
-}
-
-pub fn import_ext(path: &std::path::Path, kind: WallpaperKind) -> String {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .filter(|e| !e.is_empty())
-        .unwrap_or_else(|| gesso_core::content_type(kind).default_ext.to_string())
-}
-
-/// 类型对应的默认扩展名（core 描述表的薄包装）。
-pub fn default_ext(kind: WallpaperKind) -> &'static str {
-    gesso_core::content_type(kind).default_ext
-}
-
-/// 该类型合法的源资源扩展名（core 描述表的薄包装）。
-/// 主资源发现只在此集合内匹配，避免把宿主页 `index.html` 误判为主资源。
-pub fn valid_exts(kind: WallpaperKind) -> &'static [&'static str] {
-    gesso_core::content_type(kind).extensions
-}
-
-/// 条目主资源文件名：优先目录内真实存在的 `index.*`（导入保留源扩展名），
-/// 找不到时回退到类型默认名。**导入 / 失效判定 / 宿主页 spec 三处必须共用本函数**，
-/// 否则 webm/webp 这类条目会出现"能导入但被判失效"或"宿主页请求错文件名"。
-///
-/// Html 条目例外：主资源固定 `wallpaper.html`——条目里的 `index.html` 永远是
-/// 宿主页（`ensure_entry_host` 每次启动覆盖写入），绝不能被"任意 index.*"回退
-/// 命中成壁纸资源（否则未完成导入的空壳条目看起来永远有效）。
-pub fn main_asset_name(source_dir: &str, kind: WallpaperKind) -> Option<String> {
-    if kind == WallpaperKind::Html {
-        let p = std::path::Path::new(source_dir).join("wallpaper.html");
-        return p.is_file().then(|| "wallpaper.html".to_string());
-    }
-    let dir = std::path::Path::new(source_dir);
-    let pref = std::fs::read_dir(dir).ok()?;
-    let mut fallback: Option<String> = None;
-    for ent in pref.flatten() {
-        let name = ent.file_name().to_string_lossy().to_string();
-        if let Some(rest) = name.strip_prefix("index.") {
-            // 只认该类型合法扩展名（排除宿主页 index.html 等异名污染）
-            let valid = valid_exts(kind)
-                .iter().any(|e| rest.eq_ignore_ascii_case(e));
-            if valid {
-                // 类型默认扩展名优先，其次任意合法 index.*
-                if rest.eq_ignore_ascii_case(default_ext(kind)) {
-                    return Some(name);
-                }
-                fallback.get_or_insert(name);
-            }
-        }
-    }
-    fallback
-}
-
-/// 条目主资源（相对宿主页同目录；条目自包含）
-fn entry_main_source(entry: &LibraryEntry) -> String {
-    main_asset_name(&entry.source_dir, entry.kind).unwrap_or_else(|| match entry.kind {
-        WallpaperKind::Html => "wallpaper.html".to_string(),
-        k => format!("index.{}", default_ext(k)),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -951,16 +818,16 @@ mod tests {
     #[test]
     fn base64url_known_vectors() {
         // RFC 4648 测试向量（标准字母表）经 url 字母表映射
-        assert_eq!(base64url(b""), "");
-        assert_eq!(base64url(b"f"), "Zg");
-        assert_eq!(base64url(b"fo"), "Zm8");
-        assert_eq!(base64url(b"foo"), "Zm9v");
-        assert_eq!(base64url(b"foob"), "Zm9vYg");
-        assert_eq!(base64url(b"fooba"), "Zm9vYmE");
-        assert_eq!(base64url(b"foobar"), "Zm9vYmFy");
+        assert_eq!(crate::encoding::base64url(b""), "");
+        assert_eq!(crate::encoding::base64url(b"f"), "Zg");
+        assert_eq!(crate::encoding::base64url(b"fo"), "Zm8");
+        assert_eq!(crate::encoding::base64url(b"foo"), "Zm9v");
+        assert_eq!(crate::encoding::base64url(b"foob"), "Zm9vYg");
+        assert_eq!(crate::encoding::base64url(b"fooba"), "Zm9vYmE");
+        assert_eq!(crate::encoding::base64url(b"foobar"), "Zm9vYmFy");
         // +/ 不出现（URL 安全）
         let all: Vec<u8> = (0..=255u8).collect();
-        let enc = base64url(&all);
+        let enc = crate::encoding::base64url(&all);
         assert!(!enc.contains('+') && !enc.contains('/'));
     }
 
@@ -972,7 +839,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("index.html"), b"HOST").unwrap();
         std::fs::write(dir.join("index.png"), b"IMG").unwrap();
-        let got = main_asset_name(&dir.display().to_string(), WallpaperKind::Image);
+        let got = crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Image);
         assert_eq!(got.as_deref(), Some("index.png"), "不得误选宿主页 index.html");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -990,20 +857,20 @@ mod tests {
     fn import_ext_preserves_source_extension() {
         // webm/webp 不能被改名成 mp4/gif（WKWebView 按扩展名判定类型）
         assert_eq!(
-            import_ext(Path::new("/tmp/a.webm"), WallpaperKind::Video),
+            crate::encoding::import_ext(Path::new("/tmp/a.webm"), WallpaperKind::Video),
             "webm"
         );
         assert_eq!(
-            import_ext(Path::new("/tmp/a.webp"), WallpaperKind::Image),
+            crate::encoding::import_ext(Path::new("/tmp/a.webp"), WallpaperKind::Image),
             "webp"
         );
         assert_eq!(
-            import_ext(Path::new("/tmp/a.MP4"), WallpaperKind::Video),
+            crate::encoding::import_ext(Path::new("/tmp/a.MP4"), WallpaperKind::Video),
             "mp4"
         );
         // 无扩展名 → 类型默认
         assert_eq!(
-            import_ext(Path::new("/tmp/noext"), WallpaperKind::Html),
+            crate::encoding::import_ext(Path::new("/tmp/noext"), WallpaperKind::Html),
             "html"
         );
     }
@@ -1015,14 +882,14 @@ mod tests {
         // 只有宿主页 index.html（导入半途）→ None：index.html 永远不是壁纸资源
         std::fs::write(dir.join("index.html"), b"<html>host</html>").unwrap();
         assert_eq!(
-            main_asset_name(&dir.display().to_string(), WallpaperKind::Html),
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Html),
             None
         );
 
         // wallpaper.html 就位 → 命中
         std::fs::write(dir.join("wallpaper.html"), b"<html>wallpaper</html>").unwrap();
         assert_eq!(
-            main_asset_name(&dir.display().to_string(), WallpaperKind::Html).as_deref(),
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Html).as_deref(),
             Some("wallpaper.html")
         );
 
@@ -1036,21 +903,21 @@ mod tests {
 
         // 空目录 → None（失效判定依赖它）
         assert_eq!(
-            main_asset_name(&dir.display().to_string(), WallpaperKind::Video),
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Video),
             None
         );
 
         // 只有 index.webm → 命中（类型默认缺失时用任意 index.*）
         std::fs::write(dir.join("index.webm"), b"x").unwrap();
         assert_eq!(
-            main_asset_name(&dir.display().to_string(), WallpaperKind::Video).as_deref(),
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Video).as_deref(),
             Some("index.webm")
         );
 
         // 同时存在 index.mp4 → 类型默认优先
         std::fs::write(dir.join("index.mp4"), b"x").unwrap();
         assert_eq!(
-            main_asset_name(&dir.display().to_string(), WallpaperKind::Video).as_deref(),
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Video).as_deref(),
             Some("index.mp4")
         );
 

@@ -4,6 +4,7 @@
 //! 写 = UI 把 EngineAction 入队（engine.rs），引擎 150ms 轮询执行——与托盘同一通道。
 //! UI 不直接触碰 pin/protocol/壁纸窗口生命周期（sync_monitors 独占）。
 mod bridge;
+mod encoding;
 mod engine;
 mod host_cmd;
 mod pin;
@@ -250,7 +251,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 WallpaperKind::Video => ui::data::Kind::Video,
                 WallpaperKind::Image => {
                     // 底层同一 Image 渲染器；UI 按主资源扩展名细分动图/静态图
-                    if let Some(name) = session::main_asset_name(&e.source_dir, e.kind) {
+                    if let Some(name) = encoding::main_asset_name(&e.source_dir, e.kind) {
                         let ext = std::path::Path::new(&name)
                             .extension().and_then(|x| x.to_str())
                             .unwrap_or("");
@@ -277,7 +278,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                     e.origin.clone().into()
                 },
                 assigned: None,
-                broken: session::main_asset_name(&e.source_dir, e.kind).is_none(),
+                broken: encoding::main_asset_name(&e.source_dir, e.kind).is_none(),
                 real: true,
                 art: kind_art(e.kind),
                 thumbs: thumb::preview_frames(&e.source_dir, e.kind),
