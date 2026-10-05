@@ -129,9 +129,10 @@ pub fn find_libraries() -> Vec<PathBuf> {
 fn parse_library_paths(vdf: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in vdf.lines() {
-        let bytes = line.as_bytes();
-        let Some(after) = find_quoted(b"path", bytes) else { continue; };
-        if let Some(v) = next_quoted(&bytes[after..]) {
+        // key 是 ASCII，字节级定位安全（UTF-8 多字节序列不含 ASCII 字节）；
+        // 值的提取走字符级（next_quoted）
+        let Some(after) = find_quoted(b"path", line.as_bytes()) else { continue; };
+        if let Some(v) = next_quoted(&line[after..]) {
             out.push(v);
         }
     }
@@ -152,21 +153,16 @@ fn find_quoted(key: &[u8], line: &[u8]) -> Option<usize> {
 }
 
 /// 取从切片开头起第一个引号内的字符串，还原 `\` / `"` 转义。
-fn next_quoted(s: &[u8]) -> Option<String> {
-    let start = s.iter().position(|&b| b == b'"')? + 1;
+/// 按字符处理：路径含非 ASCII（中文库名）时字节级 `as char` 会毁掉 UTF-8。
+fn next_quoted(s: &str) -> Option<String> {
+    let mut chars = s[s.find('"')? + 1..].chars();
     let mut out = String::new();
-    let mut i = start;
-    while i < s.len() {
-        match s[i] {
-            b'"' => return Some(out),
-            b'\\' if i + 1 < s.len() => {
-                out.push(s[i + 1] as char); // VDF 只转义反斜杠和引号
-                i += 2;
-            }
-            b => {
-                out.push(b as char);
-                i += 1;
-            }
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => return Some(out),
+            // VDF 只转义反斜杠和引号
+            '\\' => out.push(chars.next()?),
+            c => out.push(c),
         }
     }
     None
@@ -291,9 +287,9 @@ mod tests {
         put_entry(&second, "222",
             r#"{"type":"web","file":"index.html","title":"B Second Web"}"#, &["index.html"]);
 
-        // vdf 登记第二库（路径含空格）
+        // vdf 登记第二库（路径含空格；真实 Steam 的 vdf 里反斜杠是转义态）
         let vdf = format!("\"libraryfolders\"\n{{\n  \"1\"\n  {{\n    \"path\" \"{}\"\n  }}\n}}\n",
-            second.display());
+            second.display().to_string().replace('\\', "\\\\"));
         fs::write(main.join("steamapps/libraryfolders.vdf"), vdf).unwrap();
 
         unsafe { std::env::set_var("STEAM_DIR", &main); }
