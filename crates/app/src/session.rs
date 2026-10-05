@@ -118,6 +118,40 @@ impl SessionManager {
         }
     }
 
+    /// explorer 重启自愈（Windows M1）：TaskbarCreated 后由引擎轮询触发。
+    /// explorer 死亡会连带销毁挂在其 WorkerW 下的壁纸窗口（跨进程父窗口死亡），
+    /// 所以这里**整窗重建**（pin::create + load），不是对旧句柄重挂。
+    /// 返回 false = 有窗口未落位（explorer 未就绪），调用方应置位重试。
+    pub fn remount_all(&mut self) -> bool {
+        // 先提取重建计划（避免 sessions/library 交叉借用），再逐个整窗重建
+        let plans: Vec<(String, MonitorInfo, LibraryEntry, u8)> = self
+            .sessions
+            .iter()
+            .filter_map(|(mid, s)| {
+                let entry = self.library.iter().find(|e| e.id == s.entry_id).cloned()?;
+                let fps = self.fps_for(mid);
+                Some((mid.clone(), s.monitor.clone(), entry, fps))
+            })
+            .collect();
+        let mut all_ok = true;
+        for (mid, monitor, entry, fps) in plans {
+            let Some(s) = self.sessions.get_mut(&mid) else { continue };
+            s.window = None; // 旧窗口多半已被 explorer 连带销毁；Drop 容忍 DestroyWindow 失败
+            match Self::build_window_only(&monitor) {
+                Ok(mut w) => {
+                    w.load(&Self::entry_host_url(&entry, fps));
+                    all_ok &= w.mount_ok();
+                    s.window = Some(w);
+                }
+                Err(e) => {
+                    println!("[session] {mid} 重钉失败：{e}");
+                    all_ok = false;
+                }
+            }
+        }
+        all_ok
+    }
+
     /// 全量同步：枚举显示器 → 按配置建/拆会话（启动与显示器轮询共用）。
     pub fn sync_monitors(&mut self) {
         let monitors = pin::enumerate_monitors();

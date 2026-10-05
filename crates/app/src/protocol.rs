@@ -25,9 +25,20 @@ fn decode_path(p: &str) -> String {
 }
 
 /// 所有 gesso 资源同处一 scheme；CSP 按 scheme 收敛。
+#[cfg(target_os = "macos")]
 const CSP: &str = "default-src 'none'; script-src 'unsafe-inline' gesso:; \
      style-src 'unsafe-inline' gesso:; frame-src gesso:; \
      media-src gesso: blob:; img-src gesso: data:; connect-src 'none'";
+/// Windows（WebView2 workaround，见 pin/windows.rs）：页面实际 origin 是
+/// `http://gesso.<host段>`，CSP 源必须按 workaround 宿主枚举（`gesso:` 匹配不到它们）。
+/// 协议回调收到的是还原后的 gesso:// URI，路由不分平台。
+#[cfg(not(target_os = "macos"))]
+const CSP: &str = "default-src 'none'; \
+     script-src 'unsafe-inline' http://gesso.host http://gesso.library http://gesso.steam; \
+     style-src 'unsafe-inline' http://gesso.host http://gesso.library http://gesso.steam; \
+     frame-src http://gesso.host http://gesso.library http://gesso.steam; \
+     media-src http://gesso.host http://gesso.library http://gesso.steam blob:; \
+     img-src http://gesso.host http://gesso.library http://gesso.steam data:; connect-src 'none'";
 
 /// 宿主页/样例资源根（开发态 = crate assets；发布态 = exe 旁 assets）
 pub fn assets_dir() -> PathBuf {
@@ -55,23 +66,38 @@ pub fn library_dir() -> PathBuf {
     config_dir().join("library")
 }
 
-/// 条目资源的 gesso URL。
+/// 条目资源的页面可见 URL。
 /// - WE 零拷贝条目（origin == "wallpaper-engine"，source_dir 指向某 Steam 库）→ steam 路由
 /// - 其余（库内拷贝）→ library 路由
 /// `rel` 为该条目内的相对资源路径。
+///
+/// Windows 返回 WebView2 workaround 形态 `http://gesso.<host段>/…`（子资源不走
+/// wry 的导航翻译，见 pin/windows.rs）；协议回调按还原后的 gesso:// URI 路由，
+/// 因此本函数是页面子资源 URL 唯一的平台分派点。
 pub fn entry_url(entry: &gesso_core::LibraryEntry, rel: &str) -> String {
-    if entry.origin == "wallpaper-engine" {
+    let gesso = if entry.origin == "wallpaper-engine" {
         let src = Path::new(&entry.source_dir);
         // 多库：找包含该 source_dir 的库，取相对该库的路径（URL 不带库标识，
         // route 侧再遍历全部库归属解析）。
-        if let Some(root) = crate::we::find_libraries().iter().find(|l| src.starts_with(l)) {
-            if let Ok(inner) = src.strip_prefix(root) {
-                return format!("gesso://steam/{}/{rel}", inner.to_string_lossy());
-            }
-        }
-        // Steam 不可用（已卸载/移动）→ 退回库内路径（旧拷贝条目兼容）
-    }
-    format!("gesso://library/{}/{rel}", entry.id)
+        crate::we::find_libraries()
+            .iter()
+            .find(|l| src.starts_with(l))
+            .and_then(|root| src.strip_prefix(root).ok())
+            // Steam 不可用（已卸载/移动）→ 退回库内路径（旧拷贝条目兼容）
+            .map(|inner| format!("gesso://steam/{}/{}", inner.to_string_lossy(), rel))
+    } else {
+        None
+    };
+    workaround_page_url(gesso.unwrap_or_else(|| format!("gesso://library/{}/{}", entry.id, rel)))
+}
+
+/// 页面可见 gesso URL → 平台导航形态。Windows 走 WebView2 workaround
+/// （`gesso://X/` → `http://gesso.X/`），macOS 原样。
+fn workaround_page_url(url: String) -> String {
+    #[cfg(target_os = "windows")]
+    return crate::pin::windows::workaround_url(&url);
+    #[cfg(not(target_os = "windows"))]
+    url
 }
 
 /// 宿主页入口 URL
@@ -80,7 +106,6 @@ pub fn host_url() -> &'static str {
 }
 
 /// 创建挂到给定原生视图的壁纸 webview（注册 gesso:// 协议）。
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：当前仅 macOS 采集/贴壁路径调用
 pub fn create_webview<H: HasWindowHandle + 'static>(
     handle: H,
     url: &str,

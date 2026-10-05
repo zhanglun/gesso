@@ -600,6 +600,24 @@ fn open_main_window(cx: &mut gpui_kit::gpui::App) {
 }
 
 fn main() {
+    // Windows 平台面（M1，技术方案 §4.1）：进程必须先于任何窗口创建声明 PerMonitorV2，
+    // 否则显示器枚举/窗口定位拿到的是虚拟化坐标，与 DPI-aware 的 explorer/WorkerW
+    // 无法像素对齐。GPUI 与 wry 均不设置（实测 0.3.7 快照），此处运行时调用等效于
+    // manifest 声明，必须放在 gpui_kit::application() 之前。
+    // GPUI DirectX 渲染器默认走 DirectComposition 视觉树，与 WebView2 同进程共存
+    // 有合成冲突风险（ROADMAP M1 配方）——禁用之（仅影响管理窗口渲染路径）。
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::HiDpi::{
+            SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        };
+        std::env::set_var("GPUI_DISABLE_DIRECT_COMPOSITION", "1");
+        // SAFETY: 进程级一次性设置，任何窗口创建之前；已设置时失败无害
+        unsafe {
+            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+    }
+
     // 单实例（§4.1 对策 5）。GESSO_LOCK 供开发期多实例并存（UI 验收 vs 会话调试）。
     let lock_name = std::env::var("GESSO_LOCK").unwrap_or_else(|_| "gesso-app-lock".into());
     {
@@ -756,7 +774,21 @@ fn main() {
                         });
                     }
                     if tick.is_multiple_of(MONITOR_SYNC_EVERY) {
-                        cx.update(|cx| cx.global_mut::<engine::AppState>().sm.sync_monitors());
+                        cx.update(|cx| {
+                            // M1 Windows：explorer 重启自愈——TaskbarCreated 广播置位后，
+                            // 各会话壁纸窗口重走挂载阶梯 + 重建 webview（合成随 SetParent
+                            // 失效）。广播意味着 explorer 壳层已就绪（Progman 必在），
+                            // 重挂最差落到 Progman 兜底，无需额外重试节奏。
+                            #[cfg(target_os = "windows")]
+                            if pin::windows::take_remount_pending() {
+                                // 整窗重建；explorer 未就绪（BottomMost）时重新置位，下轮重试
+                                let ok = cx.global_mut::<engine::AppState>().sm.remount_all();
+                                if !ok {
+                                    pin::windows::rearm_remount();
+                                }
+                            }
+                            cx.global_mut::<engine::AppState>().sm.sync_monitors();
+                        });
                         refresh_ui = true;
                     }
                     // M5 数据桥（与显示器同步同节奏，错开半拍）：全屏检测 + 电源态
