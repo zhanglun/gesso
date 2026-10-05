@@ -45,7 +45,7 @@ crates/app      应用：
   ├─ thumb.rs     视频抽帧 + 缩略图策略调度
   ├─ encoding.rs  纯工具：base64url/路径编码/目录拷贝/主资源发现
   ├─ host_cmd.rs  Rust→宿主页类型化命令（HostCommand）
-  ├─ we.rs / we_shim.rs   WE 工坊扫描 / WE API 垫片
+  ├─ we.rs / we_shim.rs   WE 用户导入解析 / WE API 垫片
   ├─ protocol.rs  gesso:// 资源协议（已打通：host 统一宿主页 + library 条目资源，视频 Range）
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
@@ -62,11 +62,11 @@ docs/           工程文档 + design/（设计归档）
 - ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（真实宿主页 WKWebView 快照：静态 + 15 hover 帧）+ 内置样例 ×5
 - ⬜ M1 Windows 贴壁验证（**缺 Windows 机器**）
 - ✅ M5 系统数据桥完整：全屏/电池自动暂停·降帧 + 时间脉冲 + 光标 feed（iMouse 跟随，无需授权）+ 空闲降帧
-- ✅ M6 WE 工坊扫描/导入（video/web）+ jpg/png/avif 静态图 + 独立「图片」分类
+- ✅ M6 WE 用户主动导入/解析（video/web；绝不扫描磁盘）+ jpg/png/avif 静态图 + 独立「图片」分类
 - ✅ 架构还债：content 内容类型表（类型/扩展名/MIME/缩略图策略单一事实源）、HostCommand 类型化、main 上帝循环拆解、session 工具抽到 encoding
 - ✅ 协议已打通（`gesso://` 宿主页走统一副本、资源走 library、WE 源走 steam 只读直引；`bf3c294`）；WE video/web 零拷贝
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 
 - macOS 构建**不需要 Xcode**（runtime_shaders）；图标用 `gpui_kit_assets::IconName`（完整 Lucide）；`Button` 无 `color()`/`when()`（用变体 + `if`）；`overflow_y_scroll` 必须在 `.id()` 之后；库路径含空格必须百分号编码；`swap(true)` 当开关必错（用 `fetch_xor`）。
-- WE 零拷贝视频/web 不拷入库，`source_dir` 指 Steam 工坊目录，经 `gesso://steam/…` 只读直引（视频 Range 206、shim 内存注入）。**多 Steam 库**：解析 `libraryfolders.vdf`，扫描/路由覆盖全部库。
+- WE **只由用户主动导入**（对话框选 `project.json`），绝不扫描磁盘/枚举 Steam。video/web 不拷入库，`source_dir` 指用户选中目录，经 `gesso://steam/<entry-id>/…` 以不可猜 entry id 为凭据只读直引（视频 Range 206、shim 内存注入）。

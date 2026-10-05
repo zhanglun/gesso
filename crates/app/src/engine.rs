@@ -88,8 +88,6 @@ pub enum EngineAction {
     Remove { entry_id: String },
     /// 单显示器帧率上限（SessionManager::set_fps，§4.4）。
     SetMonitorFps { monitor_id: String, fps: u8 },
-    /// 导入一个 WE 工坊条目（SessionManager::import_we_entry）。
-    ImportWe { dir: String, workshop_id: String },
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
     /// 后台抽帧任务完成（thumb 调度 → 引擎：释放在途标记 + 触发快照回灌）。

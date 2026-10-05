@@ -60,8 +60,6 @@ pub struct GessoState {
     pub card_dragging: bool,
     /// false = 页面数据来自真会话快照（main.rs 装配）；true = 纯演示数据。
     pub demo: bool,
-    /// 本机是否找到 Steam（决定库页是否显示「工坊」入口）。
-    pub we_available: bool,
 }
 
 impl Global for GessoState {}
@@ -85,7 +83,6 @@ impl Default for GessoState {
             status_error: None,
             card_dragging: false,
             demo: false,
-            we_available: false,
         }
     }
 }

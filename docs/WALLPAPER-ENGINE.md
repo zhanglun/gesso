@@ -21,7 +21,7 @@ Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/4319
 
 ## 实现备忘（M6）
 
-- 扫描：`we.rs::scan` 读 `project.json`；Steam 根定位走 `STEAM_DIR` → macOS 默认路径 → Windows 常见盘符。检测不到 Steam 时 UI 隐藏「工坊」入口。
+- 导入：用户**自己用导入对话框选中** WE 条目的 `project.json`（或整目录）；`we.rs::import_we_at` 解析 `project.json`。Gesso **不扫描磁盘、不枚举 Steam/工坊、不依赖 Steam 是否安装**。
 - shim 注入点：主 HTML 文档在 gesso://steam 协议层内存注入（紧贴 `<head>` 之后，`we_shim.rs`）；原文件只读不动。
 - 普通「导入」按钮选中 `project.json` 同样触发整目录 WE 导入。
 
@@ -37,5 +37,5 @@ Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/4319
 ## 验收（M6 实测）
 
 - 夹具端到端：零拷贝条目指向源目录、steam 路由内存注入 shim + 路径空间隔离、scene 明确拒绝均有测试覆盖；
-- video/web 零拷贝直引实机验证（主文档 + 相对子资源均经 gesso://steam 加载，0 panic）；检测不到 Steam 时入口隐藏；
+- video/web 零拷贝直引实机验证（主文档 + 相对子资源均经 `gesso://steam/<entry-id>/…` 加载，0 panic）；以不可猜 entry id 为凭据，未知 id 回 404；
 - 大规模工坊实机兼容性（热门 20 个 web）待有 Steam 环境补测。
