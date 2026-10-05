@@ -12,8 +12,8 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M3    sessions/config/UI engine + UI↔engine actions + import + settings + first-run
 ✅ M4    renderer completeness — video / image / shader (WebGL2 + Shadertoy subset) / HTML (sandboxed iframe); all four kinds have real webview-captured thumbnails (static + 15-frame hover sequence)
 ✅ M5    system data bridge — fullscreen/battery auto-pause + time feed + cursor feed (iMouse) + idle downscale
+✅ M6    Wallpaper Engine import I (video/web) + static images + content-type registry refactor
 ⬜ M1    Windows pinning (needs a Windows machine)
-⬜ M6    Wallpaper Engine import I (video/web)
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 
@@ -30,9 +30,13 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - Own Win32 window + WebView2 child (`GPUI_DISABLE_DIRECT_COMPOSITION=1`), `SetParent` onto `WorkerW`, icon-hidden fallback path, `TaskbarCreated` re-pin, DPI/multi-monitor placement.
 - Blocked on: a Windows machine (hardware or GUI-capable VM).
 
-### M6 — Wallpaper Engine import I
-- Workshop scan (`steamapps/workshop/content/431960/<id>/project.json`), `video`/`web` types; WE web-API shim (`wallpaperRegisterAudioListener` etc.).
-- GPL boundary: invoke `depkg-cli` as a subprocess or accept project-wide GPL (decision pending, see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md)).
+### M6 — Wallpaper Engine import I（✅ 已完成）
+- ✅ 工坊扫描：`steamapps/workshop/content/431960/<id>/project.json`，支持 `video`/`web`；检测不到 Steam 时自动隐藏「工坊」入口（可用 `STEAM_DIR` 夹具验证）。
+- ✅ WE web 垫片：`wallpaperRegisterAudioListener`/媒体等空实现 + 暂停/fps/鼠标/时间桥，注入点紧贴 `<head>`。
+- ✅ 普通导入可选 `project.json` 触发整目录 WE 导入；法律边界：只读本机已订阅内容，不下载/不爬取/不再分发。
+- ✅ 静态图：支持 jpg/jpeg/png/avif，UI 新增独立「图片」分类（底层复用 Image）；图片缩略图 Direct 直引源文件，零生成零拷贝。
+- ✅ 架构还债（本次两个 bug 的结构性根因）：① `gesso-core::content` 内容类型描述表——类型↔扩展名↔MIME↔缩略图策略的单一事实源；② `HostCommand` 枚举类型化 Rust↔宿主页命令；③ main.rs 上帝循环拆解（`apply_engine_action`/`merge_snapshot`/命名定时）；④ session.rs 纯工具抽到 `encoding.rs`。
+- scene 类型（M7）暂拒绝；`depkg` 为 GPL，倾向子进程隔离，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md)。
 
 ## Known gaps (no milestone yet)
 
