@@ -28,7 +28,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 
 ### M1 — Windows pinning（✅ 主体完成，2026-10-05 实机验证）
 - ✅ 自有 Win32 壁纸窗口（WS_POPUP + TOOLWINDOW/NOACTIVATE，非 GPUI 窗口）+ wry/WebView2 子窗口直挂。
-- ✅ WorkerW 挂载阶梯：`Progman 0x052C` → SHELLDLL_DefView 宿主之后的 WorkerW → `SetParent`；兜底 Progman（桌面图标关闭）/ 顶层 HWND_BOTTOM（explorer 未就绪）。实机：plasma shader 在图标层之下全屏渲染。
+- ✅ WorkerW 挂载阶梯：`Progman 0x052C` → SHELLDLL_DefView 宿主之后的 WorkerW → `SetParent`；兜底 Progman（桌面图标关闭）/ 顶层 HWND_BOTTOM（explorer 未就绪）。实机：shader / html / **视频（协议 Range 206 流式）**均在图标层之下全屏渲染。
 - ✅ **创建顺序生死线（实测踩坑）**：必须先 `SetParent` 挂载、后创建 WebView2——反之 DComp 视觉树绑定失效，窗口树全绿但整窗不可见（见工程笔记 §2）。
 - ✅ DPI：进程顶部 `SetProcessDpiAwarenessContext(PMv2)`（GPUI/wry 均不设置），125% 缩放下物理像素与 WorkerW 精确对齐；`GPUI_DISABLE_DIRECT_COMPOSITION=1`。
 - ✅ explorer 重启自愈：隐藏监听窗口收 `TaskbarCreated` → 引擎轮询整窗重建（explorer 死亡会连带销毁跨进程子窗口，重挂旧句柄无效）。实机验证：重启后自动落位 WorkerW 并恢复渲染。
