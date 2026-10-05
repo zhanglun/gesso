@@ -5,6 +5,7 @@
 //! **不经 GPUI 窗口管理**——GPUI 协调器与桌面级全屏几何必然冲突。
 //! webview 由 wry 直挂窗口 contentView。
 
+#[cfg(target_os = "macos")]
 pub mod macos;
 
 /// 显示器信息（枚举产物，稳定 ID 是配置映射的 key）。
@@ -40,6 +41,14 @@ pub trait WallpaperWindow {
     fn diag(&self, _tag: &str) {}
 }
 
+/// 枚举显示器（平台分派；M1 起 Windows 用 EnumDisplayMonitors 接入）。
+pub fn enumerate_monitors() -> Vec<MonitorInfo> {
+    #[cfg(target_os = "macos")]
+    return macos::enumerate_monitors();
+    #[cfg(not(target_os = "macos"))]
+    Vec::new()
+}
+
 /// 平台分派（M1 起补 Windows 分支；Linux 按非目标返回 Unsupported）。
 pub fn create_wallpaper_window(
     monitor: &MonitorInfo,
@@ -47,7 +56,10 @@ pub fn create_wallpaper_window(
     #[cfg(target_os = "macos")]
     return macos::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
     #[cfg(not(target_os = "macos"))]
-    Err(gesso_core::GessoError::UnsupportedPlatform(
-        std::env::consts::OS.into(),
-    ))
+    {
+        let _ = monitor; // Windows 分支 M1 接入后消费
+        Err(gesso_core::GessoError::UnsupportedPlatform(
+            std::env::consts::OS.into(),
+        ))
+    }
 }

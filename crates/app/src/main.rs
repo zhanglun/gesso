@@ -771,6 +771,8 @@ fn main() {
             // 全在主线程。根因教训：NSEvent.mouseLocation 从后台线程读在快速
             // 更新时是陈旧值（光团卡住、停后才闪现到终点）——AppKit 界面状态
             // 必须主线程读。poll_mouse 内部量化去重，静止不产生 evaluate。
+            // Windows 待 M1：GetCursorPos + GetAsyncKeyState + GetLastInputInfo 同语义实现。
+            #[cfg(target_os = "macos")]
             cx.spawn(async move |cx| {
                 loop {
                     cx.background_executor()

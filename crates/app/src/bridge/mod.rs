@@ -18,6 +18,7 @@ pub struct BridgeSnapshot {
 }
 
 /// 光标瞬时态：全局 AppKit 坐标（原点左下，单位 pt）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 光标 feed（main.rs M5 循环）构造
 #[derive(Debug, Clone, Copy)]
 pub struct MouseSample {
     pub x: f64,

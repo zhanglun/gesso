@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 /// - `SAMPLE_FPS`：采样帧率 = 回放帧率（8fps 轮播即 8fps 采样 → 每帧驻留
 ///   125ms = 抽帧间隔，速度与原片一致）
 /// - 片段时长 = HOVER_FRAMES / SAMPLE_FPS = 2 秒（循环点轻微跳变可接受）
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 抽帧/采集路径消费
 pub const SAMPLE_FPS: u64 = 8;
 pub const HOVER_FRAMES: usize = 15; // 2 秒片段（含首帧共 16 帧）
 
@@ -62,6 +63,7 @@ pub fn existing_frames(source_dir: &str) -> Vec<String> {
 
 /// 采样时刻表（纯逻辑）：第 i 帧取 t = i / SAMPLE_FPS；不足 2 秒的短视频按
 /// 实际时长钳制（保证相邻帧 ≥ 原速间隔，最末帧不越界，全部落在 (0, duration) 内）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 视频抽帧用
 fn frame_times(duration_secs: f64) -> Vec<f64> {
     let total = HOVER_FRAMES + 1;
     let clip = duration_secs.min(total as f64 / SAMPLE_FPS as f64);

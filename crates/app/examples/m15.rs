@@ -9,20 +9,31 @@
 //! 运行：cargo run -p gesso-app --example m15
 //! 验收：壁纸铺满整屏（含菜单栏带）、图标可点、Space 跟随、全屏无异常。
 
+// m15 是 macOS 专用 spike（纯 AppKit 压层）；非 macOS 平台编译占位 main。
+#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "macos")]
 use std::time::Duration;
 
+#[cfg(target_os = "macos")]
 use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
+#[cfg(target_os = "macos")]
 use objc2_foundation::MainThreadMarker;
+#[cfg(target_os = "macos")]
 use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
 
 /// 图标层下缘之下一档（spike v1 定稿）
+#[cfg(target_os = "macos")]
 const PIN_LEVEL: isize = -2147483604;
 
+#[cfg(target_os = "macos")]
 static SWAPPED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
 static MENU_ACTIONS: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
 
+#[cfg(target_os = "macos")]
 const HOST_HTML_A: &str = r#"<!DOCTYPE html><html><head><style>
 body{margin:0;background:linear-gradient(160deg,#101830,#0B0F1E 60%,#141A2E);color:#EBEBED;
 font:14px -apple-system,'PingFang SC',sans-serif;display:grid;place-items:center;height:100vh}
@@ -35,10 +46,12 @@ font:14px -apple-system,'PingFang SC',sans-serif;display:grid;place-items:center
 <script>setInterval(()=>{document.getElementById('ac').textContent=new Date().toLocaleTimeString('zh-CN')},500)</script>
 </body></html>"#;
 
+#[cfg(target_os = "macos")]
 const HOST_HTML_B: &str = r#"<!DOCTYPE html><html><head><style>body{margin:0;background:#D33A3A;color:#fff;
 font:600 26px -apple-system,'PingFang SC';display:grid;place-items:center;height:100vh}
 </style></head><body>壁纸 B（红 · 换壁纸验证）</body></html>"#;
 
+#[cfg(target_os = "macos")]
 fn host_urls() -> (&'static str, &'static str) {
     let a = std::env::temp_dir().join("gesso-m15v2-a.html");
     let b = std::env::temp_dir().join("gesso-m15v2-b.html");
@@ -49,8 +62,11 @@ fn host_urls() -> (&'static str, &'static str) {
 }
 
 /// 让 wry 把 webview 挂到我们自己的 NSView 上（不经 GPUI 窗口）
+#[cfg(target_os = "macos")]
 struct DesktopViewHandle(*mut NSView);
+#[cfg(target_os = "macos")]
 unsafe impl Send for DesktopViewHandle {}
+#[cfg(target_os = "macos")]
 impl HasWindowHandle for DesktopViewHandle {
     fn window_handle(
         &self,
@@ -65,6 +81,7 @@ impl HasWindowHandle for DesktopViewHandle {
 }
 
 /// 创建纯 AppKit 壁纸窗口 + wry webview，返回 (window, webview)（主线程）
+#[cfg(target_os = "macos")]
 fn create_wallpaper_window(mtm: MainThreadMarker) -> (Retained<NSWindow>, lb_wry::WebView) {
     let screen = objc2_app_kit::NSScreen::mainScreen(mtm).expect("主屏");
     let frame = screen.frame();
@@ -118,6 +135,7 @@ fn create_wallpaper_window(mtm: MainThreadMarker) -> (Retained<NSWindow>, lb_wry
     (window, webview)
 }
 
+#[cfg(target_os = "macos")]
 fn tray_icon_rgba() -> Vec<u8> {
     let (w, h) = (32usize, 32usize);
     let mut v = vec![0u8; w * h * 4];
@@ -142,6 +160,7 @@ fn tray_icon_rgba() -> Vec<u8> {
     v
 }
 
+#[cfg(target_os = "macos")]
 fn main() {
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
@@ -213,4 +232,9 @@ fn main() {
         })
         .detach();
     });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    println!("[m15] 纯 AppKit 压层 spike 仅 macOS；Windows 贴壁随 M1 接入。");
 }

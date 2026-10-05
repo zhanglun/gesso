@@ -12,35 +12,55 @@
 //!    （2026-10-04 崩溃实证，同 thumb.rs v1 指纹）。
 //! 3. **全局串行**：同一时刻只有一个采集任务在跑（并发多 webview 是崩溃放大器）。
 
-use std::sync::Arc;
-use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
-use block2::RcBlock;
-use objc2::rc::Retained;
-use objc2_app_kit::{NSImage, NSView, NSWindow, NSWindowStyleMask};
-use objc2_foundation::{MainThreadMarker, NSError, NSRect};
-use objc2_web_kit::WKWebView;
-use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
-
-use crate::thumb::{self, HOVER_FRAMES, SAMPLE_FPS};
 use gesso_core::WallpaperKind;
 
+// 快照实现依赖 AppKit/WKWebView（Apple 专属）：以下导入与实现项全部 macOS 门控，
+// 非 macOS 平台由 capture_entry 兜底空转（Windows 采集随 M1 接入 WebView2）。
+#[cfg(target_os = "macos")]
+use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_os = "macos")]
+use block2::RcBlock;
+#[cfg(target_os = "macos")]
+use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSImage, NSView, NSWindow, NSWindowStyleMask};
+#[cfg(target_os = "macos")]
+use objc2_foundation::{MainThreadMarker, NSError, NSRect};
+#[cfg(target_os = "macos")]
+use objc2_web_kit::WKWebView;
+#[cfg(target_os = "macos")]
+use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
+
+#[cfg(target_os = "macos")]
+use crate::thumb::{self, HOVER_FRAMES, SAMPLE_FPS};
+
 /// 采集分辨率：640×360 覆盖卡片预览与 hover 轮播（retina 快照 2x = 1280×720）
+#[cfg(target_os = "macos")]
 const CAP_W: f64 = 640.0;
+#[cfg(target_os = "macos")]
 const CAP_H: f64 = 360.0;
 /// 页面就绪上限（含 shader 编译；坏 GLSL 时 `__gessoReady` 永不置位 → 放弃）
+#[cfg(target_os = "macos")]
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 /// seek 后等待 RAF 重绘 + 渲染稳定（RAF 60fps 下一帧 ≤16ms，留足余量）
+#[cfg(target_os = "macos")]
 const FRAME_SETTLE: Duration = Duration::from_millis(140);
 /// 单帧快照上限
+#[cfg(target_os = "macos")]
 const SHOT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 进程级采集队列（串行消费）；`false` = 工作任务未在跑
 pub(crate) static CAPTURE_QUEUE: Mutex<Vec<(String, WallpaperKind)>> = Mutex::new(Vec::new());
 pub(crate) static WORKER_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(target_os = "macos")]
 struct CaptureWindow {
     /// 字段序 = drop 序：窗口最后释放（本设计中进程级存活，正常路径永不 drop）
     wk: Retained<WKWebView>,
@@ -49,14 +69,17 @@ struct CaptureWindow {
     window: Retained<NSWindow>,
 }
 
+#[cfg(target_os = "macos")]
 thread_local! {
     /// 采集窗口：主线程独占；创建后整进程复用（见模块纪律第 2 条）
     static CAP_WINDOW: std::cell::RefCell<Option<CaptureWindow>> = const { std::cell::RefCell::new(None) };
 }
 
 /// wry 直挂所需的句柄包装（同 pin::macos::ViewHandle，仅主线程使用）
+#[cfg(target_os = "macos")]
 struct ViewHandle(*mut NSView);
 // SAFETY: 指针仅在该句柄传给 wry（主线程）期间解引用
+#[cfg(target_os = "macos")]
 impl HasWindowHandle for ViewHandle {
     fn window_handle(
         &self,
@@ -71,6 +94,7 @@ impl HasWindowHandle for ViewHandle {
 }
 
 /// 取出采集窗口（惰性创建）；调用方用完必须 `put_back`（含失败路径）
+#[cfg(target_os = "macos")]
 fn take_window(mtm: MainThreadMarker) -> CaptureWindow {
     CAP_WINDOW.with(|c| {
         if let Some(w) = c.borrow_mut().take() {
@@ -129,11 +153,13 @@ fn take_window(mtm: MainThreadMarker) -> CaptureWindow {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn put_window(w: CaptureWindow) {
     CAP_WINDOW.with(|c| *c.borrow_mut() = Some(w));
 }
 
 /// 快照一帧（completion 经共享 cell 回传，主线程轮询收割）
+#[cfg(target_os = "macos")]
 async fn snapshot(
     bg: &gpui_kit::gpui::BackgroundExecutor,
     wk: &WKWebView,
@@ -165,6 +191,7 @@ async fn snapshot(
 /// 采集一个 shader 条目的帧序列（串行队列消费；调用方已过 ThumbScheduler 去重）。
 /// 返回成功写盘的帧数；完成经调用方 `ThumbsDone` 回灌 UI。
 /// 采集窗口不归还时本函数负责 put_back（所有路径收敛到唯一出口）。
+#[cfg(target_os = "macos")]
 pub(crate) async fn capture_entry(
     bg: gpui_kit::gpui::BackgroundExecutor,
     url: String,
@@ -181,6 +208,22 @@ pub(crate) async fn capture_entry(
     written
 }
 
+/// 非 macOS 兜底：采集依赖 WKWebView 快照（Apple 专属），Windows 随 M1 接入。
+#[cfg(not(target_os = "macos"))]
+pub(crate) async fn capture_entry(
+    _bg: gpui_kit::gpui::BackgroundExecutor,
+    _url: String,
+    _dir: String,
+    _kind: WallpaperKind,
+) -> usize {
+    println!(
+        "[thumbs] shader/html 采集暂不支持平台 {}（随 M1 接入）",
+        std::env::consts::OS
+    );
+    0
+}
+
+#[cfg(target_os = "macos")]
 async fn capture_with(
     cap: &mut CaptureWindow,
     bg: &gpui_kit::gpui::BackgroundExecutor,

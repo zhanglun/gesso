@@ -65,6 +65,7 @@ pub fn host_url_with_spec(spec_json: &str) -> String {
 }
 
 /// 创建挂到给定原生视图的壁纸 webview（注册 gesso:// 协议）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：当前仅 macOS 采集/贴壁路径调用
 pub fn create_webview<H: HasWindowHandle + 'static>(
     handle: H,
     url: &str,

@@ -89,8 +89,10 @@ pub struct Session {
     pub downscaled: bool,
     /// 光标 feed：本会话上次推送的量化状态（present,x_q,y_q,bits）。
     /// None = 尚未推送过；present=false 表示光标已离开本屏。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 光标 feed（M5）读写
     pub mouse_last: Option<(bool, u16, u16, u8)>,
     /// 鼠标静止空闲降帧生效中（与全屏降帧互斥，恢复时回设 fps）。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub idle_down: bool,
 }
 
@@ -118,7 +120,7 @@ impl SessionManager {
 
     /// 全量同步：枚举显示器 → 按配置建/拆会话（启动与显示器轮询共用）。
     pub fn sync_monitors(&mut self) {
-        let monitors = pin::macos::enumerate_monitors();
+        let monitors = pin::enumerate_monitors();
 
         // v1 已知限制：CGDirectDisplayID 不跨重启/重连稳定（技术方案 §4.3 的 EDID 哈希是正解）。
         // 当配置里的 key 全部失配（如系统重编了 cg-id）时，把映射迁移到当前主屏，避免静默丢壁纸。
@@ -597,6 +599,7 @@ impl SessionManager {
     /// 一次 present=0；④ 仅推给光标所在的那一个屏，其余屏不打扰；
     /// ⑤ 暂停 / Autopause / 全屏降帧期间不喂光标。
     /// 空闲降帧：静止超阈值（当前固定 5 分钟）降到 5fps，一动即恢复。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 光标 feed（main.rs M5 循环）调用
     pub fn poll_mouse(&mut self, m: &crate::bridge::MouseSample) {
         /// ponytail: 空闲阈值先固定 5 分钟；需要 per-user 时挪进 settings
         const IDLE_AFTER: f64 = 300.0;
@@ -690,7 +693,7 @@ impl SessionManager {
     }
 
     pub fn monitors(&self) -> Vec<MonitorInfo> {
-        pin::macos::enumerate_monitors()
+        pin::enumerate_monitors()
     }
 
     pub fn session_count(&self) -> usize {
