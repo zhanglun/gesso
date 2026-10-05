@@ -234,8 +234,6 @@ fn bootstrap() -> (session::SessionManager, bool) {
 fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
     let mut g = GessoState {
         demo: false, // 快照覆盖本地投影；调用方回灌时保留浏览状态
-        // 找到 Steam 才显示「工坊」入口；WE 是否真有订阅内容点开再看
-        we_available: we::find_steam().is_some(),
         ..GessoState::default()
     };
     // 设置真源 = AppConfig.settings（设置页写经 UpdateSettings 动作落盘）
@@ -473,22 +471,6 @@ fn apply_engine_action(
                 }
             } else if let Err(err) = result {
                 println!("[ui] 导入失败：{err:?}");
-            }
-        }
-        engine::EngineAction::ImportWe { dir, workshop_id } => {
-            match we::import_we_at(std::path::Path::new(&dir), &workshop_id) {
-                Some(entry) => match sm.import_we_entry(&entry) {
-                    Ok(e) => {
-                        println!("[ui] 已导入 WE「{}」→ {}", e.title, e.id);
-                        if gesso_core::content_type(e.kind).thumb
-                            != gesso_core::ThumbStrategy::Direct
-                        {
-                            out.pending_thumbs.push((e.source_dir, e.kind));
-                        }
-                    }
-                    Err(err) => println!("[ui] WE 导入失败：{err:?}"),
-                }
-                None => println!("[ui] WE 条目解析失败：{dir}"),
             }
         }
         engine::EngineAction::UpdateSettings(settings) => {
