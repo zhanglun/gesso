@@ -13,7 +13,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M4    renderer completeness — video / image / shader (WebGL2 + Shadertoy subset) / HTML (sandboxed iframe); all four kinds have real webview-captured thumbnails (static + 15-frame hover sequence)
 ✅ M5    system data bridge — fullscreen/battery auto-pause + time feed + cursor feed (iMouse) + idle downscale
 ✅ M6    Wallpaper Engine import I (video/web) + static images + content-type registry refactor
-⬜ M1    Windows pinning (needs a Windows machine)
+✅ M1    Windows pinning（实机验证：图标层下渲染 / TaskbarCreated 自愈 / PMv2 DPI）
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 
@@ -26,9 +26,16 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - ✅ cursor feed: 全局光标位置路由到所在显示器的会话，归一化量化（u16）后经 `__gesso.mouse(present,x,y,buttons)` 喂入，shader 写 `iMouse`、html 收 `{__gesso:"mouse"}`；推送 30 Hz、宿主页每帧快速平滑，变化才推。鼠标静止 5 分钟自动降到 5 fps，一动即恢复。
 - 权限事实（实测）：位置走 `NSEvent::mouseLocation`、按键/空闲走 CoreGraphics HID 源状态表——纯轮询、不做事件 tap，**无需 Input Monitoring / 辅助功能授权**（只有 `CGEventTapCreate` 才要）。
 
-### M1 — Windows pinning
-- Own Win32 window + WebView2 child (`GPUI_DISABLE_DIRECT_COMPOSITION=1`), `SetParent` onto `WorkerW`, icon-hidden fallback path, `TaskbarCreated` re-pin, DPI/multi-monitor placement.
-- Blocked on: a Windows machine (hardware or GUI-capable VM).
+### M1 — Windows pinning（✅ 主体完成，2026-10-05 实机验证）
+- ✅ 自有 Win32 壁纸窗口（WS_POPUP + TOOLWINDOW/NOACTIVATE，非 GPUI 窗口）+ wry/WebView2 子窗口直挂。
+- ✅ WorkerW 挂载阶梯：`Progman 0x052C` → SHELLDLL_DefView 宿主之后的 WorkerW → `SetParent`；兜底 Progman（桌面图标关闭）/ 顶层 HWND_BOTTOM（explorer 未就绪）。实机：plasma shader 在图标层之下全屏渲染。
+- ✅ **创建顺序生死线（实测踩坑）**：必须先 `SetParent` 挂载、后创建 WebView2——反之 DComp 视觉树绑定失效，窗口树全绿但整窗不可见（见工程笔记 §2）。
+- ✅ DPI：进程顶部 `SetProcessDpiAwarenessContext(PMv2)`（GPUI/wry 均不设置），125% 缩放下物理像素与 WorkerW 精确对齐；`GPUI_DISABLE_DIRECT_COMPOSITION=1`。
+- ✅ explorer 重启自愈：隐藏监听窗口收 `TaskbarCreated` → 引擎轮询整窗重建（explorer 死亡会连带销毁跨进程子窗口，重挂旧句柄无效）。实机验证：重启后自动落位 WorkerW 并恢复渲染。
+- ✅ gesso:// 协议在 WebView2 下的 workaround 全链路：导航 `gesso://X/…` ↔ `http://gesso.X/…` 由 wry 翻译/还原，页面子资源 URL 由 `protocol::entry_url` 直接产出 workaround 形态，CSP 按 workaround 宿主枚举。
+- ⬜ 多显示器实机验证（实现已就位：EnumDisplayMonitors 物理像素 + 各屏独立窗口；验证机单屏）。
+- ⬜ 点击穿透语义对齐：WM_NCHITTEST HTTRANSPARENT 只作用于本窗口，空白桌面点击会落入 WebView2 子窗口（技术方案 §6 视作可选交互增强，v1 接受）。
+- ⬜ M5 数据桥 Windows 侧（全屏检测 WinEventHook / 电池 / 光标 feed GetCursorPos，技术方案 §6）。
 
 ### M6 — Wallpaper Engine import I（✅ 已完成）
 - ✅ 工坊扫描：`steamapps/workshop/content/431960/<id>/project.json`，支持 `video`/`web`；检测不到 Steam 时自动隐藏「工坊」入口（可用 `STEAM_DIR` 夹具验证）。

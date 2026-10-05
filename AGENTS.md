@@ -39,7 +39,7 @@ GESSO_LOCK=dev ./target/debug/gesso      # 开发期多实例并存（用完记�
 ```
 crates/core     纯领域逻辑（ContentSpec/配置/库/状态机/content 内容类型表）——零平台依赖，改这里最安全
 crates/app      应用：
-  ├─ pin/         平台贴壁层（macOS: AppKit；Windows: 计划中）——唯一允许碰原生窗口的模块
+  ├─ pin/         平台贴壁层（macOS: AppKit；Windows: Win32 + WorkerW 挂载）——唯一允许碰原生窗口的模块
   ├─ session.rs   会话管理器（唯一编排者）
   ├─ capture.rs   缩略图采集（持久窗口跑真实宿主页快照；shader 定格/html 实时帧）
   ├─ thumb.rs     视频抽帧 + 缩略图策略调度
@@ -60,7 +60,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ 导入（对话框 + 拖入）、托盘（右键菜单）、设置持久化、开机自启、首启向导
 - ✅ 管理窗口三页签（真数据桥接）+ 缩略图悬停预览 + 显示器页「桌面沙盘 + 详情条」改版
 - ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（真实宿主页 WKWebView 快照：静态 + 15 hover 帧）+ 内置样例 ×5
-- ⬜ M1 Windows 贴壁验证（**缺 Windows 机器**）
+- ✅ M1 Windows 贴壁（2026-10-05 实机验证：WorkerW 挂载 + 图标层下渲染 + explorer 重启自愈 + PMv2 DPI；多屏实机/M5 桥接待接）
 - ✅ M5 系统数据桥完整：全屏/电池自动暂停·降帧 + 时间脉冲 + 光标 feed（iMouse 跟随，无需授权）+ 空闲降帧
 - ✅ M6 WE 工坊扫描/导入（video/web）+ jpg/png/avif 静态图 + 独立「图片」分类
 - ✅ 架构还债：content 内容类型表（类型/扩展名/MIME/缩略图策略单一事实源）、HostCommand 类型化、main 上帝循环拆解、session 工具抽到 encoding
@@ -70,3 +70,6 @@ docs/           工程文档 + design/（设计归档）
 
 - macOS 构建**不需要 Xcode**（runtime_shaders）；图标用 `gpui_kit_assets::IconName`（完整 Lucide）；`Button` 无 `color()`/`when()`（用变体 + `if`）；`overflow_y_scroll` 必须在 `.id()` 之后；库路径含空格必须百分号编码；`swap(true)` 当开关必错（用 `fetch_xor`）。
 - WE 零拷贝视频/web 不拷入库，`source_dir` 指 Steam 工坊目录，经 `gesso://steam/…` 只读直引（视频 Range 206、shim 内存注入）。**多 Steam 库**：解析 `libraryfolders.vdf`，扫描/路由覆盖全部库。
+- **Windows 壁纸窗口创建顺序 = 生死线**：必须先 `SetParent` 挂 WorkerW、**后**创建 WebView2——反序则窗口树全绿但整窗不渲染（DComp 视觉树创建时绑定宿主层级）；explorer 重启会连带销毁跨进程子窗口，重钉 = 整窗重建（`session::remount_all`）。
+- Windows 进程 DPI awareness 必须自己在 main() 顶部声明 PMv2（GPUI/wry 均不设置），否则 125%+ 缩放下与 WorkerW 无法像素对齐；`GPUI_DISABLE_DIRECT_COMPOSITION=1` 按 M1 配方设置。
+- Windows 侧 `gesso://` 走 WebView2 workaround（页面实际 origin `http://gesso.<host段>/`）：子资源 URL 由 `protocol::entry_url` 产出 workaround 形态，CSP 按 workaround 宿主枚举；协议回调收还原后的 gesso:// URI，路由不分平台。

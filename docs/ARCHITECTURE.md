@@ -14,7 +14,7 @@ This document describes how Gesso actually works. Everything below was verified 
 │  SessionManager (state machine, per-monitor sessions)     │
 │  content library · config persistence                     │
 ├─ platform layer (pin/) ──────────────────────────────────┤
-│  macOS: AppKit NSWindow    Windows(planned): Win32        │
+│  macOS: AppKit NSWindow    Windows: Win32 + WorkerW        │
 └─ content rendering ──────────────────────────────────────┘
    wallpaper window + wry webview (host page, sandboxed)
 ```
@@ -39,7 +39,7 @@ On macOS the wallpaper window is a plain `NSWindow` created with:
 
 The webview (`lb-wry`, the gpui-kit ecosystem fork of wry) is attached as a child of the window's content view and sized by us (no layout system involved).
 
-**Why not GPUI windows?** GPUI's window coordinator resets desktop-level full-screen geometry (it pushed `origin.y` to `-menuBarHeight` on every notification cycle), and its layout insets content by safe areas. Fighting it from outside loses — verified by a dedicated spike (`SPIKE-REPORT.md`, M1.5). Windows will mirror this: our own Win32 window + WebView2 child, `SetParent` onto `WorkerW`.
+**Why not GPUI windows?** GPUI's window coordinator resets desktop-level full-screen geometry (it pushed `origin.y` to `-menuBarHeight` on every notification cycle), and its layout insets content by safe areas. Fighting it from outside loses — verified by a dedicated spike (`SPIKE-REPORT.md`, M1.5). Windows mirrors this (M1, real-machine verified): our own Win32 window (`WS_POPUP`, toolwindow/no-activate, click-through via `WM_NCHITTEST → HTTRANSPARENT`) + WebView2 child, `SetParent` onto the spawned `WorkerW` (Progman `0x052C` ladder, Progman fallback when desktop icons are hidden, HWND_BOTTOM until explorer is ready). **Creation order is load-bearing: mount first, create the WebView2 second** — the DComp visual tree binds to the host hierarchy at controller creation, and the reverse order renders nothing (window tree looks healthy; verified by detaching the window mid-run, which instantly restores rendering). Explorer restarts destroy cross-process children, so `TaskbarCreated` (received by a hidden listener window) triggers a full window rebuild per session, not a re-parent. The process declares `PerMonitorV2` itself in `main()` (neither GPUI nor wry sets it) — physical pixels all the way.
 
 GPUI owns the manager window and the tray. Both run in the same process/event loop; AppKit windows created by `pin/` coexist with the GPUI app (creation order matters: after `gpui_kit::init`, before GPUI windows — otherwise tray-icon init panics on `NSApplication`).
 
