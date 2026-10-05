@@ -55,22 +55,18 @@ pub fn library_dir() -> PathBuf {
     config_dir().join("library")
 }
 
-/// Steam 根（WE 零拷贝直引条目解析于此）。运行时动态定位，不缓存进协议。
-pub fn steam_root() -> Option<PathBuf> {
-    crate::we::find_steam()
-}
-
 /// 条目资源的 gesso URL。
-/// - WE 零拷贝条目（origin == "wallpaper-engine"，source_dir 指向 Steam 目录）→ steam 路由
+/// - WE 零拷贝条目（origin == "wallpaper-engine"，source_dir 指向某 Steam 库）→ steam 路由
 /// - 其余（库内拷贝）→ library 路由
 /// `rel` 为该条目内的相对资源路径。
 pub fn entry_url(entry: &gesso_core::LibraryEntry, rel: &str) -> String {
     if entry.origin == "wallpaper-engine" {
-        if let Some(root) = steam_root() {
-            // source_dir = <root>/steamapps/workshop/content/431960/<id>；取相对 root 段
-            if let Ok(inner) = Path::new(&entry.source_dir).strip_prefix(&root) {
-                let inner = inner.to_string_lossy();
-                return format!("gesso://steam/{inner}/{rel}");
+        let src = Path::new(&entry.source_dir);
+        // 多库：找包含该 source_dir 的库，取相对该库的路径（URL 不带库标识，
+        // route 侧再遍历全部库归属解析）。
+        if let Some(root) = crate::we::find_libraries().iter().find(|l| src.starts_with(l)) {
+            if let Ok(inner) = src.strip_prefix(root) {
+                return format!("gesso://steam/{}/{rel}", inner.to_string_lossy());
             }
         }
         // Steam 不可用（已卸载/移动）→ 退回库内路径（旧拷贝条目兼容）
@@ -139,10 +135,17 @@ fn route(
         if !Path::new(path).starts_with(&allowed) {
             return err(StatusCode::FORBIDDEN, "超出工坊路径空间");
         }
-        let Some(root) = steam_root() else {
+        // 多库：path 是相对「该条目所属库」的路径，URL 不带库标识——遍历全部
+        // 内容库，找包含该路径且文件存在的那个。安全检查（Normal + 工坊空间）
+        // 已在上面完成，遍历只做归属解析。
+        let libs = crate::we::find_libraries();
+        if libs.is_empty() {
             return err(StatusCode::SERVICE_UNAVAILABLE, "Steam 不可用");
-        };
-        root.join(path)
+        }
+        match libs.iter().map(|l| l.join(path)).find(|f| f.exists()) {
+            Some(f) => f,
+            None => return err(StatusCode::NOT_FOUND, "文件不存在"),
+        }
     } else {
         return err(StatusCode::NOT_FOUND, "未知路由");
     };
@@ -229,6 +232,7 @@ mod tests {
     /// WE 零拷贝 steam 路由：内存注入 shim、路径空间隔离、原文件不被修改。
     #[test]
     fn steam_route_injects_and_sandboxes() {
+        let _env = crate::ENV_LOCK.lock().unwrap();
         let sf = std::env::temp_dir().join(format!("gesso-sf-{}", gesso_core::generate_id()));
         let dir = sf.join("steamapps/workshop/content/431960/777");
         std::fs::create_dir_all(&dir).unwrap();

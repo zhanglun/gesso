@@ -946,6 +946,7 @@ mod we_import_tests {
 
     #[test]
     fn imports_web_zero_copy_points_to_source() {
+        let _env = crate::ENV_LOCK.lock().unwrap();
         let (home, entry) = fixture();
         let mut sm = SessionManager::new(Default::default(), Vec::new());
         let got = sm.import_we_entry(&entry).expect("导入成功");
@@ -969,6 +970,7 @@ mod we_import_tests {
 
     #[test]
     fn rejects_scene() {
+        let _env = crate::ENV_LOCK.lock().unwrap();
         let home = tempfile_lite::TempHome::new();
         let root = home.path.join("workshop/content/431960/9");
         fs::create_dir_all(&root).unwrap();

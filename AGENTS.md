@@ -69,4 +69,4 @@ docs/           工程文档 + design/（设计归档）
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 
 - macOS 构建**不需要 Xcode**（runtime_shaders）；图标用 `gpui_kit_assets::IconName`（完整 Lucide）；`Button` 无 `color()`/`when()`（用变体 + `if`）；`overflow_y_scroll` 必须在 `.id()` 之后；库路径含空格必须百分号编码；`swap(true)` 当开关必错（用 `fetch_xor`）。
-- `gesso://` 自定义协议已打通（lb-wry ≥0.53）——宿主页 `gesso://host` 统一副本，资源 `gesso://library/<entry>/…`，WE 源 `gesso://steam/…` 只读直引（视频 Range 206、shim 内存注入）。
+- WE 零拷贝视频/web 不拷入库，`source_dir` 指 Steam 工坊目录，经 `gesso://steam/…` 只读直引（视频 Range 206、shim 内存注入）。**多 Steam 库**：解析 `libraryfolders.vdf`，扫描/路由覆盖全部库。

@@ -36,6 +36,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - ✅ 普通导入可选 `project.json` 触发整目录 WE 导入；法律边界：只读本机已订阅内容，不下载/不爬取/不再分发。
 - ✅ 静态图：支持 jpg/jpeg/png/avif，UI 新增独立「图片」分类（底层复用 Image）；图片缩略图 Direct 直引源文件，零生成零拷贝。
 - ✅ 架构还债（本次两个 bug 的结构性根因）：① `gesso-core::content` 内容类型描述表——类型↔扩展名↔MIME↔缩略图策略的单一事实源；② `HostCommand` 枚举类型化 Rust↔宿主页命令；③ main.rs 上帝循环拆解（`apply_engine_action`/`merge_snapshot`/命名定时）；④ session.rs 纯工具抽到 `encoding.rs`。
+- ✅ **多 Steam 内容库**：解析主库 `steamapps/libraryfolders.vdf`，工坊扫描/`gesso://steam` 路由覆盖主库 + 全部已登记库（条目可能分散在不同盘/库）。
 - scene 类型（M7）暂拒绝；`depkg` 为 GPL，倾向子进程隔离，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md)。
 - ✅ **`gesso://` 协议回归**（`bf3c294`）：lb-wry ≥0.53 自定义协议在 macOS 已正常（M2 “零回调”结论失效）。宿主页改为 `gesso://host/index.html` 统一副本，不再拷入条目目录；`ContentSpec.source` 为绝对 `gesso://library/<entry>/…`；实现视频 Range(206)。四类实机验证通过。
 

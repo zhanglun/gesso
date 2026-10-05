@@ -122,6 +122,11 @@ fn spawn_capture_job(
     .detach();
 }
 
+/// 共享测试锁：所有需要读写进程级环境变量（STEAM_DIR/HOME）的测试必须先持锁。
+/// 这些变量是全局的，并行测试同时 set_var 会互相覆盖导致 flaky（见工程笔记）。
+#[cfg(test)]
+pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn bootstrap() -> (session::SessionManager, bool) {
     let cfg_path = protocol::config_dir().join("config.json");
     let mut config = AppConfig::load(&cfg_path).unwrap_or_default();

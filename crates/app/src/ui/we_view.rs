@@ -36,7 +36,11 @@ impl Focusable for WeView {
 
 impl WeView {
     fn new(cx: &mut Context<Self>) -> Self {
-        let entries = we::find_steam().map(|s| we::scan(&s));
+        let entries = if we::find_steam().is_some() {
+            Some(we::scan_all())
+        } else {
+            None
+        };
         WeView {
             focus: cx.focus_handle(),
             entries,
