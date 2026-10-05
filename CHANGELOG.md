@@ -28,6 +28,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 **UI (manager window, gpui-kit)**
 
+- `gesso://` custom resource protocol restored to active (`bf3c294`): host page served from a single shared `gesso://host/index.html`, entry assets from `gesso://library/<id>/…`, cross-origin CORS, and HTTP Range(206) for video. Verified on all four kinds (image/video/html/shader).
+
 - Library page (filter segments, search, cards, status bar, drag-to-monitor assignment overlay), monitors page (desktop-sandbox canvas + detail strip, per-monitor controls), settings page (persisted, applied live).
 - Unified engine bridge: `AppState` global + `EngineAction` queue; snapshots preserve UI-local state.
 
@@ -41,7 +43,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 - Random SIGSEGV in `objc_release` during GCD autorelease-pool pop (two crashes with identical fingerprint, 2026-10-03/04): the thumbnail extractor hand-rolled ObjC refcounting on background tasks and violated ownership twice — an alloc+init object claimed by two `Retained::from_raw`, and the autoreleased `representationUsingType:properties:` result treated as +1 (over-released, its multi-MB VM region unmapped; the pool's stale record then faulted on release). Rewrote `thumb.rs`: generated objc2 bindings for AVFoundation (ownership in the type system), ImageIO `CGImageDestination` for PNG (pure C, no autoreleases), the whole job wrapped in an `autoreleasepool`, atomic per-frame writes (`.tmp` + rename), and a regression test running the real AVFoundation pipeline.
 - Thumbnail scheduling hardening: missing-frame entries were retried forever every 30s (a persistently failing entry became an unbounded FFI churn and crash amplifier) and a `timer(2s)` guess refreshed the UI; extraction also ran synchronously on the main thread during import (~1s freeze per video). Now a dedicated 30s scan drives jobs through `engine::ThumbScheduler` (in-flight dedup + 3 attempts per entry per session), import schedules extraction asynchronously, and completion (`ThumbsDone`) triggers the snapshot refresh.
-- Webview initial-navigation poison: a failed custom-scheme first URL leaves WKWebView in a "URL updates but never paints" state — initial navigation is now `about:blank`.
+- Custom-scheme protocol restored: the M2 "zero callbacks / initial-navigation poison" conclusion no longer holds on lb-wry ≥0.53; the wallpaper webview now boots straight into a `gesso://host` URL (an `about:blank` first frame is no longer needed) and subresources resolve through the same handler.
 - Static-image entry misidentified its host page as the main asset: an image directory contains both `index.html` (the host page, rewritten every launch) and `index.png`; `read_dir` could yield html first, and the old "any `index.*` fallback" in `main_asset_name` returned the host page → thumbnail/kind detection broke. Fixed at the root: `main_asset_name` only matches the kind's extension whitelist (`content_type(kind).extensions`), and html's main asset is fixed to `wallpaper.html`. The same table now backs import classification, validity and protocol MIME (previously six scattered extension lists).
 - Rust↔host JS commands were hand-built strings (`__gesso&&__gesso.setFps(5)` across 8+ call sites, aligned by hand with the host page); replaced by the `HostCommand` enum with one serialization point and `WallpaperWindow::send`.
 - Main loop decomposed (`apply_engine_action`/`merge_snapshot`/`focus_or_reopen_main`, named timing constants) and session stateless helpers moved to `encoding.rs`.
@@ -63,7 +65,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 ### Known limitations (tracked in ROADMAP)
 
 - Windows pinning not yet verified (needs a machine).
-- `gesso://` custom scheme non-functional on the current webview stack; entries load via `file://`.
+- `gesso://` scheme is now functional; zero-copy direct references (streaming from the Steam source instead of copying into the library) are the next increment.
 
 - iframe-internal navigation of HTML wallpapers is not allow-listed yet (`fps_cap` advisory for the html kind).
 - Hover preview preload is per-process cache: the first hover shows a spinner briefly; subsequent hovers play immediately.

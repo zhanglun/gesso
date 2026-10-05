@@ -46,7 +46,7 @@ crates/app      应用：
   ├─ encoding.rs  纯工具：base64url/路径编码/目录拷贝/主资源发现
   ├─ host_cmd.rs  Rust→宿主页类型化命令（HostCommand）
   ├─ we.rs / we_shim.rs   WE 工坊扫描 / WE API 垫片
-  ├─ protocol.rs  gesso:// 资源协议（当前 file:// 自包含模式，协议修复待办）
+  ├─ protocol.rs  gesso:// 资源协议（已打通：host 统一宿主页 + library 条目资源，视频 Range）
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
   ├─ ui/          管理窗口 UI（gpui-kit；we_view.rs 工坊窗）
@@ -64,9 +64,9 @@ docs/           工程文档 + design/（设计归档）
 - ✅ M5 系统数据桥完整：全屏/电池自动暂停·降帧 + 时间脉冲 + 光标 feed（iMouse 跟随，无需授权）+ 空闲降帧
 - ✅ M6 WE 工坊扫描/导入（video/web）+ jpg/png/avif 静态图 + 独立「图片」分类
 - ✅ 架构还债：content 内容类型表（类型/扩展名/MIME/缩略图策略单一事实源）、HostCommand 类型化、main 上帝循环拆解、session 工具抽到 encoding
-- ⬜ 协议修复（`gesso://` 自定义协议零回调，当前 file:// 自包含模式）
+- ✅ 协议已打通（`gesso://` 宿主页走统一副本、资源走 library；`bf3c294`）；零拷贝直引是下一步
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 
 - macOS 构建**不需要 Xcode**（runtime_shaders）；图标用 `gpui_kit_assets::IconName`（完整 Lucide）；`Button` 无 `color()`/`when()`（用变体 + `if`）；`overflow_y_scroll` 必须在 `.id()` 之后；库路径含空格必须百分号编码；`swap(true)` 当开关必错（用 `fetch_xor`）。
-- `gesso://` 自定义协议在本版 lb-wry/WKWebView **回调零触发**——条目自包含 file:// 是当前方案；协议修复是独立待办。
+- `gesso://` 自定义协议已打通（lb-wry ≥0.53）——宿主页 `gesso://host` 统一副本，资源 `gesso://library/<entry>/…`，视频支持 Range(206)。零拷贝直引待开启。

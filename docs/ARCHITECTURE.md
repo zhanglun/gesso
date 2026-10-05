@@ -46,10 +46,10 @@ GPUI owns the manager window and the tray. Both run in the same process/event lo
 ## 3. Content pipeline
 
 ```
-LibraryEntry (library/<random-id>/index.html + index.<ext>)
+LibraryEntry (library/<random-id>/index.<ext>)
    → ContentSpec { kind, source, fit, fps_cap, audio, meta }
-   → host page URL  file://…/index.html?spec=<urlencoded JSON>
-   → wallpaper webview
+   → host page URL  gesso://host/index.html?spec=<urlencoded JSON>
+   → wallpaper webview   (source → gesso://library/<id>/<asset>)
 ```
 
 - Each library entry is **self-contained**: the host page is copied into the entry directory at startup (dev behavior; frozen per-entry later) and media is referenced relatively. This sidesteps the currently-broken custom scheme (see pitfalls) and matches how Wallpaper Engine structures its projects.
@@ -78,7 +78,7 @@ Pure function `transfer(state, event)`; every transition is unit-tested. Session
 
 ## 6. Security model
 
-Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from wallpaper windows, self-contained per-entry directories with random unguessable IDs, network-local content only. End-state (tracked): read-only `gesso://` scheme with traversal protection, CSP header injection and a navigation allow-list; current `file://` mode is an intermediate step. Details and reporting: [SECURITY.md](../SECURITY.md).
+Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from wallpaper windows, per-entry directories with random unguessable IDs, network-local content only. Read-only `gesso://` scheme is live: `host` serves the shared host page, `library/<id>/…` serves entry files with traversal protection, CSP header injection, CORS for cross-origin subresources, and Range(206) for video. Details and reporting: [SECURITY.md](../SECURITY.md).
 
 ## 7. Performance notes
 

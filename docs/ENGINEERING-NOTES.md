@@ -26,8 +26,8 @@
 | `IndexPath` 私有路径 | `gpui_kit::component::IndexPath` |
 | `overflow_y_scroll` 找不到 | 属 `StatefulInteractiveElement` → **必须在 `.id(...)` 之后** |
 | 闭包借用逃逸（`t.accent`、`m.wallpaper`） | 构造期求值成 owned 副本再 `move` 进闭包 |
-| `gesso://` 自定义协议 | 本版 lb-wry/WKWebView **回调零触发**；若当**首帧 URL** 会让 webview 进入"URL 更新但永不绘制"死状态。M2 走**条目自包含 `file://`**（宿主页拷进条目目录 + 相对媒体） |
-| 库路径含空格 | `Application Support` 必须百分号编码后才能拼 `file://` |
+| `gesso://` 自定义协议 | **已打通（lb-wry ≥0.53）**——M2 “回调零触发”结论已过时（可能是旧版本/未注册）。独立夹具确认：文档与跨 host 子资源回调均正常。注意 URI 结构：`gesso://<host 段>/<path>`，路由要看 `uri.host()` 不是 `uri.path()`。视频必须支持 **Range(206)**，否则播放器几百次重试。首帧直接用 gesso URL |
+| 路径编码 | 旧 file:// 时代 `Application Support` 空格需百分号编码；gesso 协议由 handler 内部解析文件路径，URL 只传相对段，不再需要 path 编码 |
 | 创建顺序 | 必须在 `gpui_kit::init(cx)` 之后、GPUI 窗口之前创建 AppKit 壁纸窗口；否则 tray-icon panic：`Ivar platform not found on class NSApplication` |
 | **`swap(true)` 当开关** | `AtomicBool::swap(true)` 永远写入 `true`、永远读到同一个旧值 → 开关变成"只单向"。**用 `fetch_xor(true)`**。（M0.5 的壁纸切换、托盘「暂停全部」各栽过一次） |
 | 媒体导入改名 | **保留源扩展名**：WKWebView 按扩展名判定媒体类型，`.webm` 存成 `index.mp4`、`.webp` 存成 `index.gif` 直接播不出来 |

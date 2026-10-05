@@ -37,10 +37,11 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - ✅ 静态图：支持 jpg/jpeg/png/avif，UI 新增独立「图片」分类（底层复用 Image）；图片缩略图 Direct 直引源文件，零生成零拷贝。
 - ✅ 架构还债（本次两个 bug 的结构性根因）：① `gesso-core::content` 内容类型描述表——类型↔扩展名↔MIME↔缩略图策略的单一事实源；② `HostCommand` 枚举类型化 Rust↔宿主页命令；③ main.rs 上帝循环拆解（`apply_engine_action`/`merge_snapshot`/命名定时）；④ session.rs 纯工具抽到 `encoding.rs`。
 - scene 类型（M7）暂拒绝；`depkg` 为 GPL，倾向子进程隔离，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md)。
+- ✅ **`gesso://` 协议回归**（`bf3c294`）：lb-wry ≥0.53 自定义协议在 macOS 已正常（M2 “零回调”结论失效）。宿主页改为 `gesso://host/index.html` 统一副本，不再拷入条目目录；`ContentSpec.source` 为绝对 `gesso://library/<entry>/…`；实现视频 Range(206)。四类实机验证通过。
 
 ## Known gaps (no milestone yet)
 
-- `gesso://` custom scheme non-functional on current webview stack (zero callbacks; serving via self-contained `file://` entries meanwhile).
+- 零拷贝直引（video/web 直接引用 Steam 源、不拷入库）尚待开启——协议已通，这是下一步增量。
 - Real-machine monitor outline (signature #1) and tray panel positioning on retina displays.
 - ~~HTML thumbnails use the gradient placeholder~~ → Done (`372b4c4`): html captures live frames via the same persistent-window capture pipeline as shader/video.
 - HTML wallpapers: iframe-internal navigation is not allow-listed yet (top-navigation / popups / forms are sandbox-blocked; `fps_cap` is advisory for the html kind). Hover previews use a two-phase cycle — preload all 16 frames behind a spinner, then play at a fixed 125 ms/frame (`c6bd3ce`).

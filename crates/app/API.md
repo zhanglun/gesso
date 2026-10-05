@@ -87,7 +87,7 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 
 | 事项 | 状态 |
 |---|---|
-| `gesso://` 自定义协议 | 本版 lb-wry/WKWebView 零回调，当前走条目自包含 `file://`；协议修复是独立待办 |
+| `gesso://` 自定义协议 | **已打通**（lb-wry ≥0.53，`bf3c294`）：宿主页走 `gesso://host`，条目资源走 `gesso://library/<entry>/…`；视频支持 Range(206)。零拷贝直引是下一步 |
 | 壁纸窗口 | 纯 AppKit 非 GPUI 窗口（M1.5 定稿），UI 无法也不应嵌入它 |
 | 渲染器 | 四类全部生效：video / image（gif/webp/jpg/jpeg/png/avif）/ shader（WebGL2 + Shadertoy 子集）/ html（沙箱 iframe）；静态图 Direct 直引源文件，其余类型有真实采集的静态 + hover 帧 |
 | 显示器热插拔 | 2s 轮询 diff（平台通知未接，候选 M5+） |
