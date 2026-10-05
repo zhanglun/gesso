@@ -3,6 +3,7 @@
 //! 路由：
 //!   gesso://host/<file>            → assets/host/（宿主页自身，单一副本）
 //!   gesso://library/<entry>/<file> → <config>/library/<entry>/（白名单 = 随机 entry id）
+//!   gesso://steam/<工坊相对路径>    → Steam 工坊目录（WE 零拷贝只读直引）
 //!
 //! 宿主页从 `gesso://host/index.html` 加载；ContentSpec.source 为指向
 //! `gesso://library/<entry>/<主资源>` 的绝对 URL。html 条目整页在该基路径下，
@@ -14,6 +15,14 @@ use std::borrow::Cow;
 use std::path::{Component, Path, PathBuf};
 
 use raw_window_handle::HasWindowHandle;
+
+/// URI 路径百分号解码。webview 发来的 path 是编码态（空格=%20、非 ASCII=%XX），
+/// 磁盘文件是未编码的。**必须在路径穿越校验之前解码**，否则 %2e%2e 可绕过校验。
+fn decode_path(p: &str) -> String {
+    percent_encoding::percent_decode_str(p)
+        .decode_utf8_lossy()
+        .into_owned()
+}
 
 /// 所有 gesso 资源同处一 scheme；CSP 按 scheme 收敛。
 const CSP: &str = "default-src 'none'; script-src 'unsafe-inline' gesso:; \
@@ -46,9 +55,27 @@ pub fn library_dir() -> PathBuf {
     config_dir().join("library")
 }
 
-/// 某条目内相对资源的 gesso URL（媒体 / iframe / 子资源）。
-pub fn library_url(entry_id: &str, rel: &str) -> String {
-    format!("gesso://library/{entry_id}/{rel}")
+/// Steam 根（WE 零拷贝直引条目解析于此）。运行时动态定位，不缓存进协议。
+pub fn steam_root() -> Option<PathBuf> {
+    crate::we::find_steam()
+}
+
+/// 条目资源的 gesso URL。
+/// - WE 零拷贝条目（origin == "wallpaper-engine"，source_dir 指向 Steam 目录）→ steam 路由
+/// - 其余（库内拷贝）→ library 路由
+/// `rel` 为该条目内的相对资源路径。
+pub fn entry_url(entry: &gesso_core::LibraryEntry, rel: &str) -> String {
+    if entry.origin == "wallpaper-engine" {
+        if let Some(root) = steam_root() {
+            // source_dir = <root>/steamapps/workshop/content/431960/<id>；取相对 root 段
+            if let Ok(inner) = Path::new(&entry.source_dir).strip_prefix(&root) {
+                let inner = inner.to_string_lossy();
+                return format!("gesso://steam/{inner}/{rel}");
+            }
+        }
+        // Steam 不可用（已卸载/移动）→ 退回库内路径（旧拷贝条目兼容）
+    }
+    format!("gesso://library/{}/{rel}", entry.id)
 }
 
 /// 宿主页入口 URL
@@ -78,9 +105,12 @@ fn route(
     // URI 结构：gesso://<host 段>/<path>。host 段区分路由：
     //   gesso://host/…        → assets/host/（宿主页）
     //   gesso://library/<id>/<rel> → 库条目目录
+    //   gesso://steam/<rel from steam root> → Steam 工坊（WE 只读直引）
     let uri = request.uri();
     let host = uri.host().map(|h| h.as_ref() as &str).unwrap_or_default();
-    let path = uri.path().trim_start_matches('/');
+    // 先解码再路由：entry id 是 ascii hex 不受影响，资源相对路径含空格/非 ASCII。
+    let path = decode_path(uri.path().trim_start_matches('/'));
+    let path = path.as_str();
 
     let file: PathBuf = if host == "host" {
         assets_dir().join("host").join(path)
@@ -97,6 +127,22 @@ fn route(
             return err(StatusCode::FORBIDDEN, "路径非法");
         }
         library_dir().join(entry).join(tail)
+    } else if host == "steam" {
+        // 只允许 Normal 分量 + 限定工坊 431960 路径空间（防借路由读其他 Steam 文件）
+        if Path::new(path)
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return err(StatusCode::FORBIDDEN, "路径非法");
+        }
+        let allowed = Path::new("steamapps/workshop/content").join(crate::we::APPID);
+        if !Path::new(path).starts_with(&allowed) {
+            return err(StatusCode::FORBIDDEN, "超出工坊路径空间");
+        }
+        let Some(root) = steam_root() else {
+            return err(StatusCode::SERVICE_UNAVAILABLE, "Steam 不可用");
+        };
+        root.join(path)
     } else {
         return err(StatusCode::NOT_FOUND, "未知路由");
     };
@@ -108,8 +154,18 @@ fn route(
         request.headers().get("range").map(|v| v.to_str().unwrap_or("?"))
     );
     match std::fs::read(&file) {
-        Ok(bytes) => {
+        Ok(mut bytes) => {
             let mime = mime_of(&file);
+            // WE web 直引：Steam 原文件只读不能改，主 HTML 文档在此内存注入 shim。
+            // 仅注入整页（无 Range；子资源/分片请求 HTML 不注入）。
+            let inject_shim = host == "steam"
+                && mime.starts_with("text/html")
+                && request.headers().get("range").is_none();
+            if inject_shim {
+                if let Ok(html) = std::str::from_utf8(&bytes) {
+                    bytes = crate::we_shim::inject(html).into_bytes();
+                }
+            }
             // 视频播放器走 Range：按 bytes=start-end 回 206；无 Range 或解析失败回全量 200
             if let Some((start, end)) = request
                 .headers()
@@ -161,13 +217,71 @@ fn parse_byte_range(h: &str) -> Option<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_byte_range;
+    use super::{parse_byte_range, route};
     #[test]
     fn byte_ranges() {
         assert_eq!(parse_byte_range("bytes=0-100"), Some((0, 100)));
         assert_eq!(parse_byte_range("bytes=500-"), Some((500, usize::MAX)));
         assert_eq!(parse_byte_range("bytes=abc-1"), None);
         assert_eq!(parse_byte_range("0-100"), None);
+    }
+
+    /// WE 零拷贝 steam 路由：内存注入 shim、路径空间隔离、原文件不被修改。
+    #[test]
+    fn steam_route_injects_and_sandboxes() {
+        let sf = std::env::temp_dir().join(format!("gesso-sf-{}", gesso_core::generate_id()));
+        let dir = sf.join("steamapps/workshop/content/431960/777");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("project.json"),
+            r#"{"type":"web","file":"main.html","title":"T"}"#,
+        ).unwrap();
+        std::fs::write(
+            dir.join("main.html"),
+            b"<html><head><title>T</title></head><body>x</body></html>",
+        ).unwrap();
+        // ponytail: STEAM_DIR 只在本测试期间指向夹具；各测试路径唯一，无夹具竞争
+        unsafe { std::env::set_var("STEAM_DIR", &sf); }
+
+        let req = lb_wry::http::Request::builder()
+            .uri("gesso://steam/steamapps/workshop/content/431960/777/main.html")
+            .body(vec![]).unwrap();
+        let resp = route(req);
+        assert_eq!(resp.status(), 200);
+        let body = std::str::from_utf8(resp.body()).unwrap();
+        // shim 已在内存注入（原文件仍不含）
+        assert!(body.contains("wallpaperRegisterAudioListener"));
+        assert!(body.contains("<title>T</title>"));
+        let orig = std::fs::read_to_string(dir.join("main.html")).unwrap();
+        assert!(!orig.contains("wallpaperRegisterAudioListener"));
+
+        // 路径空间隔离：工坊之外的 Steam 文件 403
+        let evil = lb_wry::http::Request::builder()
+            .uri("gesso://steam/config/config.vdf")
+            .body(vec![]).unwrap();
+        assert_eq!(route(evil).status(), 403);
+        // 穿越分量 403
+        let trav = lb_wry::http::Request::builder()
+            .uri("gesso://steam/steamapps/workshop/content/431960/777/../../secret")
+            .body(vec![]).unwrap();
+        assert_eq!(route(trav).status(), 403);
+        // 编码态穿越 %2e%2e：先解码再校验，必须仍 403（否则可绕过路径空间隔离）
+        let enc_trav = lb_wry::http::Request::builder()
+            .uri("gesso://steam/steamapps/workshop/content/431960/777/%2e%2e/%2e%2e/secret")
+            .body(vec![]).unwrap();
+        assert_eq!(route(enc_trav).status(), 403);
+
+        // 百分号解码：含空格文件名以 %20 请求，能读到磁盘上的真实文件
+        std::fs::write(dir.join("my page.html"), b"<html>space</html>").unwrap();
+        let spaced = lb_wry::http::Request::builder()
+            .uri("gesso://steam/steamapps/workshop/content/431960/777/my%20page.html")
+            .body(vec![]).unwrap();
+        let sr = route(spaced);
+        assert_eq!(sr.status(), 200, "含空格文件名 %20 应解码后命中");
+        assert!(std::str::from_utf8(sr.body()).unwrap().contains("<html>space</html>"));
+
+        unsafe { std::env::remove_var("STEAM_DIR"); }
+        let _ = std::fs::remove_dir_all(&sf);
     }
 }
 

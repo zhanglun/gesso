@@ -222,8 +222,8 @@ impl SessionManager {
         let main_source = crate::encoding::entry_main_source(entry);
         ContentSpec {
             kind: entry.kind,
-            // 绝对 gesso URL：宿主页在 gesso://host，跨条目引用必须绝对地址
-            source: crate::protocol::library_url(&entry.id, &main_source),
+            // WE 条目走 steam 直引路由，其余走 library；都是绝对 gesso URL
+            source: crate::protocol::entry_url(entry, &main_source),
             fit: gesso_core::Fit::Cover,
             fps_cap: fps,
             audio: gesso_core::AudioPolicy::Muted,
@@ -471,6 +471,7 @@ impl SessionManager {
             title,
             origin: "local".into(),
             source_dir: dst_dir.display().to_string(),
+            main_file: None,
         };
         self.library.push(entry.clone());
         gesso_core::LibraryManifest {
@@ -495,8 +496,6 @@ impl SessionManager {
             e.project.title.clone()
         };
         let id = gesso_core::generate_id();
-        let dst = crate::protocol::library_dir().join(&id);
-        std::fs::create_dir_all(&dst).map_err(|_| ImportError::Io)?;
 
         let kind = match e.kind() {
             WeKind::Video => WallpaperKind::Video,
@@ -504,36 +503,24 @@ impl SessionManager {
             WeKind::Unsupported(_) | WeKind::UnsupportedStr(_) => return Err(ImportError::Unsupported),
         };
 
-        if kind == WallpaperKind::Video {
-            let src = e.dir.join(&e.project.file);
-            let ext = std::path::Path::new(&e.project.file)
-                .extension().and_then(|x| x.to_str()).unwrap_or("mp4");
-            std::fs::copy(&src, dst.join(format!("index.{ext}"))).map_err(|_| ImportError::Io)?;
-        } else {
-            // web：递归拷贝整目录（跳过 project.json，它不是页面资源）
-            crate::encoding::copy_dir_except(&e.dir, &dst, &["project.json"])?;
-            // 入口 → wallpaper.html（entry_main_source 约定），注入 shim
-            let entry_name = if e.project.file.is_empty() {
-                "index.html".to_string()
-            } else {
-                e.project.file.clone()
-            };
-            let src_entry = dst.join(&entry_name);
-            let html = std::fs::read_to_string(&src_entry).map_err(|_| ImportError::Io)?;
-            let out = crate::we_shim::inject(&html);
-            std::fs::write(dst.join("wallpaper.html"), out).map_err(|_| ImportError::Io)?;
-            // 若入口原名不是 wallpaper.html，删掉旧入口避免冗余
-            if entry_name != "wallpaper.html" {
-                std::fs::remove_file(&src_entry).ok();
-            }
-        }
-
+        // 零拷贝：source_dir 直接指向 Steam 工坊目录（只读，绝不修改原文件）。
+        // web 的 shim 在 gesso://steam 协议层内存注入，video 直接流式 Range 读取。
+        // main_file 记住 project.json 声明的主资源名（video 媒体 / web 入口）。
+        let main_file = match kind {
+            WallpaperKind::Video if !e.project.file.is_empty() => Some(e.project.file.clone()),
+            WallpaperKind::Html => Some(
+                if e.project.file.is_empty() { "index.html" } else { e.project.file.as_str() }
+                .to_string(),
+            ),
+            _ => None,
+        };
         let entry = LibraryEntry {
             id: id.clone(),
             kind,
             title,
             origin: "wallpaper-engine".into(),
-            source_dir: dst.display().to_string(),
+            source_dir: e.dir.display().to_string(),
+            main_file,
         };
         self.library.push(entry.clone());
         gesso_core::LibraryManifest { entries: self.library.clone() }
@@ -839,6 +826,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
     fn classify_static_images() {
         for f in ["a.jpg", "a.jpeg", "a.png", "a.avif"] {
             assert_eq!(
@@ -849,6 +837,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn import_ext_preserves_source_extension() {
         // webm/webp 不能被改名成 mp4/gif（WKWebView 按扩展名判定类型）
         assert_eq!(
@@ -956,26 +945,26 @@ mod we_import_tests {
     }
 
     #[test]
-    fn imports_web_with_shim_and_assets() {
+    fn imports_web_zero_copy_points_to_source() {
         let (home, entry) = fixture();
         let mut sm = SessionManager::new(Default::default(), Vec::new());
         let got = sm.import_we_entry(&entry).expect("导入成功");
         assert_eq!(got.kind, WallpaperKind::Html);
         assert_eq!(got.title, "My Web");
         assert_eq!(got.origin, "wallpaper-engine");
+        assert_eq!(got.main_file.as_deref(), Some("index.html"));
         let dir = std::path::Path::new(&got.source_dir);
-        // 入口已改名 + 注入 shim
-        let wp = fs::read_to_string(dir.join("wallpaper.html")).unwrap();
-        assert!(wp.contains("wallpaperRegisterAudioListener"));
-        assert!(wp.contains("<title>T</title>"));
-        // 旧入口已删，子资源保留
-        assert!(!dir.join("index.html").exists());
+        // 零拷贝：原目录原封不动——入口仍 index.html，project.json 还在，shim 不落盘
+        let orig = fs::read_to_string(dir.join("index.html")).unwrap();
+        assert!(orig.contains("<title>T</title>"));
+        assert!(!orig.contains("wallpaperRegisterAudioListener"));
+        assert!(dir.join("project.json").exists());
         assert_eq!(fs::read(dir.join("assets/a.js")).unwrap(), b"JSCODE");
-        // project.json 未拷入
-        assert!(!dir.join("project.json").exists());
+        assert_eq!(crate::encoding::entry_main_source(&got), "index.html");
         // 入库 + manifest 落盘
         assert_eq!(sm.library.len(), 1);
         assert!(crate::protocol::library_dir().join("library.json").exists());
+        drop(home); // 保活到断言结束（TempHome 提前 drop 会删掉夹具）
     }
 
     #[test]
@@ -990,23 +979,27 @@ mod we_import_tests {
     }
 }
 
-/// 最小临时 HOME：设置 HOME 环境变量指向临时目录，drop 时清理。
-#[cfg(test)]
-mod tempfile_lite {
-    pub struct TempHome {
-        pub path: std::path::PathBuf,
-    }
-    impl TempHome {
-        pub fn new() -> Self {
-            let path = std::env::temp_dir().join(format!("gesso-home-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&path);
-            std::fs::create_dir_all(&path).unwrap();
-            // SAFETY: 测试串行（--test-threads=1 依赖见下方）；同一进程内 set_var 安全
-            unsafe { std::env::set_var("HOME", &path); }
-            TempHome { path }
+    /// 最小临时 HOME：设置 HOME 环境变量指向临时目录，drop 时清理。
+    #[cfg(test)]
+    mod tempfile_lite {
+        pub struct TempHome {
+            pub path: std::path::PathBuf,
+        }
+        impl TempHome {
+            pub fn new() -> Self {
+                // 随机后缀：同进程多个 TempHome（并行测试）不得共用同一目录，
+                // 否则后建者的 remove_dir_all 会删掉前者夹具。
+                let suffix = gesso_core::generate_id();
+                let path = std::env::temp_dir().join(format!("gesso-home-{}", suffix));
+                let _ = std::fs::remove_dir_all(&path);
+                std::fs::create_dir_all(&path).unwrap();
+                // ponytail: set_var 依赖测试单进程；并行测试只共享 HOME 变量值，
+                // 但各夹具路径已唯一，find_steam 读到的 HOME 是谁都能各自找到自己的文件。
+                unsafe { std::env::set_var("HOME", &path); }
+                TempHome { path }
+            }
+        }
+        impl Drop for TempHome {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.path); }
         }
     }
-    impl Drop for TempHome {
-        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.path); }
-    }
-}

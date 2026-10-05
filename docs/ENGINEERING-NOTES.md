@@ -27,6 +27,7 @@
 | `overflow_y_scroll` 找不到 | 属 `StatefulInteractiveElement` → **必须在 `.id(...)` 之后** |
 | 闭包借用逃逸（`t.accent`、`m.wallpaper`） | 构造期求值成 owned 副本再 `move` 进闭包 |
 | `gesso://` 自定义协议 | **已打通（lb-wry ≥0.53）**——M2 “回调零触发”结论已过时（可能是旧版本/未注册）。独立夹具确认：文档与跨 host 子资源回调均正常。注意 URI 结构：`gesso://<host 段>/<path>`，路由要看 `uri.host()` 不是 `uri.path()`。视频必须支持 **Range(206)**，否则播放器几百次重试。首帧直接用 gesso URL |
+| WE 零拷贝直引 | WE video/web 不拷入库，`source_dir` 指 Steam 工坊目录，经 `gesso://steam/<相对工坊路径>` 只读加载；路由强制路径落在 `steamapps/workshop/content/431960` 下、只允许 Normal 分量。video 走 Range，web 主 HTML 在协议层内存注入 shim（原文件只读不改）。主文件名（可能非 index.*）存 `LibraryEntry.main_file`。**坑 1：webview 发来的 `uri.path()` 是百分号编码态（空格=%20），提取后必须 `percent_decode` 再做穿越校验（否则 `%2e%2e` 可绕过），再读盘**。**坑 2：`mime_for_ext("html")` 返回 `text/html; charset=utf-8`，判断类型要用 `starts_with("text/html")` 不能 `==`** |
 | 路径编码 | 旧 file:// 时代 `Application Support` 空格需百分号编码；gesso 协议由 handler 内部解析文件路径，URL 只传相对段，不再需要 path 编码 |
 | 创建顺序 | 必须在 `gpui_kit::init(cx)` 之后、GPUI 窗口之前创建 AppKit 壁纸窗口；否则 tray-icon panic：`Ivar platform not found on class NSApplication` |
 | **`swap(true)` 当开关** | `AtomicBool::swap(true)` 永远写入 `true`、永远读到同一个旧值 → 开关变成"只单向"。**用 `fetch_xor(true)`**。（M0.5 的壁纸切换、托盘「暂停全部」各栽过一次） |

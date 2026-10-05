@@ -41,7 +41,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 
 ## Known gaps (no milestone yet)
 
-- 零拷贝直引（video/web 直接引用 Steam 源、不拷入库）尚待开启——协议已通，这是下一步增量。
+- 零拷贝直引：WE video/web 已改为**只读直引 Steam 源**（不拷入库、不修改原文件），经 `gesso://steam` 路由流式 Range 读取、shim 内存注入。
 - Real-machine monitor outline (signature #1) and tray panel positioning on retina displays.
 - ~~HTML thumbnails use the gradient placeholder~~ → Done (`372b4c4`): html captures live frames via the same persistent-window capture pipeline as shader/video.
 - HTML wallpapers: iframe-internal navigation is not allow-listed yet (top-navigation / popups / forms are sandbox-blocked; `fps_cap` is advisory for the html kind). Hover previews use a two-phase cycle — preload all 16 frames behind a spinner, then play at a fixed 125 ms/frame (`c6bd3ce`).

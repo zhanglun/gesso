@@ -12,8 +12,11 @@ pub struct LibraryEntry {
     pub title: String,
     /// 来源：`local`（普通导入）/ `builtin`（内置样例）/ `wallpaper-engine`（WE 导入）。
     pub origin: String,
-    /// 素材根目录（库内拷贝路径；v1 统一拷贝制，直引待 gesso:// 协议修复）。
+    /// 素材根目录。local/builtin = 库内拷贝路径；WE 零拷贝 = Steam 工坊目录绝对路径。
     pub source_dir: String,
+    /// WE 条目在 project.json 里声明的主文件名（video 媒体 / web 入口）；其余为 None。
+    #[serde(default)]
+    pub main_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -67,6 +70,7 @@ mod tests {
             title: "t".into(),
             origin: "local".into(),
             source_dir: "/tmp/x".into(),
+            main_file: None,
         }
     }
 

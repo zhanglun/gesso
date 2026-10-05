@@ -198,6 +198,7 @@ fn bootstrap() -> (session::SessionManager, bool) {
             title: (*title).into(),
             origin: "builtin".into(),
             source_dir: dst.display().to_string(),
+            main_file: None,
         });
         println!("[boot] 内置样例已入库：{id}");
     }

@@ -1,10 +1,7 @@
-//! 导入/URL 相关的纯函数工具：base64url、路径百分号编码、目录拷贝、
-//! 主资源文件名发现。无会话状态、可独立单测。
+//! URL/主资源发现相关纯函数：base64url、主资源文件名。无会话状态、可独立单测。
 
 use gesso_core::WallpaperKind;
 use std::path::Path;
-
-use crate::session::ImportError;
 
 /// base64url（无填充；shader 源码经 URL 查询参数传递，§2 踩坑 #10）。
 pub fn base64url(data: &[u8]) -> String {
@@ -41,26 +38,6 @@ pub fn urlencode(s: &str) -> String {
 }
 
 /// 递归拷贝目录（跳过指定顶层文件名）；用于 WE web 条目整目录复制。
-pub fn copy_dir_except(src: &Path, dst: &Path, except: &[&str]) -> Result<(), ImportError> {
-    std::fs::create_dir_all(dst).map_err(|_| ImportError::Io)?;
-    let rd = std::fs::read_dir(src).map_err(|_| ImportError::Io)?;
-    for ent in rd.flatten() {
-        let name = ent.file_name();
-        if name.to_str().map(|n| except.contains(&n)).unwrap_or(false) {
-            continue;
-        }
-        let from = ent.path();
-        let to = dst.join(&name);
-        let ft = ent.file_type().map_err(|_| ImportError::Io)?;
-        if ft.is_dir() {
-            copy_dir_except(&from, &to, &[])?;
-        } else {
-            std::fs::copy(&from, &to).map_err(|_| ImportError::Io)?;
-        }
-    }
-    Ok(())
-}
-
 /// 导入落盘用的扩展名：**保留源文件扩展名**（WKWebView 按扩展名判定媒体类型，
 /// 把 `.webm` 存成 `index.mp4`、`.webp` 存成 `index.gif` 会直接播不出来）；
 /// 源文件无扩展名时退回类型默认名。
@@ -113,8 +90,12 @@ pub fn main_asset_name(source_dir: &str, kind: WallpaperKind) -> Option<String> 
     fallback
 }
 
-/// 条目主资源（相对宿主页同目录；条目自包含）
+/// 条目主资源（相对条目根的路径）。
 pub fn entry_main_source(entry: &gesso_core::LibraryEntry) -> String {
+    // WE 零拷贝条目：主文件名来自 project.json（可能不是 index.* 命名）。
+    if let Some(f) = &entry.main_file {
+        return f.clone();
+    }
     main_asset_name(&entry.source_dir, entry.kind).unwrap_or_else(|| match entry.kind {
         WallpaperKind::Html => "wallpaper.html".to_string(),
         k => format!("index.{}", default_ext(k)),
