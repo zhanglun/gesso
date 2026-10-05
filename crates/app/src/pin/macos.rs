@@ -110,9 +110,9 @@ pub fn create(monitor: &MonitorInfo) -> Result<MacWallpaperWindow> {
         .ok_or_else(|| GessoError::UnsupportedPlatform("contentView 缺失".into()))?;
     let handle = ViewHandle(Retained::as_ptr(&content) as *mut NSView);
 
-    // 初始 URL 必须是一个必然成功的中立页：早期版本误用已废弃的 gesso:// URL 作为
-    // 首帧导航，失败后 WKWebView 进入"URL 会更新但永不绘制"的死状态（M2 排查记录）
-    let webview = crate::protocol::create_webview(handle, "about:blank")
+    // 初始 URL：自定义协议已可用（lb-wry ≥0.53），首帧直接走 gesso 宿主页。
+    // build_session 稍后会 load 带 spec 的真实 URL。
+    let webview = crate::protocol::create_webview(handle, "gesso://host/index.html")
         .map_err(|e| GessoError::UnsupportedPlatform(format!("wry: {e}")))?;
     webview
         .set_bounds(lb_wry::Rect {
@@ -168,13 +168,13 @@ impl WallpaperWindow for MacWallpaperWindow {
     }
 
     fn set_paused(&mut self, paused: bool) {
-        // 宿主页契约：window.__gesso.pause()/resume()（技术方案 §5.1/§5.3）
-        let js = if paused {
-            "__gesso&&__gesso.pause()"
+        // 复用类型化命令契约（§5.3：暂停 = 停 RAF / video.pause，窗口常驻）
+        let cmd = if paused {
+            crate::host_cmd::HostCommand::Pause
         } else {
-            "__gesso&&__gesso.resume()"
+            crate::host_cmd::HostCommand::Resume
         };
-        let _ = self.webview.evaluate_script(js);
+        let _ = self.webview.evaluate_script(&cmd.to_js());
     }
 
     fn evaluate(&mut self, js: &str) {

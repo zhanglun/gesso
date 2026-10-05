@@ -5,12 +5,14 @@
 //! `cargo test -p gesso-core` 秒级全量跑。
 
 pub mod config;
+pub mod content;
 pub mod error;
 pub mod library;
 pub mod session;
 pub mod spec;
 
 pub use config::{AppConfig, MonitorDiff, MonitorFpsMap, PausePolicy, Settings, StartupBehavior};
+pub use content::{content_type, is_animated_image_ext, kind_from_ext, mime_for_ext, ThumbStrategy};
 pub use error::{GessoError, Result};
 pub use library::{generate_id, LibraryEntry, LibraryManifest};
 pub use session::{transfer, SessionEvent, SessionState};

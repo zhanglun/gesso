@@ -46,17 +46,18 @@ GPUI owns the manager window and the tray. Both run in the same process/event lo
 ## 3. Content pipeline
 
 ```
-LibraryEntry (library/<random-id>/index.html + index.<ext>)
+LibraryEntry (library/<random-id>/index.<ext>)
    → ContentSpec { kind, source, fit, fps_cap, audio, meta }
-   → host page URL  file://…/index.html?spec=<urlencoded JSON>
-   → wallpaper webview
+   → host page URL  gesso://host/index.html?spec=<urlencoded JSON>
+   → wallpaper webview   (source → gesso://library/<id>/<asset>)
 ```
 
 - Each library entry is **self-contained**: the host page is copied into the entry directory at startup (dev behavior; frozen per-entry later) and media is referenced relatively. This sidesteps the currently-broken custom scheme (see pitfalls) and matches how Wallpaper Engine structures its projects.
 - The **source extension is preserved on import** (`webm` stays `webm`): webviews type media by extension, so normalizing to `index.mp4` breaks playback. Import, validity checking and host-spec generation all call this `main_asset_name` helper — keep it that way.
-- The host page exposes `window.__gesso.{pause, resume}`; the engine pauses via `evaluate_script` — pause is a **JS-level frame stop**, the window and webview stay resident.
-- Renderer coverage today: video, image (gif/webp), shader (WebGL2 + Shadertoy subset, source via `code=` base64url), html (user page fixed at `wallpaper.html`, loaded in a sandboxed iframe `allow-scripts` — opaque origin throws `SecurityError` on storage/IPC; pause/resume delivered via `postMessage {__gesso:"pause"|"resume"}`).
-- **Thumbnails are WYSIWYG captures, not translated previews**: a persistent on-screen capture window (one window-level above the wallpaper, `alphaValue(0.02)`) runs the real host page and takes WKWebView snapshots — one static `thumb.png` plus 15 hover frames. Shader is frozen per frame via `__gessoSeek(t)`; html is a live page sampled at fixed intervals. The window is never closed while a snapshot completion is pending (over-release crash; see ENGINEERING-NOTES), and captures run on one global serial queue.
+- The host page exposes `window.__gesso`; commands are typed on the Rust side (`HostCommand` — Pause/Resume/SetFps/Tick/Mouse), serialized in exactly one place (`host_cmd.rs`) and delivered via `evaluate_script`. Pause is a **JS-level frame stop**; the window and webview stay resident.
+- Renderer coverage today: video, image (gif/webp/jpg/jpeg/png/avif — animated gif/webp distinguished from static photos in the UI), shader (WebGL2 + Shadertoy subset, source via `code=` base64url), html (user page fixed at `wallpaper.html`, loaded in a sandboxed iframe `allow-scripts` — opaque origin throws `SecurityError` on storage/IPC; pause/resume delivered via `postMessage {__gesso:"pause"|"resume"}`).
+- The type ↔ extension ↔ MIME ↔ thumbnail-strategy knowledge lives in one table: `gesso_core::content` (`ContentType`). Import classification, main-asset discovery, protocol MIME and thumbnail dispatch all read it — no scattered extension lists.
+- **Thumbnails are WYSIWYG captures, not translated previews**: strategy per kind is declared in the content table — static photos are `Direct` (reference the source file, zero generation), videos are `Extract` (AVFoundation frame extraction), shader/html are `Capture` (a persistent near-invisible capture window runs the real host page and takes WKWebView snapshots). Capture yields one static `thumb.png` plus 15 hover frames; shader is frozen per frame via `__gessoSeek(t)`, html is sampled live. The window is never closed while a snapshot is pending (over-release crash; see ENGINEERING-NOTES), and captures run on one global serial queue.
 
 ## 4. Session state machine (gesso-core)
 
@@ -77,7 +78,7 @@ Pure function `transfer(state, event)`; every transition is unit-tested. Session
 
 ## 6. Security model
 
-Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from wallpaper windows, self-contained per-entry directories with random unguessable IDs, network-local content only. End-state (tracked): read-only `gesso://` scheme with traversal protection, CSP header injection and a navigation allow-list; current `file://` mode is an intermediate step. Details and reporting: [SECURITY.md](../SECURITY.md).
+Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from wallpaper windows, per-entry directories with random unguessable IDs, network-local content only. Read-only `gesso://` scheme is live: `host` serves the shared host page, `library/<id>/…` serves entry files with traversal protection, CSP header injection, CORS for cross-origin subresources, and Range(206) for video. Details and reporting: [SECURITY.md](../SECURITY.md).
 
 ## 7. Performance notes
 

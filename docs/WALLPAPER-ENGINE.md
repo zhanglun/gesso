@@ -1,6 +1,6 @@
 # Wallpaper Engine 素材兼容
 
-> 状态：**计划中（M6/M7）**——本文档记录方案与边界，尚未实现。
+> 状态：**M6 已交付（video/web）**——scene（M7）仍计划中。
 
 ## 目标
 
@@ -10,14 +10,20 @@
 
 | WE `type` | 内容形态 | 方案 | 里程碑 |
 |---|---|---|---|
-| `video` | mp4 | **零拷贝直引**（库中登记引用，不复制文件） | M6 |
-| `web` | HTML5 + WE JS API | 本地渲染 + 注入 WE API shim（`wallpaperRegisterAudioListener`、`wallpaperPropertyListener` 等，数据源为系统数据桥） | M6 |
+| `video` | mp4 | v1 **拷贝入库**（自包含；`gesso://` 协议已通，零拷贝直引为下一步增量） | ✅ M6 |
+| `web` | HTML5 + WE JS API | 整目录拷贝 + 主文件改名 `wallpaper.html` + 注入 WE API shim（音频/媒体空实现，暂停/fps/鼠标/时间桥复用宿主页） | ✅ M6 |
 | `scene` | `scene.pkg`（贴图 `.tex`、时间轴、着色器） | 解包（`depkg`，GPL，子进程隔离）→ 轻量运行时；先行降级：抽取图片资产 | M7+ |
 | `application` | 原生 exe | **明确拒绝**（安全模型不允许，macOS 也无法运行） | 永不 |
 
 ## 素材从哪来
 
 Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/431960/<workshopid>/`（`431960` = Wallpaper Engine 的 AppID），每个目录含 `project.json`（`title` / `type` / `file` 等）。
+
+## 实现备忘（M6）
+
+- 扫描：`we.rs::scan` 读 `project.json`；Steam 根定位走 `STEAM_DIR` → macOS 默认路径 → Windows 常见盘符。检测不到 Steam 时 UI 隐藏「工坊」入口。
+- shim 注入点：紧贴 `<head>` 之后（`we_shim.rs`）。
+- 普通「导入」按钮选中 `project.json` 同样触发整目录 WE 导入。
 
 ## 法律边界（硬约束）
 
@@ -28,8 +34,8 @@ Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/4319
   2. 接受整个项目 GPL-3.0。
   M6 开工前定案，并在 README 明示。
 
-## 验收（届时）
+## 验收（M6 实测）
 
-- 热门 20 个 web 壁纸 ≥18 个可渲染（shim 缺失即失败）；
-- video 类型全通；
-- `application` 类型给出明确的"不支持"提示。
+- 夹具端到端：web 条目拷贝 + shim 注入 + scene 明确拒绝均有测试覆盖；
+- video 类型全通；检测不到 Steam 时入口隐藏；
+- 大规模工坊实机兼容性（热门 20 个 web）待有 Steam 环境补测。

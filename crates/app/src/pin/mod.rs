@@ -37,6 +37,10 @@ pub trait WallpaperWindow {
     fn current_url(&self) -> String;
     /// 透传 JS（M5 数据桥通道：时间 tick / 降帧 setFps；暂停仍走 set_paused）。
     fn evaluate(&mut self, _js: &str) {}
+    /// 发送一条类型化宿主命令（默认走 evaluate；平台可覆写）。
+    fn send(&mut self, cmd: crate::host_cmd::HostCommand) {
+        self.evaluate(&cmd.to_js());
+    }
     /// 延迟诊断（窗口/webview 状态真值）
     fn diag(&self, _tag: &str) {}
 }

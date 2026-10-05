@@ -95,6 +95,7 @@ impl LibraryView {
             Filter::All,
             Filter::Kind(Kind::Video),
             Filter::Kind(Kind::Gif),
+            Filter::Kind(Kind::Photo),
             Filter::Kind(Kind::Shader),
             Filter::Kind(Kind::Web),
             Filter::We,
@@ -128,6 +129,15 @@ impl LibraryView {
                 super::app_state::import_with_dialog(window, cx);
             });
 
+        let we_available = state(cx).we_available;
+        let we = Button::new("btn-we")
+            .label(BTN_WE)
+            .secondary()
+            .icon(Icon::new(IconName::Gamepad))
+            .on_click(|_, _, cx| {
+                super::we_view::WeView::open(cx);
+            });
+
         h_flex()
             .flex_none()
             .h(px(48.))
@@ -139,6 +149,7 @@ impl LibraryView {
             .child(seg)
             .child(search)
             .child(div().flex_1())
+            .when(we_available, |b| b.child(we))
             .child(import)
             .into_any_element()
     }

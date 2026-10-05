@@ -45,6 +45,7 @@ pub fn kind_icon(kind: Kind) -> IconName {
     match kind {
         Kind::Video => IconName::Film,
         Kind::Gif => IconName::Image,
+        Kind::Photo => IconName::Image,
         Kind::Shader => IconName::Sparkles,
         Kind::Web => IconName::Globe,
     }

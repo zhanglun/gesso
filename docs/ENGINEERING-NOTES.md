@@ -11,7 +11,7 @@
 2. **UI 不碰引擎内部**：只经 `crates/app/API.md`。写操作入队 `engine::EngineAction`（引擎 150ms 轮询执行，与托盘同一通道）；读操作走 `snapshot_ui(&sm)` 快照，且**必须保留 UI 本地状态**（`active_tab/selected/query/filter/import_counter`），否则用户输入每 150ms 被冲掉。
 3. **改界面先改规格与原型**（`docs/design/界面与交互设计.md` + `docs/design/prototype/index.html`），再改代码；token/组件/文案以 `docs/design/DESIGN.md` 为准。
 4. **提交前必须 `cargo check -p gesso-app` 通过**。UI 代码曾因从未编译积累 115 个错误。
-5. **导入 / 失效判定 / 宿主页 spec 三处必须共用同一函数**（`session::main_asset_name`）。三处各写一份"类型→扩展名"的映射，就会出现"能导入但被判失效"或"宿主页请求错文件名"。
+5. **类型知识与主资源发现只在单一事实源**：类型↔扩展名↔MIME↔缩略图策略查 `gesso_core::content`；主资源文件名走 `encoding::main_asset_name`，导入/失效判定/宿主页 spec 共用。四处各写一份“类型→扩展名”映射，就会出现“能导入但被判失效”或“宿主页请求错文件名”。
 6. **平台 FFI 的所有权不裸写**。ObjC 一律走 objc2 生成绑定（所有权编码在类型里：init/copy 家族 → `Retained<T>`，autoreleased 返回值由绑定内部 `objc_retainAutoreleasedReturnValue` 处理）；手写 extern 只留给纯 C API（CF 的 +1/CFRelease 对称即可，如 ImageIO `CGImageDestination`）。后台线程做 ObjC/AVFoundation 整段包 `objc2::rc::autoreleasepool`，并且只跑在有重试上限 + 在途去重的调度器后面（`thumb.rs` + `engine::ThumbScheduler` 是范本）。
 
 ## 2. 踩坑实录（照抄即可）
@@ -26,8 +26,8 @@
 | `IndexPath` 私有路径 | `gpui_kit::component::IndexPath` |
 | `overflow_y_scroll` 找不到 | 属 `StatefulInteractiveElement` → **必须在 `.id(...)` 之后** |
 | 闭包借用逃逸（`t.accent`、`m.wallpaper`） | 构造期求值成 owned 副本再 `move` 进闭包 |
-| `gesso://` 自定义协议 | 本版 lb-wry/WKWebView **回调零触发**；若当**首帧 URL** 会让 webview 进入"URL 更新但永不绘制"死状态。M2 走**条目自包含 `file://`**（宿主页拷进条目目录 + 相对媒体） |
-| 库路径含空格 | `Application Support` 必须百分号编码后才能拼 `file://` |
+| `gesso://` 自定义协议 | **已打通（lb-wry ≥0.53）**——M2 “回调零触发”结论已过时（可能是旧版本/未注册）。独立夹具确认：文档与跨 host 子资源回调均正常。注意 URI 结构：`gesso://<host 段>/<path>`，路由要看 `uri.host()` 不是 `uri.path()`。视频必须支持 **Range(206)**，否则播放器几百次重试。首帧直接用 gesso URL |
+| 路径编码 | 旧 file:// 时代 `Application Support` 空格需百分号编码；gesso 协议由 handler 内部解析文件路径，URL 只传相对段，不再需要 path 编码 |
 | 创建顺序 | 必须在 `gpui_kit::init(cx)` 之后、GPUI 窗口之前创建 AppKit 壁纸窗口；否则 tray-icon panic：`Ivar platform not found on class NSApplication` |
 | **`swap(true)` 当开关** | `AtomicBool::swap(true)` 永远写入 `true`、永远读到同一个旧值 → 开关变成"只单向"。**用 `fetch_xor(true)`**。（M0.5 的壁纸切换、托盘「暂停全部」各栽过一次） |
 | 媒体导入改名 | **保留源扩展名**：WKWebView 按扩展名判定媒体类型，`.webm` 存成 `index.mp4`、`.webp` 存成 `index.gif` 直接播不出来 |
@@ -46,6 +46,8 @@
 | GPUI 图片元素三条机制（hover 预览多轮踩坑） | ① **`image_cache` 元素不绘制自身样式**——只转发子元素，`.bg()` 挂它上面是死的（底色必须画在外层普通 div 上）；② **`img` 无元素 id → 不建 `ImgState`** → `with_loading` fallback 分支整体跳过；③ **默认 loading 延迟 200ms** 且同一帧的资源加载完成会批量 notify——固定节奏轮播未就绪帧 = 底色/图片交替 + 播速忽快忽慢。正解：hover 两段式，`fetch_asset::<ImgResourceLoader>` 预载全部帧（与显示共用同一缓存）后再固定节奏播放 |
 | 光标跟随三个坐标系/线程坑（M5 光标 feed 多轮实测） | ① **`CGEventGetLocation` 是左上原点 CG 坐标**，与 MonitorInfo/NSEvent（左下 AppKit 坐标）混用上下颠倒——位置用 `NSEvent::mouseLocation()`；② 左下原点的归一化坐标喂给 Shadertoy `fragCoord`/`iMouse`（本就左下原点）要**直接映射，别再 `1-y`** 翻一次；③ **`NSEvent.mouseLocation` 绝不能从后台线程读**——快速移动时是陈旧值，光团卡住、鼠标停下才闪现到终点；后台线程只出节拍，读 AppKit 状态必须主线程 |
 | 光标跟随的推送节奏 | 60Hz 连续 `evaluate_script` 会在跨进程 FIFO 队列堆积→滞后；推送/渲染两个独立时钟→有的帧空转有的帧双跳→闪现。正解：**Rust 30Hz 推送（队列不堆积）+ 宿主页只存最新目标 + 每帧帧率无关平滑**（`k=1-e^{-35·dt}`≈2 帧追上），视觉 60fps 连续、无堆积 |
+| 条目目录里宿主页与用户资源共用 `index.*` 命名空间 | 真实事故：图片条目目录有 `index.html`（每次启动 `ensure_entry_host` 拷入的宿主页）+ `index.png`，`read_dir` 恰好先返回 html；旧 `main_asset_name` 的“任意 `index.*` 兑底”把宿主页当主资源 → 缩略图/类型判定全错。根因做法：`main_asset_name` 只在该类型的扩展名白名单（`content_type(kind).extensions`）内匹配，html 类型主资源固定 `wallpaper.html`。**修 bug 先 grep 所有调用点，在共享函数加一次守卫，而非每个调用方打补丁** |
+| 手拼跨语言命令字符串 | Rust 多处手拼 `__gesso&&__gesso.setFps(5)`，宿主端各自定义，改名靠人肉；`&&__gesso.` 这种空指针守卫还散落各点。正解：`HostCommand` 枚举 + 唯一 `to_js` 序列化点，`WallpaperWindow::send` 统一入口，加/改命令由编译器扫所有调用点 |
 
 ## 3. 关键路径（调试用）
 

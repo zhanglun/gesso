@@ -75,16 +75,21 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 引擎把 `SessionManager` 放进 `gpui` 全局状态（`crates/app/src/engine.rs`：`cx.set_global(engine::AppState::new(sm))`）
 - 读：`main.rs::snapshot_ui(&sm)` 生成 `ui::app_state::GessoState`（UI 投影），启动注入 + 轮询回灌（保留 tab/selected/query/filter 等浏览状态）
 - 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
-  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow`（另有引擎内部的 `ThumbsDone`，UI 不入队）
+  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow`（另有引擎内部的 `ThumbsDone`，UI 不入队）
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
+
+## 4.1 类型与命令的单一事实源
+
+- 类型 ↔ 扩展名 ↔ MIME ↔ 缩略图策略：查 `gesso_core::content::{content_type, kind_from_ext, mime_for_ext}`，**不要**在 app/ui 里另列扩展名清单。
+- 引擎 → 宿主页命令：构造 `HostCommand`（`app/host_cmd.rs`），序列化只在 `to_js`；不要手拼 `__gesso.xxx(...)` 字符串。
 
 ## 5. 已知限制（别在这上面浪费轮次）
 
 | 事项 | 状态 |
 |---|---|
-| `gesso://` 自定义协议 | 本版 lb-wry/WKWebView 零回调，当前走条目自包含 `file://`；协议修复是独立待办 |
+| `gesso://` 自定义协议 | **已打通**（lb-wry ≥0.53，`bf3c294`）：宿主页走 `gesso://host`，条目资源走 `gesso://library/<entry>/…`；视频支持 Range(206)。零拷贝直引是下一步 |
 | 壁纸窗口 | 纯 AppKit 非 GPUI 窗口（M1.5 定稿），UI 无法也不应嵌入它 |
-| 渲染器 | 四类全部生效：video / image / shader（WebGL2 + Shadertoy 子集）/ html（沙箱 iframe）；四类均有真实采集的静态 + hover 帧缩略图 |
+| 渲染器 | 四类全部生效：video / image（gif/webp/jpg/jpeg/png/avif）/ shader（WebGL2 + Shadertoy 子集）/ html（沙箱 iframe）；静态图 Direct 直引源文件，其余类型有真实采集的静态 + hover 帧 |
 | 显示器热插拔 | 2s 轮询 diff（平台通知未接，候选 M5+） |
 | 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；**自动暂停事件源已接（M5）**：全屏 CGWindowList 轮询 + 电池 IOKit，经 `apply_autopause` 驱动；光标 feed 与空闲降帧已接（M5）：NSEvent 位置 + HID 按键/空闲，纯轮询无需授权 |
 | 导入 I/O 失败反馈 | 引擎侧仅日志；UI 预检（扩展名）已给红字/气泡，拷贝失败暂静默 |

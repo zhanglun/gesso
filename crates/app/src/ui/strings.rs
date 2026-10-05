@@ -131,3 +131,13 @@ pub const WIZARD_FINISH: &str = "完成";
 pub const WIZARD_SAMPLE_TAG: &str = "样例";
 pub const WIZARD_EMPTY_LIBRARY: &str =
     "库里还没有壁纸——点下方「导入自己的文件…」或稍后从主窗口拖入";
+
+// Wallpaper Engine 工坊导入（M6）
+pub const WE_TITLE: &str = "Wallpaper Engine 工坊";
+pub const WE_HINT: &str = "只读本机已订阅内容";
+pub const WE_IMPORT_BTN: &str = "导入";
+pub const WE_IMPORTED: &str = "已加入";
+pub const WE_UNSUPPORTED: &str = "不支持";
+pub const WE_NO_STEAM: &str = "未找到 Steam 安装（可设置 STEAM_DIR 环境变量）";
+pub const WE_EMPTY: &str = "还没有订阅的 Wallpaper Engine 素材";
+pub const BTN_WE: &str = "工坊";

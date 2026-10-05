@@ -23,4 +23,5 @@ pub mod settings_view;
 pub mod shell;
 pub mod strings;
 pub mod theme;
+pub mod we_view;
 pub mod widgets;
