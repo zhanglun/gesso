@@ -209,26 +209,19 @@ impl SessionManager {
     }
 
     /// 条目自包含：把宿主页拷进条目目录（贴 WE 项目模型；M3 起随条目分发）
-    fn ensure_entry_host(entry: &LibraryEntry) -> String {
-        let dir = std::path::PathBuf::from(&entry.source_dir);
-        let host = dir.join("index.html");
-        let src = crate::protocol::assets_dir().join("host/index.html");
-        std::fs::create_dir_all(&dir).ok();
-        std::fs::copy(&src, &host).ok(); // 开发期每次同步；M3 起随条目冻结
-                                         // file:// 加载（gesso:// 自定义协议在本版 WKWebView 下静默失败，见 SPIKE-REPORT）
-                                         // ⚠️ 路径必须百分号编码：库路径含空格（"Application Support"），
-                                         // 裸空格会拼出非法 URL 被 WKWebView 拒载
-        format!(
-            "file://{}",
-            crate::encoding::percent_encode_path(&host.display().to_string())
-        )
+    /// 宿主页 URL：走 gesso:// 协议，宿主页为 assets 中的单一共享副本，
+    /// 不再拷入条目目录（避免宿主页与用户资源共用 index.* 命名空间）。
+    fn ensure_entry_host(_entry: &LibraryEntry) -> String {
+        crate::protocol::host_url().to_string()
     }
 
-    /// ContentSpec 构建（assign / set_fps / build_session 共用同一套字段映射）
+    /// ContentSpec 构建（assign / set_fps / build_session 共用同一套字段映射）。
     pub(crate) fn content_spec(entry: &LibraryEntry, fps: u8) -> ContentSpec {
+        let main_source = crate::encoding::entry_main_source(entry);
         ContentSpec {
             kind: entry.kind,
-            source: crate::encoding::entry_main_source(&entry),
+            // 绝对 gesso URL：宿主页在 gesso://host，跨条目引用必须绝对地址
+            source: crate::protocol::library_url(&entry.id, &main_source),
             fit: gesso_core::Fit::Cover,
             fps_cap: fps,
             audio: gesso_core::AudioPolicy::Muted,
@@ -274,7 +267,6 @@ impl SessionManager {
         let mut window = pin::create_wallpaper_window(&monitor)?;
         let url = Self::entry_host_url(&entry, fps);
         window.load(&url);
-        // 隔离实验：builder 的 with_url 可能绕过 scheme handler，创建后再显式加载一次
         println!("[session] 宿主页 URL = {}", url);
         Ok(Session {
             state: SessionState::Playing,

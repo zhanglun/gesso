@@ -26,20 +26,6 @@ pub fn base64url(data: &[u8]) -> String {
     out
 }
 
-/// 文件路径 → URL 路径段编码（保留分隔符 `/` 和盘符 `:`，其余非 unreserved 全编码）
-pub fn percent_encode_path(p: &str) -> String {
-    let mut out = String::with_capacity(p.len());
-    for b in p.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' | b':' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
 /// urlencode（查询参数值；`/` 也编码）
 pub fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3);
