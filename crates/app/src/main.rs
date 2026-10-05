@@ -343,6 +343,39 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
     g
 }
 
+/// 快照回灌：保留 UI 本地的浏览/悬停态，其余字段以引擎快照为准。
+/// （AGENTS 规则 2；hovered/selected 丢失曾导致卡片高亮/轮播闪烁。）
+fn merge_snapshot(g: &mut GessoState, next: GessoState) {
+    let GessoState {
+        active_tab,
+        selected,
+        query,
+        filter,
+        import_counter,
+        hovered,
+        hover_frame,
+        ..
+    } = g;
+    let local = (
+        *active_tab,
+        selected.clone(),
+        query.clone(),
+        *filter,
+        *import_counter,
+        hovered.clone(),
+        *hover_frame,
+    );
+    *g = next;
+    g.active_tab = local.0;
+    g.selected = local.1;
+    g.query = local.2;
+    g.filter = local.3;
+    g.import_counter = local.4;
+    g.hovered = local.5;
+    g.hover_frame = local.6;
+    g.demo = false;
+}
+
 fn map_policy(p: gesso_core::PausePolicy) -> ui::data::SuspendPolicy {
     match p {
         gesso_core::PausePolicy::Pause => ui::data::SuspendPolicy::Pause,
@@ -373,6 +406,135 @@ fn kind_art(kind: WallpaperKind) -> ui::data::Art {
 }
 
 /// 开机自启（auto-launch：macOS LaunchAgent / Win 注册表 Run 键）。
+/// 一条引擎动作执行后，需要主循环继续处理的副作用。
+#[derive(Default)]
+struct ActionOutcome {
+    /// 导入后待生成缩略图的条目（Extract/Capture；Direct 不入列）。
+    pending_thumbs: Vec<(String, WallpaperKind)>,
+    /// 请求激活/重建主管理窗口（需 window/cx，不能在纯动作处理里完成）。
+    focus_main: bool,
+}
+
+/// 执行一条引擎动作：只改引擎状态 + 返回需延后的副作用。
+/// （窗口生命周期/cx 相关操作不在此处理。）
+fn apply_engine_action(
+    app: &mut engine::AppState,
+    action: engine::EngineAction,
+) -> ActionOutcome {
+    let mut out = ActionOutcome::default();
+    let sm = &mut app.sm;
+    match action {
+        engine::EngineAction::Assign { monitor_id, entry_id } => {
+            println!("[ui] 指派 {entry_id} → {monitor_id}");
+            sm.assign(&monitor_id, &entry_id);
+        }
+        engine::EngineAction::PauseAll(p) => {
+            println!("[ui] 暂停全部 = {p}");
+            sm.pause_all(p);
+        }
+        engine::EngineAction::PauseOne { monitor_id, paused } => {
+            println!("[ui] 单屏暂停 = {paused}（{monitor_id}）");
+            sm.pause_one(&monitor_id, paused);
+        }
+        engine::EngineAction::SyncMonitors => {
+            println!("[ui] 重新检测显示器");
+            sm.sync_monitors();
+        }
+        engine::EngineAction::CycleMain => {
+            println!("[ui] 随机换一张（主屏）");
+            sm.cycle_main();
+        }
+        engine::EngineAction::Import { path } => {
+            // 选中 WE 的 project.json → 转 WE 整目录导入
+            let p0 = std::path::Path::new(&path);
+            let we_entry = if p0.file_name().and_then(|n| n.to_str()) == Some("project.json") {
+                let dir = p0.parent().unwrap_or(p0);
+                let wid = dir.file_name().and_then(|n| n.to_str())
+                    .unwrap_or_default().to_string();
+                we::import_we_at(dir, &wid)
+            } else {
+                None
+            };
+            let result = match we_entry {
+                Some(we_e) => sm.import_we_entry(&we_e),
+                None => sm.import_entry(p0),
+            };
+            if let Ok(e) = result {
+                println!("[ui] 已导入「{}」→ {}", e.title, e.id);
+                if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
+                    out.pending_thumbs.push((e.source_dir, e.kind));
+                }
+            } else if let Err(err) = result {
+                println!("[ui] 导入失败：{err:?}");
+            }
+        }
+        engine::EngineAction::ImportWe { dir, workshop_id } => {
+            match we::import_we_at(std::path::Path::new(&dir), &workshop_id) {
+                Some(entry) => match sm.import_we_entry(&entry) {
+                    Ok(e) => {
+                        println!("[ui] 已导入 WE「{}」→ {}", e.title, e.id);
+                        if gesso_core::content_type(e.kind).thumb
+                            != gesso_core::ThumbStrategy::Direct
+                        {
+                            out.pending_thumbs.push((e.source_dir, e.kind));
+                        }
+                    }
+                    Err(err) => println!("[ui] WE 导入失败：{err:?}"),
+                }
+                None => println!("[ui] WE 条目解析失败：{dir}"),
+            }
+        }
+        engine::EngineAction::UpdateSettings(settings) => {
+            println!("[ui] 设置更新并落盘");
+            sm.update_settings(settings);
+        }
+        engine::EngineAction::SetAutostart(enable) => apply_autostart(enable),
+        engine::EngineAction::Remove { entry_id } => {
+            println!("[engine] 从库移除 {entry_id}");
+            sm.remove_entry(&entry_id);
+        }
+        engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
+            println!("[engine] {monitor_id} fps = {fps}");
+            sm.set_fps(&monitor_id, fps);
+        }
+        engine::EngineAction::FocusMainWindow => out.focus_main = true,
+        engine::EngineAction::ThumbsDone { dir } => {
+            // 后台抽帧完成：释放在途标记（重试计数随之累加）；快照回灌由主循环触发
+            app.thumbs.mark_finished(&dir);
+        }
+    }
+    out
+}
+
+/// 激活/重建主管理窗口（FocusMainWindow 副作用的兑现）。
+fn focus_or_reopen_main(cx: &mut gpui_kit::gpui::App) {
+    let existing = MAIN_WINDOW.lock().ok().and_then(|g| g.clone());
+    let mut activated = false;
+    if let Some(h) = existing {
+        activated = h
+            .update(
+                cx,
+                |_: gpui_kit::gpui::AnyView, window, cx: &mut gpui_kit::gpui::App| {
+                    // 顺序关键：先激活 App 再上屏窗口。App 未激活时
+                    // makeKeyAndOrderFront 会触发 GPUI 幽灵 windowDidBecomeKey
+                    // 处理（非 key 态立即 resignKeyWindow），上屏即被打回。
+                    cx.activate(true);
+                    window.activate_window();
+                    // 跨 Space 场景首次 orderFront 可能只切 Space 不上屏，defer 补一次
+                    window.defer(cx, |window, cx| {
+                        window.activate_window();
+                        cx.activate(true);
+                    });
+                },
+            )
+            .is_ok();
+    }
+    if !activated {
+        open_main_window(cx);
+        println!("[ui] 管理窗口已重建");
+    }
+}
+
 fn apply_autostart(enable: bool) {
     let exe = std::env::current_exe().unwrap_or_default();
     let app = auto_launch::AutoLaunchBuilder::new()
@@ -528,6 +690,11 @@ fn main() {
             Box::leak(Box::new(tray));
 
             cx.spawn(async move |cx| {
+                // 定时基准：150ms 一拍。各周期用拍数命名，不再出现裸魔数。
+                const MONITOR_SYNC_EVERY: u32 = 13; // 显示器热插拔检测 ≈2.0s
+                const AUTOPAUSE_OFFSET: u32 = 6; // 自动暂停检测，与同步错开半拍
+                const TIME_TICK_EVERY: u32 = 7; // 挂钟脉冲 ≈1.05s
+                const DIAGNOSE_AT: [u32; 2] = [20, 40]; // 启动后诊断快照（3s/6s）
                 let mut tick: u32 = 0;
                 loop {
                     cx.background_executor()
@@ -536,149 +703,27 @@ fn main() {
                     // UI/托盘写动作入队（API.md §4）——引擎轮询统一执行
                     let engine_actions = engine::drain();
                     let mut refresh_ui = !engine_actions.is_empty();
-                    let mut deferred_window_actions: Vec<engine::EngineAction> = Vec::new();
-                    // 导入后需要"生成"缩略图的条目（Extract/Capture）；Direct（图片）
-                    // 源文件即可显示，不入列、不生成
                     let mut pending_thumbs: Vec<(String, WallpaperKind)> = Vec::new();
                     if !engine_actions.is_empty() {
+                        let mut focus_main = false;
                         cx.update(|cx| {
-                            // app（整个全局）与 sm（字段）分开绑定：ThumbsDone 分支
-                            // 要写 app.thumbs，与 &mut app.sm 是不相交字段借用
-                            let app = cx.global_mut::<engine::AppState>();
-                            let sm = &mut app.sm;
                             for a in engine_actions {
-                                match a {
-                                    engine::EngineAction::Assign {
-                                        monitor_id,
-                                        entry_id,
-                                    } => {
-                                        println!("[ui] 指派 {entry_id} → {monitor_id}");
-                                        sm.assign(&monitor_id, &entry_id);
-                                    }
-                                    engine::EngineAction::PauseAll(p) => {
-                                        println!("[ui] 暂停全部 = {p}");
-                                        sm.pause_all(p);
-                                    }
-                                    engine::EngineAction::PauseOne { monitor_id, paused } => {
-                                        println!("[ui] 单屏暂停 = {paused}（{monitor_id}）");
-                                        sm.pause_one(&monitor_id, paused);
-                                    }
-                                    engine::EngineAction::SyncMonitors => {
-                                        println!("[ui] 重新检测显示器");
-                                        sm.sync_monitors();
-                                    }
-                                    engine::EngineAction::CycleMain => {
-                                        println!("[ui] 随机换一张（主屏）");
-                                        sm.cycle_main();
-                                    }
-                                    engine::EngineAction::Import { path } => {
-                                        // 选中 WE 的 project.json → 转 WE 整目录导入
-                                        let p0 = std::path::Path::new(&path);
-                                        let we_entry = if p0.file_name().and_then(|n| n.to_str())
-                                            == Some("project.json") {
-                                            let dir = p0.parent().unwrap_or(p0);
-                                            let wid = dir.file_name().and_then(|n| n.to_str())
-                                                .unwrap_or_default().to_string();
-                                            we::import_we_at(dir, &wid)
-                                        } else { None };
-
-                                        let import_result = match we_entry {
-                                            Some(we_e) => sm.import_we_entry(&we_e),
-                                            None => sm.import_entry(p0),
-                                        };
-                                        match import_result {
-                                            Ok(e) => {
-                                                println!("[ui] 已导入「{}」→ {}", e.title, e.id);
-                                                // 统一按策略调度：只有需"生成"的入列
-                                                if gesso_core::content_type(e.kind).thumb
-                                                    != gesso_core::ThumbStrategy::Direct {
-                                                    pending_thumbs.push((e.source_dir, e.kind));
-                                                }
-                                            }
-                                            Err(err) => println!("[ui] 导入失败：{err:?}"),
-                                        }
-                                    }
-                                    engine::EngineAction::ImportWe { dir, workshop_id } => {
-                                        // 重新解析该目录（避免把项目数据塞进动作）
-                                        match we::import_we_at(std::path::Path::new(&dir), &workshop_id) {
-                                            Some(entry) => match sm.import_we_entry(&entry) {
-                                                Ok(e) => {
-                                                    println!("[ui] 已导入 WE「{}」→ {}", e.title, e.id);
-                                                    if gesso_core::content_type(e.kind).thumb
-                                                        != gesso_core::ThumbStrategy::Direct {
-                                                        pending_thumbs.push((e.source_dir, e.kind));
-                                                    }
-                                                }
-                                                Err(err) => println!("[ui] WE 导入失败：{err:?}"),
-                                            },
-                                            None => println!("[ui] WE 条目解析失败：{dir}"),
-                                        }
-                                    }
-                                    engine::EngineAction::UpdateSettings(settings) => {
-                                        println!("[ui] 设置更新并落盘");
-                                        sm.update_settings(settings);
-                                    }
-                                    engine::EngineAction::SetAutostart(enable) => {
-                                        apply_autostart(enable);
-                                    }
-                                    engine::EngineAction::Remove { entry_id } => {
-                                        println!("[engine] 从库移除 {entry_id}");
-                                        sm.remove_entry(&entry_id);
-                                    }
-                                    engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
-                                        println!("[engine] {monitor_id} fps = {fps}");
-                                        sm.set_fps(&monitor_id, fps);
-                                    }
-                                    engine::EngineAction::FocusMainWindow => {
-                                        // 需要 cx 的窗口操作：sm 借用结束后在同一闭包内处理
-                                        deferred_window_actions.push(a);
-                                    }
-                                    engine::EngineAction::ThumbsDone { dir } => {
-                                        // 后台抽帧完成：释放在途标记（重试计数随之累加）；
-                                        // 快照回灌由 refresh_ui 统一触发
-                                        app.thumbs.mark_finished(&dir);
-                                    }
-                                }
-                            }
-                            for a in deferred_window_actions {
-                                if let engine::EngineAction::FocusMainWindow = a {
-                                    let existing =
-                                        MAIN_WINDOW.lock().ok().and_then(|g| g.clone());
-                                    let mut activated = false;
-                                    if let Some(h) = existing {
-                                        activated = h
-                                            .update(
-                                                cx,
-                                                |_: gpui_kit::gpui::AnyView,
-                                                 window,
-                                                 cx: &mut gpui_kit::gpui::App| {
-                                                    // 顺序关键：先激活 App 再上屏窗口。
-                                                    // App 未激活时 makeKeyAndOrderFront 会触发
-                                                    // GPUI 的幽灵 windowDidBecomeKey 处理
-                                                    // （gpui-pre-macos window.rs ~3135：非 key 态
-                                                    // 立即 resignKeyWindow），窗口上屏即被打回；
-                                                    // 先让 NSApp.active 再上屏则不会命中该分支。
-                                                    cx.activate(true);
-                                                    window.activate_window();
-                                                    // 再 defer 一帧补一次上屏：跨 Space 场景下
-                                                    // 首次 orderFront 可能只切 Space 不上屏
-                                                    window.defer(cx, |window, cx| {
-                                                        window.activate_window();
-                                                        cx.activate(true);
-                                                    });
-                                                },
-                                            )
-                                            .is_ok();
-                                    }
-                                    if !activated {
-                                        // 句柄不存在或已死（窗口被红点关闭）：重建
-                                        open_main_window(cx);
-                                        println!("[ui] 管理窗口已重建");
-                                    }
+                                let out = apply_engine_action(
+                                    cx.global_mut::<engine::AppState>(),
+                                    a,
+                                );
+                                pending_thumbs.extend(out.pending_thumbs);
+                                if out.focus_main {
+                                    focus_main = true;
                                 }
                             }
                         });
+                        // FocusMainWindow 需 window/cx：借用结束后兑现
+                        if focus_main {
+                            cx.update(|cx| focus_or_reopen_main(cx));
+                        }
                     }
+
                     // 导入触发的缩略图生成：统一标记在途，按策略起对应任务
                     // （Direct 图片类型不在此列——源文件直接可显示）
                     for (dir, kind) in pending_thumbs {
@@ -696,20 +741,20 @@ fn main() {
                         }
                     }
                     tick += 1;
-                    if tick == 20 || tick == 40 {
+                    if DIAGNOSE_AT.contains(&tick) {
                         cx.update(|cx| {
                             cx.global_mut::<engine::AppState>()
                                 .sm
                                 .diagnose_all(&format!("t{}", tick))
                         });
                     }
-                    if tick.is_multiple_of(13) {
+                    if tick.is_multiple_of(MONITOR_SYNC_EVERY) {
                         cx.update(|cx| cx.global_mut::<engine::AppState>().sm.sync_monitors());
                         refresh_ui = true;
                     }
                     // M5 数据桥（与显示器同步同节奏，错开半拍）：全屏检测 + 电源态
                     // → 策略解析 → 自动暂停/降帧；有状态变化才刷新 UI
-                    if tick % 13 == 6 {
+                    if tick != 0 && tick % MONITOR_SYNC_EVERY == AUTOPAUSE_OFFSET {
                         let changed = cx.update(|cx| {
                             let snap = bridge::sample();
                             cx.global_mut::<engine::AppState>()
@@ -719,7 +764,7 @@ fn main() {
                         refresh_ui |= changed;
                     }
                     // 时间脉冲（≈1.05s）：时钟类壁纸的挂钟由引擎驱动
-                    if tick % 7 == 0 {
+                    if tick.is_multiple_of(TIME_TICK_EVERY) {
                         cx.update(|cx| {
                             cx.global_mut::<engine::AppState>()
                                 .sm
@@ -730,28 +775,7 @@ fn main() {
                         // 会话 → UI 单向回灌（托盘/界面动作 / 显示器热插拔后的跨面同步）
                         cx.update(|cx| {
                             let next = snapshot_ui(&cx.global::<engine::AppState>().sm);
-                            cx.update_global::<GessoState, _>(|g, _| {
-                                // 浏览态与悬停态是 UI 本地状态：快照单向回灌必须保留
-                                // （AGENTS 规则 2；hovered 丢失曾导致卡片高亮/轮播闪烁）
-                                let (tab, selected, query, filter, demo_imports, hovered, hover_frame) = (
-                                    g.active_tab,
-                                    g.selected.clone(),
-                                    g.query.clone(),
-                                    g.filter,
-                                    g.import_counter,
-                                    g.hovered.clone(),
-                                    g.hover_frame,
-                                );
-                                *g = next;
-                                g.active_tab = tab;
-                                g.selected = selected;
-                                g.query = query;
-                                g.filter = filter;
-                                g.import_counter = demo_imports;
-                                g.hovered = hovered;
-                                g.hover_frame = hover_frame;
-                                g.demo = false;
-                            });
+                            cx.update_global::<GessoState, _>(|g, _| merge_snapshot(g, next));
                             cx.refresh_windows();
                         });
                     }
