@@ -8,7 +8,7 @@ use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     div, px, AnyElement, App, AppContext as _, Context, FocusHandle, Focusable, FontWeight,
     InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Window,
+    StatefulInteractiveElement as _, Styled, Window, WindowControlArea,
 };
 
 use super::app_state::state;
@@ -121,7 +121,24 @@ impl Shell {
             .into_any_element()
     }
 
-    fn topbar(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// Windows 标题栏按钮（– □ ✕）：ghost 变体给悬停/按压反馈，行为走窗口方法
+/// 而非 WindowControlArea——控制区交给系统会丢失 gpui 的悬停视觉，且双击
+/// 最大化 / 吸附已由 Drag 区覆盖，这里要的是可控的视觉态。
+#[cfg(target_os = "windows")]
+fn caption_button(
+    id: &'static str,
+    icon: IconName,
+    tooltip: &'static str,
+    action: impl Fn(&gpui_kit::gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .icon(Icon::new(icon))
+        .tooltip(tooltip)
+        .on_click(action)
+}
+
+fn topbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let left_pad = if cfg!(target_os = "macos") {
             px(76.)
@@ -144,6 +161,37 @@ impl Shell {
             .tooltip("切换亮 / 暗主题")
             .on_click(|_, _, cx| super::theme::toggle(cx));
 
+        // Windows 标题栏按钮（– □ ✕，规格 §2/§4.3 顶栏「窗口控制」的实现欠账）：
+        // 点击回调走窗口方法（悬停态由 gpui 正常渲染）；窗口拖拽/双击最大化/边缘
+        // 吸附由下方 Drag 控制区交给系统（HTCAPTION），两者职责分离。macOS 的
+        // 红绿灯是系统在内容层之上绘制的，不受影响——无需此组按钮。
+        let caption = if cfg!(target_os = "windows") {
+            Some(
+                h_flex()
+                    .items_center()
+                    .child(Self::caption_button(
+                        "btn-win-min",
+                        IconName::Minus,
+                        "最小化",
+                        |_, window, _| window.minimize_window(),
+                    ))
+                    .child(Self::caption_button(
+                        "btn-win-max",
+                        IconName::Square,
+                        "最大化 / 还原",
+                        |_, window, _| window.zoom_window(),
+                    ))
+                    .child(Self::caption_button(
+                        "btn-win-close",
+                        IconName::X,
+                        "关闭",
+                        |_, window, _| window.remove_window(),
+                    )),
+            )
+        } else {
+            None
+        };
+
         h_flex()
             .flex_none()
             .h(px(44.))
@@ -155,9 +203,12 @@ impl Shell {
             .border_color(t.hairline)
             .bg(t.surface)
             .child(
+                // 品牌区 = 窗口拖拽区（无交互子元素；系统经 WM_NCHITTEST →
+                // HTCAPTION 提供拖拽 / 双击最大化 / Win+方向键吸附）
                 h_flex()
                     .gap_2()
                     .items_center()
+                    .window_control_area(WindowControlArea::Drag)
                     .child(
                         div()
                             .text_color(t.text1)
@@ -176,9 +227,13 @@ impl Shell {
                 self.tab_button(Tab::Monitors, cx),
                 self.tab_button(Tab::Settings, cx),
             ]))
-            .child(div().flex_1())
+            .child(
+                // 弹性空档 = 第二拖拽区（覆盖页签右侧到工具钮之间的全部空区）
+                div().flex_1().h_full().window_control_area(WindowControlArea::Drag),
+            )
             .child(wizard)
             .child(theme_toggle)
+            .children(caption)
             .into_any_element()
     }
 
