@@ -41,7 +41,8 @@ crates/core     纯领域逻辑（ContentSpec/配置/库/状态机/content 内�
 crates/app      应用：
   ├─ pin/         平台贴壁层（macOS: AppKit；Windows: Win32 + WorkerW 挂载）——唯一允许碰原生窗口的模块
   ├─ session.rs   会话管理器（唯一编排者）
-  ├─ capture.rs   缩略图采集（持久窗口跑真实宿主页快照；shader 定格/html 实时帧）
+  ├─ capture.rs   缩略图采集（macOS WKWebView 快照；Windows 走 capture_win.rs：webview 抽帧 + PrintWindow，M4-W）
+  ├─ build.rs     Windows exe 图标资源内嵌（winresource，ID 1；托盘/任务栏图标见 NOTES §2）
   ├─ thumb.rs     视频抽帧 + 缩略图策略调度
   ├─ encoding.rs  纯工具：base64url/路径编码/目录拷贝/主资源发现
   ├─ host_cmd.rs  Rust→宿主页类型化命令（HostCommand）
