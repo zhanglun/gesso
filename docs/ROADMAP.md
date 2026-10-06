@@ -19,6 +19,8 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 
 ## Next up, in priority order
 
+1. **0.1 release** — 发布操作清单见 [docs/RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md)。关键前置：确认 `.app` 组装方式、签名/公证凭据（无则显式降级）、两平台产物实机冒烟。
+
 ### M5 — system data bridge（✅ 已完成）
 - ✅ fullscreen detection: `CGWindowList` layer-0 window covering a display frame（±3pt 容差，y 轴按主显示器高度翻转）→ 按全屏策略执行：暂停 / 降帧到 5 fps / 忽略。
 - ✅ battery: IOKit power sources（`IOPSCopyPowerSourcesList`）。电池供电作用于全部显示器，本屏全屏优先。

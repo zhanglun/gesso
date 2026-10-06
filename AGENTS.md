@@ -14,6 +14,7 @@ Gesso：跨平台（Windows/macOS）动态壁纸引擎——视频/动图/Shader
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** —— 分层、窗口模型、贴壁参数、状态机。
 4. **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 当前进度与已知缺口。
 5. **[docs/design/](docs/design/)** —— 设计归档：交互规格（界面与交互设计.md，已冻结 v1.0）、视觉 token（DESIGN.md）、**可点击 HTML 原型**（prototype/index.html，视觉契约）、完整工程方案（技术方案.md，14 章）+ 5 张架构/流程图。
+6. **[docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)** —— 0.1 发布操作清单（打包/签名/公证/发布）。
 
 ## 硬性规则（历史事故的浓缩，全文见工程笔记 §1–§2）
 

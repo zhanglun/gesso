@@ -77,8 +77,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Known limitations (tracked in ROADMAP)
 
-- Windows pinning not yet verified (needs a machine).
-- WE video/web use zero-copy read-only references to the Steam source (`gesso://steam`); no on-disk copy is made. Older copied entries still resolve via `gesso://library`.
+- Windows multi-monitor pinning is implemented but not yet re-verified on a multi-display machine (single-display verification done).
+- WE video/web use zero-copy read-only references to the source (`gesso://steam`); no on-disk copy is made. Older copied entries still resolve via `gesso://library`.
 
-- iframe-internal navigation of HTML wallpapers is not allow-listed yet (`fps_cap` advisory for the html kind).
+- HTML iframe external/top navigation, popups and forms stay blocked; only `gesso`-scheme sub-frames may embed (self-contained, offline).
 - Hover preview preload is per-process cache: the first hover shows a spinner briefly; subsequent hovers play immediately.
