@@ -200,10 +200,10 @@ pub fn preview(
 pub fn play_state_visual(state: PlayState, cx: &App) -> (IconName, &'static str, Hsla) {
     let t = tokens(cx);
     match state {
-        PlayState::Playing => (IconName::Play, super::strings::ST_PLAYING, t.accent),
-        PlayState::UserPaused => (IconName::Pause, super::strings::ST_PAUSED, t.text2),
-        PlayState::FullscreenPaused => (IconName::Maximize, super::strings::ST_FULLSCREEN, t.text2),
-        PlayState::BatteryPaused => (IconName::Zap, super::strings::ST_BATTERY, t.text2),
+        PlayState::Playing => (IconName::Play, super::strings::ST_PLAYING(), t.accent),
+        PlayState::UserPaused => (IconName::Pause, super::strings::ST_PAUSED(), t.text2),
+        PlayState::FullscreenPaused => (IconName::Maximize, super::strings::ST_FULLSCREEN(), t.text2),
+        PlayState::BatteryPaused => (IconName::Zap, super::strings::ST_BATTERY(), t.text2),
     }
 }
 

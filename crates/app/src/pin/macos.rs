@@ -54,6 +54,7 @@ pub fn diagnose(win: &MacWallpaperWindow, tag: &str) {
         subs,
         win.webview.url().map(|u| u.to_string()).unwrap_or_else(|e| format!("<{e}>")),
     );
+
     if let Some(c) = w.contentView().as_ref() {
         for (i, sub) in c.subviews().iter().enumerate().take(3) {
             let sv: &NSView = unsafe { &*(std::ptr::from_ref(&**sub) as *const NSView) };

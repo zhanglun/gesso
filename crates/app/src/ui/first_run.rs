@@ -51,7 +51,7 @@ impl FirstRun {
                 cx,
             ))),
             titlebar: Some(TitlebarOptions {
-                title: Some(SharedString::from(format!("{APP_NAME} · 首启向导"))),
+                title: Some(SharedString::from(format!("{} · 首启向导", APP_NAME()))),
                 ..Default::default()
             }),
             ..Default::default()
@@ -100,13 +100,13 @@ impl FirstRun {
                             .text_size(px(28.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.text1)
-                            .child(WIZARD_TITLE),
+                            .child(WIZARD_TITLE()),
                     )
                     .child(
                         div()
                             .text_size(px(13.))
                             .text_color(t.text2)
-                            .child(WIZARD_SUBTITLE),
+                            .child(WIZARD_SUBTITLE()),
                     ),
             )
             .child(h_flex().gap_3().children(kinds.map(|(k, label)| {
@@ -182,7 +182,7 @@ impl FirstRun {
                                     .border_1()
                                     .border_color(t.hairline)
                                     .rounded(px(3.))
-                                    .child(WIZARD_SAMPLE_TAG),
+                                    .child(WIZARD_SAMPLE_TAG()),
                             ),
                     )
                     .into_any_element()
@@ -200,13 +200,13 @@ impl FirstRun {
                             .text_size(px(15.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.text1)
-                            .child(WIZARD_PICK_TITLE),
+                            .child(WIZARD_PICK_TITLE()),
                     )
                     .child(
                         div()
                             .text_size(px(12.))
                             .text_color(t.text2)
-                            .child(WIZARD_PICK_SUBTITLE),
+                            .child(WIZARD_PICK_SUBTITLE()),
                     ),
             )
             .when(!empty, |r| {
@@ -226,7 +226,7 @@ impl FirstRun {
                     div()
                         .text_size(px(13.))
                         .text_color(t.text2)
-                        .child(WIZARD_EMPTY_LIBRARY),
+                        .child(WIZARD_EMPTY_LIBRARY()),
                 )
             })
             .into_any_element()
@@ -258,7 +258,7 @@ impl FirstRun {
                     .text_color(t.text1)
                     .child(format!(
                         "{}{}",
-                        WIZARD_DONE_TITLE,
+                        WIZARD_DONE_TITLE(),
                         self.applied_name
                             .as_ref()
                             .map(|n| format!("：{n}"))
@@ -268,7 +268,7 @@ impl FirstRun {
             .when(multi, |r| {
                 r.child(
                     Button::new("wiz-another")
-                        .label(WIZARD_ANOTHER)
+                        .label(WIZARD_ANOTHER())
                         .secondary()
                         .on_click(cx.listener(|this, _, _, cx| {
                             // 多屏再配：回选样例步
@@ -296,7 +296,7 @@ impl Render for FirstRun {
         let foot: Vec<AnyElement> = match step {
             0 => vec![
                 Button::new("wiz-start")
-                    .label(WIZARD_START)
+                    .label(WIZARD_START())
                     .primary()
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.step = 1;
@@ -304,7 +304,7 @@ impl Render for FirstRun {
                     }))
                     .into_any_element(),
                 Button::new("wiz-skip")
-                    .label(WIZARD_SKIP)
+                    .label(WIZARD_SKIP())
                     .text()
                     .on_click(|_, window, cx| {
                         // 跳过 = 使用纯色桌面，不再骚扰
@@ -317,7 +317,7 @@ impl Render for FirstRun {
             ],
             1 => vec![
                 Button::new("wiz-import")
-                    .label(WIZARD_IMPORT_OWN)
+                    .label(WIZARD_IMPORT_OWN())
                     .text()
                     .on_click(|_, window, cx| {
                         // 与库页同一导入路径（异步对话框；同步 pick_file 会嵌套
@@ -335,7 +335,7 @@ impl Render for FirstRun {
                     .into_any_element(),
             ],
             _ => vec![Button::new("wiz-finish")
-                .label(WIZARD_FINISH)
+                .label(WIZARD_FINISH())
                 .primary()
                 .on_click(|_, window, _| {
                     // 关闭向导窗口

@@ -26,6 +26,7 @@ pub fn base64url(data: &[u8]) -> String {
 /// 标准 base64 解码（`+/` 字母表，容忍缺省 padding）。
 /// 缩略图采集用：浏览器 `toDataURL("image/png")` 的载荷即此编码。
 /// 返回 None = 含非法字符或长度 %4 == 1。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))] // 仅 Windows 采集路径使用
 pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
     fn val(c: u8) -> Option<u32> {
         match c {

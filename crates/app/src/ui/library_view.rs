@@ -30,7 +30,7 @@ pub struct LibraryView {
 
 impl LibraryView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder(SEARCH_PLACEHOLDER));
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder(SEARCH_PLACEHOLDER()));
         // 搜索即时过滤：输入事件 → 全局 query（§4.3 交互表）
         cx.subscribe(&search_input, |_, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -122,7 +122,7 @@ impl LibraryView {
             .into_any_element();
 
         let import = Button::new("btn-import")
-            .label(BTN_IMPORT)
+            .label(BTN_IMPORT())
             .secondary()
             .icon(Icon::new(IconName::Plus))
             .on_click(|_, window, cx| {
@@ -165,7 +165,7 @@ impl LibraryView {
             div()
                 .text_size(px(12.))
                 .text_color(t.danger)
-                .child(FILE_REMOVED)
+                .child(FILE_REMOVED())
                 .into_any_element()
         } else {
             let mut meta = item.meta.to_string();
@@ -188,7 +188,7 @@ impl LibraryView {
         let badges = h_flex()
             .gap_1()
             .child(badge(item.kind.label(), false, cx))
-            .when(item.we, |r| r.child(badge(BADGE_WE, true, cx)))
+            .when(item.we, |r| r.child(badge(BADGE_WE(), true, cx)))
             .into_any_element();
 
         let hover_id = item.id.clone();
@@ -409,7 +409,7 @@ impl LibraryView {
             .when_some(g.status_error.clone(), |r, err| {
                 r.child(div().text_color(t.danger).child(err))
             })
-            .child(div().flex_1().child(HINT_LIBRARY))
+            .child(div().flex_1().child(HINT_LIBRARY()))
             .into_any_element()
     }
 
@@ -482,7 +482,7 @@ impl LibraryView {
                     div()
                         .text_size(px(13.))
                         .text_color(rgba(0xFFFFFFFFu32))
-                        .child(DZ_HINT),
+                        .child(DZ_HINT()),
                 )
                 .child(h_flex().gap_4().children(targets))
                 .into_any_element(),
@@ -537,12 +537,12 @@ fn card_context_menu(
     if broken {
         // 失效卡片：从库移除置顶（§4.3 错误状态）
         return menu
-            .item(PopupMenuItem::new(MENU_REMOVE).on_click({
+            .item(PopupMenuItem::new(MENU_REMOVE()).on_click({
                 let id = item_id.clone();
                 move |_, window, cx| remove_item(&id, window, cx)
             }))
             .separator()
-            .item(PopupMenuItem::new(MENU_OPEN_FOLDER).disabled(true));
+            .item(PopupMenuItem::new(MENU_OPEN_FOLDER()).disabled(true));
     }
 
     let sub = PopupMenu::build(window, cx, |m, _, _| {
@@ -554,22 +554,22 @@ fn card_context_menu(
             let id = item_id.clone();
             move |_, window, cx| assign_item(&id, 1, window, cx)
         }))
-        .item(PopupMenuItem::new(MENU_ALL_MONITORS).on_click({
+        .item(PopupMenuItem::new(MENU_ALL_MONITORS()).on_click({
             let id = item_id.clone();
             move |_, window, cx| assign_all(&id, window, cx)
         }))
     });
-    menu.item(PopupMenuItem::submenu(MENU_SET_WALLPAPER, sub))
+    menu.item(PopupMenuItem::submenu(MENU_SET_WALLPAPER(), sub))
         .separator()
         .item(
-            PopupMenuItem::new(MENU_OPEN_FOLDER).on_click({
+            PopupMenuItem::new(MENU_OPEN_FOLDER()).on_click({
                 let dir_path = crate::protocol::library_dir().join(item_id.as_ref());
                 move |_, _, _| {
                     let _ = std::process::Command::new("open").arg(&*dir_path).spawn();
                 }
             }),
         )
-        .item(PopupMenuItem::new(MENU_DETAILS).on_click({
+        .item(PopupMenuItem::new(MENU_DETAILS()).on_click({
             let id = item_id.clone();
             move |_, window, cx| {
                 let detail = state(cx)
@@ -583,7 +583,7 @@ fn card_context_menu(
         }))
         .separator()
         .item(
-            PopupMenuItem::element(move |_, _| danger_item(MENU_REMOVE)).on_click({
+            PopupMenuItem::element(move |_, _| danger_item(MENU_REMOVE())).on_click({
                 let id = item_id.clone();
                 move |_, window, cx| remove_item(&id, window, cx)
             }),
@@ -662,20 +662,20 @@ fn empty_library(cx: &App) -> AnyElement {
                 .text_size(px(15.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text1)
-                .child(EMPTY_LIBRARY_TITLE),
+                .child(EMPTY_LIBRARY_TITLE()),
         )
         .child(
             div()
                 .text_size(px(13.))
                 .text_color(t.text2)
-                .child(EMPTY_LIBRARY_DESC),
+                .child(EMPTY_LIBRARY_DESC()),
         )
         .child(
             h_flex()
                 .gap(px(10.))
                 .child(
                     Button::new("empty-import")
-                        .label(BTN_IMPORT_FILE)
+                        .label(BTN_IMPORT_FILE())
                         .primary()
                         .on_click(|_, window, cx| {
                             super::app_state::import_with_dialog(window, cx);
@@ -683,7 +683,7 @@ fn empty_library(cx: &App) -> AnyElement {
                 )
                 .child(
                     Button::new("empty-samples")
-                        .label(BTN_BROWSE_SAMPLES)
+                        .label(BTN_BROWSE_SAMPLES())
                         .secondary()
                         .on_click(|_, window, cx| {
                             // 内置样例已由 bootstrap 注册；此钮跳到显示器页指派
@@ -713,7 +713,7 @@ fn empty_search(cx: &mut Context<LibraryView>) -> AnyElement {
         )
         .child(
             Button::new("clear-search")
-                .label(BTN_CLEAR_SEARCH)
+                .label(BTN_CLEAR_SEARCH())
                 .text()
                 .on_click(|_, window, cx| {
                     cx.update_global::<GessoState, _>(|g, _| {

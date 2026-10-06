@@ -29,6 +29,7 @@ pub struct SettingsView {
     fullscreen: StringSelect,
     battery: StringSelect,
     startup: StringSelect,
+    language: StringSelect,
     weather: StringSelect,
     weather_key_input: Entity<InputState>,
     /// 重置的内联二次确认（§4.5：红字，先点一次进入确认态，3s 后自动退回）。
@@ -77,13 +78,23 @@ impl SettingsView {
         let startup = make_select(
             window,
             cx,
-            vec![STARTUP_RESTORE.to_string(), STARTUP_RANDOM.to_string()],
+            vec![STARTUP_RESTORE().to_string(), STARTUP_RANDOM().to_string()],
             if s.startup_random { 1 } else { 0 },
+        );
+        let language = make_select(
+            window,
+            cx,
+            vec![
+                LANGUAGE_AUTO().to_string(),
+                LANGUAGE_ZH().to_string(),
+                LANGUAGE_EN().to_string(),
+            ],
+            s.language as usize,
         );
         let weather = make_select(
             window,
             cx,
-            vec![WEATHER_OPEN_METEO.to_string(), WEATHER_CUSTOM.to_string()],
+            vec![WEATHER_OPEN_METEO().to_string(), WEATHER_CUSTOM().to_string()],
             if s.weather_custom_key { 1 } else { 0 },
         );
 
@@ -127,8 +138,30 @@ impl SettingsView {
             |_, _, event: &SelectEvent<SearchableVec<String>>, cx| {
                 if let SelectEvent::Confirm(Some(v)) = event {
                     cx.update_global::<GessoState, _>(|g, _| {
-                        g.settings.startup_random = v == STARTUP_RANDOM
+                        g.settings.startup_random = v == STARTUP_RANDOM()
                     });
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        cx.subscribe(
+            &language,
+            |_, _, event: &SelectEvent<SearchableVec<String>>, cx| {
+                if let SelectEvent::Confirm(Some(v)) = event {
+                    let idx = if v == LANGUAGE_ZH() {
+                        1
+                    } else if v == LANGUAGE_EN() {
+                        2
+                    } else {
+                        0
+                    };
+                    cx.update_global::<GessoState, _>(|g, _| g.settings.language = idx);
+                    // 立即切换运行时语言 + 落盘（重渲染取新文案）
+                    super::strings::set_lang(
+                        state(cx).settings.to_core_settings().language,
+                    );
+                    persist_settings(cx);
                     cx.notify();
                 }
             },
@@ -139,7 +172,7 @@ impl SettingsView {
             |_, _, event: &SelectEvent<SearchableVec<String>>, cx| {
                 if let SelectEvent::Confirm(Some(v)) = event {
                     cx.update_global::<GessoState, _>(|g, _| {
-                        g.settings.weather_custom_key = v == WEATHER_CUSTOM
+                        g.settings.weather_custom_key = v == WEATHER_CUSTOM()
                     });
                     cx.notify();
                 }
@@ -148,7 +181,7 @@ impl SettingsView {
         .detach();
 
         let weather_key_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(WEATHER_KEY_PLACEHOLDER));
+            cx.new(|cx| InputState::new(window, cx).placeholder(WEATHER_KEY_PLACEHOLDER()));
         cx.subscribe(&weather_key_input, |_, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 let v = input.read(cx).value().to_string();
@@ -163,6 +196,7 @@ impl SettingsView {
             fullscreen,
             battery,
             startup,
+            language,
             weather,
             weather_key_input,
             reset_armed: false,
@@ -201,26 +235,26 @@ impl Render for SettingsView {
         // —— 性能 ——
         let perf = vec![
             set_row(
-                SET_FPS_CAP,
+                SET_FPS_CAP(),
                 None,
                 select_slot(Select::new(&self.fps_cap).into_any_element()),
                 cx,
             ),
             set_row(
-                SET_FULLSCREEN,
-                Some(SET_FULLSCREEN_DESC),
+                SET_FULLSCREEN(),
+                Some(SET_FULLSCREEN_DESC()),
                 select_slot(Select::new(&self.fullscreen).into_any_element()),
                 cx,
             ),
             set_row(
-                SET_BATTERY,
+                SET_BATTERY(),
                 None,
                 select_slot(Select::new(&self.battery).into_any_element()),
                 cx,
             ),
             set_row(
-                SET_IDLE_DOWNCLOCK,
-                Some(SET_IDLE_DESC),
+                SET_IDLE_DOWNCLOCK(),
+                Some(SET_IDLE_DESC()),
                 Switch::new("set-idle")
                     .checked(s.idle_downclock)
                     .on_click(|checked, window, cx| {
@@ -235,7 +269,7 @@ impl Render for SettingsView {
         // —— 启动 ——
         let startup_rows = vec![
             set_row(
-                SET_AUTOLAUNCH,
+                SET_AUTOLAUNCH(),
                 None,
                 Switch::new("set-autolaunch")
                     .checked(s.autolaunch)
@@ -248,17 +282,23 @@ impl Render for SettingsView {
                 cx,
             ),
             set_row(
-                SET_STARTUP_BEHAVIOR,
+                SET_STARTUP_BEHAVIOR(),
                 None,
                 select_slot(Select::new(&self.startup).into_any_element()),
+                cx,
+            ),
+            set_row(
+                SET_LANGUAGE(),
+                None,
+                select_slot(Select::new(&self.language).into_any_element()),
                 cx,
             ),
         ];
 
         // —— 联动（实验） ——
         let mut linkage = vec![set_row(
-            SET_WEATHER,
-            Some(SET_WEATHER_DESC),
+            SET_WEATHER(),
+            Some(SET_WEATHER_DESC()),
             select_slot(Select::new(&self.weather).into_any_element()),
             cx,
         )];
@@ -276,7 +316,7 @@ impl Render for SettingsView {
 
         // —— 高级 ——
         let log_btn = Button::new("open-log")
-            .label(BTN_OPEN)
+            .label(BTN_OPEN())
             .secondary()
             .on_click(|_, _, _| {
                 let dir = crate::protocol::config_dir();
@@ -286,7 +326,7 @@ impl Render for SettingsView {
         // 红字文字按钮（kit 无 danger 文字变体；§4.5 红字 + danger-soft 悬停底）
         let reset_btn = div()
             .id("reset-settings")
-            .child(if armed { BTN_RESET_CONFIRM } else { BTN_RESET })
+            .child(if armed { BTN_RESET_CONFIRM() } else { BTN_RESET() })
             .px_3()
             .h(px(28.))
             .flex()
@@ -303,7 +343,7 @@ impl Render for SettingsView {
                 if this.reset_armed {
                     update(window, cx, |g| g.settings = Settings::default());
                     persist_settings(cx);
-                    window.push_notification(Notification::info(TOAST_RESET), cx);
+                    window.push_notification(Notification::info(TOAST_RESET()), cx);
                     this.reset_armed = false;
                 } else {
                     this.reset_armed = true;
@@ -324,8 +364,8 @@ impl Render for SettingsView {
                 .detach();
             }));
         let advanced = vec![
-            set_row(SET_LOG_DIR, None, log_btn.into_any_element(), cx),
-            set_row(SET_RESET, None, reset_btn.into_any_element(), cx),
+            set_row(SET_LOG_DIR(), None, log_btn.into_any_element(), cx),
+            set_row(SET_RESET(), None, reset_btn.into_any_element(), cx),
         ];
 
         v_flex()
@@ -335,9 +375,9 @@ impl Render for SettingsView {
             .min_h_0()
             .py_2()
             .text_color(t.text1)
-            .child(self.group(div().child(GROUP_PERF).into_any_element(), perf, cx))
+            .child(self.group(div().child(GROUP_PERF()).into_any_element(), perf, cx))
             .child(self.group(
-                div().child(GROUP_STARTUP).into_any_element(),
+                div().child(GROUP_STARTUP()).into_any_element(),
                 startup_rows,
                 cx,
             ))
@@ -351,13 +391,13 @@ impl Render for SettingsView {
                             .text_size(px(13.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.text1)
-                            .child(GROUP_LINKAGE),
+                            .child(GROUP_LINKAGE()),
                     )
                     .child(
                         div()
                             .text_size(px(12.))
                             .text_color(t.text2)
-                            .child(GROUP_EXPERIMENTAL),
+                            .child(GROUP_EXPERIMENTAL()),
                     );
                 let rows = v_flex().gap_1().child(head).children(linkage);
                 div()
@@ -367,7 +407,7 @@ impl Render for SettingsView {
                     .border_color(t.hairline)
                     .child(rows)
             })
-            .child(self.group(div().child(GROUP_ADVANCED).into_any_element(), advanced, cx))
+            .child(self.group(div().child(GROUP_ADVANCED()).into_any_element(), advanced, cx))
     }
 }
 

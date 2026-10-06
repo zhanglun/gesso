@@ -131,6 +131,8 @@ pub struct Settings {
     pub startup_random: bool,
     pub weather_custom_key: bool,
     pub weather_key: String,
+    /// 界面语言（0=auto, 1=zh, 2=en）。
+    pub language: u32,
 }
 
 impl Default for Settings {
@@ -144,6 +146,7 @@ impl Default for Settings {
             startup_random: false,
             weather_custom_key: false,
             weather_key: String::new(),
+            language: 0,
         }
     }
 }
@@ -166,6 +169,11 @@ impl Settings {
                 gesso_core::StartupBehavior::Random
             } else {
                 gesso_core::StartupBehavior::RestoreLast
+            },
+            language: match self.language {
+                1 => gesso_core::config::Language::Zh,
+                2 => gesso_core::config::Language::En,
+                _ => gesso_core::config::Language::Auto,
             },
         }
     }

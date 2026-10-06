@@ -24,7 +24,12 @@
 <video id="media" autoplay muted loop playsinline></video>
 <img id="imgmedia" alt="" style="display:none">
 <canvas id="gl"></canvas>
-<iframe id="frame" title="wallpaper" sandbox="allow-scripts" scrolling="no"></iframe>
+<!-- sandbox：allow-scripts + allow-same-origin。M6 实测定：opaque origin
+     （无 allow-same-origin）会让 WKWebView 完全不发起同源外链脚本/样式
+     请求——WE web 壁纸几乎都拆外部 .js/.css，故必须给 same-origin。
+     安全仍由 CSP（connect-src 'none' 等）+ 自定义 scheme 只回已导入条目
+     保证；不给 allow-top-navigation/popups/forms，导航与弹窗依旧阻断。 -->
+<iframe id="frame" title="wallpaper" sandbox="allow-scripts allow-same-origin" scrolling="no"></iframe>
 <div id="msg"></div>
 <script>
 (function () {

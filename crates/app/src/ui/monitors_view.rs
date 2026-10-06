@@ -147,7 +147,7 @@ impl MonitorsView {
     fn toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let redetect = Button::new("btn-redetect")
-            .label(BTN_REDETECT)
+            .label(BTN_REDETECT())
             .secondary()
             .compact()
             .icon(Icon::new(IconName::RefreshCw))
@@ -155,7 +155,7 @@ impl MonitorsView {
                 // 重新检测：走引擎动作队列（sync_monitors 幂等；API.md §1/§4）
                 crate::engine::enqueue(crate::engine::EngineAction::SyncMonitors);
                 update(window, cx, |g| g.redetect());
-                window.push_notification(Notification::info(TOAST_REDETECT), cx);
+                window.push_notification(Notification::info(TOAST_REDETECT()), cx);
             });
         h_flex()
             .flex_none()
@@ -168,7 +168,7 @@ impl MonitorsView {
                     .flex_1()
                     .text_size(px(12.))
                     .text_color(t.text2)
-                    .child(MONITOR_HOVER_NOTE),
+                    .child(MONITOR_HOVER_NOTE()),
             )
             .child(redetect)
             .into_any_element()
@@ -348,7 +348,7 @@ impl MonitorsView {
 
         // 状态胶囊（§5 状态矩阵投影；与托盘角标一致）
         let (st_icon, st_label, dimmed) = match (&item, m.state) {
-            (None, _) => (IconName::MonitorPause, ST_UNASSIGNED, true),
+            (None, _) => (IconName::MonitorPause, ST_UNASSIGNED(), true),
             (Some(_), s) => {
                 let (icon, label, _) = play_state_visual(s, cx);
                 (icon, label, s.paused())
@@ -439,7 +439,7 @@ impl MonitorsView {
                                 .justify_center()
                                 .child(Icon::new(IconName::Plus).size_4()),
                         )
-                        .child(div().text_size(px(12.)).child(ST_SELECT_WALLPAPER)),
+                        .child(div().text_size(px(12.)).child(ST_SELECT_WALLPAPER())),
                 )
             })
             .into_any_element()
@@ -556,10 +556,10 @@ impl MonitorsView {
                     .text_size(px(12.))
                     .text_color(t.text1)
                     .child(Icon::new(IconName::TriangleAlert).size_4())
-                    .child(NOTICE_NEW_MONITOR)
+                    .child(super::strings::notice_new_monitor("DELL U2723QE"))
                     .child(
                         Button::new("go-assign")
-                            .label(BTN_GO_ASSIGN)
+                            .label(BTN_GO_ASSIGN())
                             .text()
                             .compact()
                             .on_click(|_, window, cx| {
@@ -583,11 +583,11 @@ impl MonitorsView {
                                 .text_size(px(15.))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(t.text1)
-                                .child(MONITORS_EMPTY_TITLE),
+                                .child(MONITORS_EMPTY_TITLE()),
                         )
                         .child(
                             Button::new("btn-redetect-empty")
-                                .label(BTN_REDETECT)
+                                .label(BTN_REDETECT())
                                 .primary()
                                 .icon(Icon::new(IconName::RefreshCw))
                                 .on_click(|_, window, cx| {
@@ -596,7 +596,7 @@ impl MonitorsView {
                                     );
                                     update(window, cx, |g| g.redetect());
                                     window.push_notification(
-                                        Notification::info(TOAST_REDETECT),
+                                        Notification::info(TOAST_REDETECT()),
                                         cx,
                                     );
                                 }),
@@ -622,7 +622,7 @@ impl MonitorsView {
 
         // 状态：壁纸名 · 运行状态（与托盘角标一致）
         let (st_icon, st_text, st_color) = match (&item, m.state) {
-            (None, _) => (None, ST_UNASSIGNED.to_string(), t.text2),
+            (None, _) => (None, ST_UNASSIGNED().to_string(), t.text2),
             (Some(item), s) => {
                 let (icon, label, color) = play_state_visual(s, cx);
                 (Some(icon), format!("{} · {}", item.name, label), color)
@@ -679,7 +679,7 @@ impl MonitorsView {
                         div()
                             .text_size(px(11.))
                             .text_color(t.text2)
-                            .child(EDID_NOTE_SHORT),
+                            .child(EDID_NOTE_SHORT()),
                     ),
             )
             .child(
@@ -707,7 +707,7 @@ impl MonitorsView {
                     strip
                         .child(
                             Button::new("btn-change")
-                                .label(BTN_CHANGE)
+                                .label(BTN_CHANGE())
                                 .secondary()
                                 .compact()
                                 .on_click(cx.listener(move |_, _, window, cx| {
@@ -720,14 +720,14 @@ impl MonitorsView {
                                         super::shell::Tab::Library,
                                     );
                                     window.push_notification(
-                                        Notification::info(TOAST_CHANGE_HINT),
+                                        Notification::info(TOAST_CHANGE_HINT()),
                                         cx,
                                     );
                                 })),
                         )
                         .child(
                             Button::new("btn-toggle")
-                                .label(if paused { BTN_RESUME } else { BTN_PAUSE })
+                                .label(if paused { BTN_RESUME() } else { BTN_PAUSE() })
                                 .secondary()
                                 .compact()
                                 .on_click(move |_, window, cx| {
@@ -753,7 +753,7 @@ impl MonitorsView {
                 |strip| {
                     strip.child(
                         Button::new("btn-pick")
-                            .label(ST_SELECT_WALLPAPER)
+                            .label(ST_SELECT_WALLPAPER())
                             .primary()
                             .compact()
                             .on_click(|_, window, cx| {

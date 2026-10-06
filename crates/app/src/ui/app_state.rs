@@ -19,8 +19,8 @@ pub enum Filter {
 impl Filter {
     pub fn label(self) -> &'static str {
         match self {
-            Filter::All => super::strings::FILTER_ALL,
-            Filter::We => super::strings::FILTER_WE,
+            Filter::All => super::strings::FILTER_ALL(),
+            Filter::We => super::strings::FILTER_WE(),
             Filter::Kind(k) => k.filter_label(),
         }
     }
@@ -223,12 +223,11 @@ use crate::session::{ImportCheck, ImportError};
 
 /// 导入失败 → 文案（strings.rs 唯一出处；§7 失败文案带原因和出路）。
 pub fn import_error_text(e: ImportError) -> String {
-    use super::strings::*;
     match e {
-        ImportError::Unsupported => import_err_unsupported(),
-        ImportError::Mkv => import_err_mkv(),
-        ImportError::Hevc => import_err_hevc(),
-        ImportError::Io => import_err_io(),
+        ImportError::Unsupported => super::strings::IMPORT_ERR_UNSUPPORTED().into(),
+        ImportError::Mkv => super::strings::IMPORT_ERR_MKV().into(),
+        ImportError::Hevc => super::strings::IMPORT_ERR_HEVC().into(),
+        ImportError::Io => super::strings::IMPORT_ERR_IO().into(),
     }
 }
 

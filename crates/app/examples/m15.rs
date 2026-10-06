@@ -101,7 +101,7 @@ fn create_wallpaper_window(mtm: MainThreadMarker) -> (Retained<NSWindow>, lb_wry
                                         // 而不是露出窗口默认白底
     window.setOpaque(false);
     // SAFETY: clearColor 类方法，主线程调用
-    let clear = unsafe { objc2_app_kit::NSColor::clearColor() };
+    let clear = objc2_app_kit::NSColor::clearColor();
     window.setBackgroundColor(Some(&clear));
     window.setFrame_display(frame, true); // 一次到位，无人来抢
     window.orderFrontRegardless();

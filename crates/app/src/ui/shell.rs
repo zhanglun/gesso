@@ -28,9 +28,9 @@ pub enum Tab {
 impl Tab {
     pub fn label(self) -> &'static str {
         match self {
-            Tab::Library => TAB_LIBRARY,
-            Tab::Monitors => TAB_MONITORS,
-            Tab::Settings => TAB_SETTINGS,
+            Tab::Library => TAB_LIBRARY(),
+            Tab::Monitors => TAB_MONITORS(),
+            Tab::Settings => TAB_SETTINGS(),
         }
     }
 
@@ -165,32 +165,33 @@ fn topbar(&self, cx: &mut Context<Self>) -> AnyElement {
         // 点击回调走窗口方法（悬停态由 gpui 正常渲染）；窗口拖拽/双击最大化/边缘
         // 吸附由下方 Drag 控制区交给系统（HTCAPTION），两者职责分离。macOS 的
         // 红绿灯是系统在内容层之上绘制的，不受影响——无需此组按钮。
-        let caption = if cfg!(target_os = "windows") {
-            Some(
-                h_flex()
-                    .items_center()
-                    .child(Self::caption_button(
-                        "btn-win-min",
-                        IconName::Minus,
-                        "最小化",
-                        |_, window, _| window.minimize_window(),
-                    ))
-                    .child(Self::caption_button(
-                        "btn-win-max",
-                        IconName::Square,
-                        "最大化 / 还原",
-                        |_, window, _| window.zoom_window(),
-                    ))
-                    .child(Self::caption_button(
-                        "btn-win-close",
-                        IconName::X,
-                        "关闭",
-                        |_, window, _| window.remove_window(),
-                    )),
-            )
-        } else {
-            None
-        };
+        // 用编译期 cfg（不是运行时 cfg!）：caption_button 本身只在 Windows 存在，
+        // 调用点也必须只在 Windows 编译，否则 macOS 类型检查会找不到该关联函数。
+        #[cfg(target_os = "windows")]
+        let caption = Some(
+            h_flex()
+                .items_center()
+                .child(Self::caption_button(
+                    "btn-win-min",
+                    IconName::Minus,
+                    "最小化",
+                    |_, window, _| window.minimize_window(),
+                ))
+                .child(Self::caption_button(
+                    "btn-win-max",
+                    IconName::Square,
+                    "最大化 / 还原",
+                    |_, window, _| window.zoom_window(),
+                ))
+                .child(Self::caption_button(
+                    "btn-win-close",
+                    IconName::X,
+                    "关闭",
+                    |_, window, _| window.remove_window(),
+                )),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let caption: Option<gpui_kit::Div> = None;
 
         h_flex()
             .flex_none()
@@ -219,7 +220,7 @@ fn topbar(&self, cx: &mut Context<Self>) -> AnyElement {
                             .text_size(px(13.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.text1)
-                            .child(APP_NAME),
+                            .child(APP_NAME()),
                     ),
             )
             .child(h_flex().ml_2().gap(px(2.)).children([

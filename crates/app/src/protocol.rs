@@ -26,7 +26,7 @@ fn decode_path(p: &str) -> String {
 #[cfg(target_os = "macos")]
 const CSP: &str = "default-src 'none'; script-src 'unsafe-inline' gesso:; \
      style-src 'unsafe-inline' gesso:; frame-src gesso:; \
-     media-src gesso: blob:; img-src gesso: data:; connect-src 'none'";
+     media-src gesso: blob:; img-src gesso: data:; connect-src gesso:";
 /// Windows（WebView2 workaround，见 pin/windows.rs）：页面实际 origin 是
 /// `http://gesso.<host段>`，CSP 源必须按 workaround 宿主枚举（`gesso:` 匹配不到它们）。
 /// 协议回调收到的是还原后的 gesso:// URI，路由不分平台。
@@ -36,7 +36,7 @@ const CSP: &str = "default-src 'none'; \
      style-src 'unsafe-inline' http://gesso.host http://gesso.library http://gesso.steam; \
      frame-src http://gesso.host http://gesso.library http://gesso.steam; \
      media-src http://gesso.host http://gesso.library http://gesso.steam blob:; \
-     img-src http://gesso.host http://gesso.library http://gesso.steam data:; connect-src 'none'";
+     img-src http://gesso.host http://gesso.library http://gesso.steam data:; connect-src http://gesso.host http://gesso.library http://gesso.steam";
 
 /// 宿主页/样例资源根（开发态 = crate assets；发布态 = exe 旁 assets）
 pub fn assets_dir() -> PathBuf {

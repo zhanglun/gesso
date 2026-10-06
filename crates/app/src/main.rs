@@ -153,6 +153,8 @@ pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn bootstrap() -> (session::SessionManager, bool) {
     let cfg_path = protocol::config_dir().join("config.json");
     let mut config = AppConfig::load(&cfg_path).unwrap_or_default();
+    // 启动即按配置设定界面语言（UI 创建前；之后设置页切换实时更新）
+    ui::strings::set_lang(config.settings.language);
     let first_run = config.monitors.is_empty();
 
     let mut library = {
@@ -268,6 +270,11 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
         idle_downclock: cs.idle_downscale,
         autolaunch: cs.autostart,
         startup_random: cs.startup_behavior == StartupBehavior::Random,
+        language: match cs.language {
+            gesso_core::config::Language::Auto => 0,
+            gesso_core::config::Language::Zh => 1,
+            gesso_core::config::Language::En => 2,
+        },
         ..ui::data::Settings::default()
     };
     g.library = sm

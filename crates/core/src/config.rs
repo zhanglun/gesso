@@ -23,6 +23,8 @@ pub struct Settings {
     pub idle_downscale: bool,
     pub autostart: bool,
     pub startup_behavior: StartupBehavior,
+    /// 界面语言（Auto = 跟随系统 locale；解析见 app 的 i18n）。
+    pub language: Language,
 }
 
 impl Default for Settings {
@@ -34,8 +36,20 @@ impl Default for Settings {
             idle_downscale: true,
             autostart: true,
             startup_behavior: StartupBehavior::RestoreLast,
+            language: Language::Auto,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    /// 跟随系统语言。
+    Auto,
+    /// 简体中文。
+    Zh,
+    /// English.
+    En,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

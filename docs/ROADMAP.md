@@ -87,6 +87,6 @@ AVFoundation（含其 objc2 崩溃面）。
 - WE 零拷贝直引：video/web 不拷入库、不修改原文件。用户主动导入 `project.json` 后，经 `gesso://steam/<entry-id>/<rel>` 只读访问该条目的 source_dir（以库清单里的不可猜 entry id 为凭据，不扫描磁盘）。
 - Real-machine monitor outline (signature #1) and tray panel positioning on retina displays.
 - ~~HTML thumbnails use the gradient placeholder~~ → Done (`372b4c4`): html captures live frames via the same persistent-window capture pipeline as shader/video.
-- HTML wallpapers: iframe-internal navigation is not allow-listed yet (top-navigation / popups / forms are sandbox-blocked; `fps_cap` is advisory for the html kind). Hover previews use a two-phase cycle — preload all 16 frames behind a spinner, then play at a fixed 125 ms/frame (`c6bd3ce`).
-- i18n: UI strings are centralized in `ui/strings.rs` (Chinese-first); English translation pass pending.
+- HTML wallpapers: iframe navigation policy — external/top navigation, popups and forms stay sandbox-blocked; the frame may only embed `gesso`-scheme (self-contained, offline) sub-frames. Same-origin external `.js`/`.css` and local `fetch()` work (`allow-same-origin` + CSP `connect-src gesso:`; verified via a kitchen-sink fixture). `fps_cap` is advisory for the html kind. Hover previews use a two-phase cycle — preload all 16 frames behind a spinner, then play at a fixed 125 ms/frame (`c6bd3ce`).
+- ~~i18n English pass pending~~ → Done: Auto / 简体中文 / English, selector in Settings ▸ Startup, live-apply + persisted.
 - Tray polish: dynamic menu copy (muda handlers are `Send`-only — menu handle can't be mutated from the poller) and precise quick-panel positioning relative to the tray icon (retina coordinate conversion).

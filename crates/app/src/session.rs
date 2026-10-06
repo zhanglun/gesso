@@ -122,6 +122,7 @@ impl SessionManager {
     /// explorer 死亡会连带销毁挂在其 WorkerW 下的壁纸窗口（跨进程父窗口死亡），
     /// 所以这里**整窗重建**（pin::create + load），不是对旧句柄重挂。
     /// 返回 false = 有窗口未落位（explorer 未就绪），调用方应置位重试。
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))] // 仅 Windows 重挂载路径
     pub fn remount_all(&mut self) -> bool {
         // 先提取重建计划（避免 sessions/library 交叉借用），再逐个整窗重建
         let plans: Vec<(String, MonitorInfo, LibraryEntry, u8)> = self
