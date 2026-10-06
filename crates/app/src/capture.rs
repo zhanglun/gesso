@@ -55,7 +55,8 @@ pub(crate) const SHOT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 进程级采集队列（串行消费）；`false` = 工作任务未在跑
 pub(crate) static CAPTURE_QUEUE: Mutex<Vec<(String, WallpaperKind)>> = Mutex::new(Vec::new());
-pub(crate) static WORKER_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(crate) static WORKER_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(target_os = "macos")]
 struct CaptureWindow {
@@ -114,19 +115,14 @@ fn take_window(mtm: MainThreadMarker) -> CaptureWindow {
         );
         window.orderFrontRegardless();
 
-        let content = window
-            .contentView()
-            .expect("contentView 缺失");
+        let content = window.contentView().expect("contentView 缺失");
         let handle = ViewHandle(Retained::as_ptr(&content) as *mut NSView);
         // 首帧中立页（同 M2 教训：首帧 URL 必须必然成功），导航由调用方显式发起
-        let webview = crate::protocol::create_webview(handle, "about:blank")
-            .expect("wry 创建失败");
+        let webview = crate::protocol::create_webview(handle, "about:blank").expect("wry 创建失败");
         webview
             .set_bounds(lb_wry::Rect {
                 size: lb_wry::dpi::Size::Logical(lb_wry::dpi::LogicalSize::new(CAP_W, CAP_H)),
-                position: lb_wry::dpi::Position::Logical(lb_wry::dpi::LogicalPosition::new(
-                    0., 0.,
-                )),
+                position: lb_wry::dpi::Position::Logical(lb_wry::dpi::LogicalPosition::new(0., 0.)),
             })
             .expect("bounds 失败");
 
@@ -134,11 +130,7 @@ fn take_window(mtm: MainThreadMarker) -> CaptureWindow {
         let wk = {
             let content = window.contentView().expect("contentView 缺失");
             let subs = content.subviews();
-            let v = subs
-                .iter()
-                .next()
-                .expect("WKWebView 未挂载")
-                .clone();
+            let v = subs.iter().next().expect("WKWebView 未挂载").clone();
             Retained::downcast(v).expect("WKWebView 已挂载 contentView[0]")
         };
 
@@ -233,10 +225,11 @@ async fn capture_with(
     while Instant::now() < deadline {
         {
             let ready = ready.clone();
-            let _ = cap.webview.evaluate_script_with_callback(
-                "window.__gessoReady === true",
-                move |v: String| *ready.lock().unwrap() = Some(v == "true"),
-            );
+            let _ = cap
+                .webview
+                .evaluate_script_with_callback("window.__gessoReady === true", move |v: String| {
+                    *ready.lock().unwrap() = Some(v == "true")
+                });
         }
         bg.timer(Duration::from_millis(120)).await;
         if ready.lock().unwrap().take() == Some(true) {

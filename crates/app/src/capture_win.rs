@@ -130,18 +130,22 @@ async fn eval_cb(
     let cell: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
     {
         let cell = cell.clone();
-        let _ = cap.webview.evaluate_script_with_callback(js, move |v: String| {
-            // ExecuteScript 结果是 JSON 编码：字符串带引号（"12.0"）、布尔裸值
-            // （true）。统一去引号，调用方按裸字符串比较/解析。base64/dataURL
-            // 载荷无转义字符，不必上完整 JSON 反序列化。
-            let t = v.trim();
-            let unquoted = if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
-                t[1..t.len() - 1].replace("\\\"", "\"").replace("\\\\", "\\")
-            } else {
-                t.to_string()
-            };
-            *cell.lock().unwrap() = Some(unquoted);
-        });
+        let _ = cap
+            .webview
+            .evaluate_script_with_callback(js, move |v: String| {
+                // ExecuteScript 结果是 JSON 编码：字符串带引号（"12.0"）、布尔裸值
+                // （true）。统一去引号，调用方按裸字符串比较/解析。base64/dataURL
+                // 载荷无转义字符，不必上完整 JSON 反序列化。
+                let t = v.trim();
+                let unquoted = if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
+                    t[1..t.len() - 1]
+                        .replace("\\\"", "\"")
+                        .replace("\\\\", "\\")
+                } else {
+                    t.to_string()
+                };
+                *cell.lock().unwrap() = Some(unquoted);
+            });
     }
     let deadline = Instant::now() + SHOT_TIMEOUT;
     loop {
@@ -229,13 +233,22 @@ async fn video_frames(
     url: &str,
     dir: &str,
 ) -> usize {
-    let _ = cap.webview.load_url(&crate::pin::windows::workaround_url(url));
+    let _ = cap
+        .webview
+        .load_url(&crate::pin::windows::workaround_url(url));
     if eval_cb(cap, bg, CAP_SETUP_JS).await.is_none() {
         println!("[thumbs] 视频采集助手注入失败：{dir}");
         return 0;
     }
     // 等 loadeddata + duration（坏文件超时放弃，ThumbScheduler 重试上限兜底）
-    if !poll_true(cap, bg, "window.__cap && __cap.meta() !== ''", READY_TIMEOUT).await {
+    if !poll_true(
+        cap,
+        bg,
+        "window.__cap && __cap.meta() !== ''",
+        READY_TIMEOUT,
+    )
+    .await
+    {
         println!("[thumbs] 视频未就绪（解码失败或超时）：{dir}");
         return 0;
     }
@@ -280,7 +293,9 @@ async fn shader_frames(
     url: &str,
     dir: &str,
 ) -> usize {
-    let _ = cap.webview.load_url(&crate::pin::windows::workaround_url(url));
+    let _ = cap
+        .webview
+        .load_url(&crate::pin::windows::workaround_url(url));
     if !poll_true(cap, bg, "window.__gessoReady === true", READY_TIMEOUT).await {
         println!("[thumbs] shader 页面未就绪（编译失败或加载超时）：{dir}");
         return 0;
@@ -300,7 +315,12 @@ async fn shader_frames(
         if out.exists() {
             continue;
         }
-        let Some(data) = eval_cb(cap, bg, "document.getElementById('gl').toDataURL('image/png')").await
+        let Some(data) = eval_cb(
+            cap,
+            bg,
+            "document.getElementById('gl').toDataURL('image/png')",
+        )
+        .await
         else {
             continue;
         };
@@ -321,7 +341,9 @@ async fn html_frames(
     url: &str,
     dir: &str,
 ) -> usize {
-    let _ = cap.webview.load_url(&crate::pin::windows::workaround_url(url));
+    let _ = cap
+        .webview
+        .load_url(&crate::pin::windows::workaround_url(url));
     if !poll_true(cap, bg, "window.__gessoReady === true", READY_TIMEOUT).await {
         println!("[thumbs] html 页面未就绪：{dir}");
         return 0;

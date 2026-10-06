@@ -95,8 +95,14 @@ mod tests {
         let html = "<html><head><title>x</title></head><body></body></html>";
         let out = inject(html);
         let head_end = out.to_ascii_lowercase().find("<head").unwrap()
-            + out[out.to_ascii_lowercase().find("<head").unwrap()..].find('>').unwrap() + 1;
-        assert!(out[head_end..].starts_with("<script>"), "shim 紧贴 <head> 之后");
+            + out[out.to_ascii_lowercase().find("<head").unwrap()..]
+                .find('>')
+                .unwrap()
+            + 1;
+        assert!(
+            out[head_end..].starts_with("<script>"),
+            "shim 紧贴 <head> 之后"
+        );
         assert!(out.contains("wallpaperRegisterAudioListener"));
         assert!(out.contains("<title>x</title>"));
     }

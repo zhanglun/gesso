@@ -94,7 +94,10 @@ impl SettingsView {
         let weather = make_select(
             window,
             cx,
-            vec![WEATHER_OPEN_METEO().to_string(), WEATHER_CUSTOM().to_string()],
+            vec![
+                WEATHER_OPEN_METEO().to_string(),
+                WEATHER_CUSTOM().to_string(),
+            ],
             if s.weather_custom_key { 1 } else { 0 },
         );
 
@@ -158,9 +161,7 @@ impl SettingsView {
                     };
                     cx.update_global::<GessoState, _>(|g, _| g.settings.language = idx);
                     // 立即切换运行时语言 + 落盘（重渲染取新文案）
-                    super::strings::set_lang(
-                        state(cx).settings.to_core_settings().language,
-                    );
+                    super::strings::set_lang(state(cx).settings.to_core_settings().language);
                     persist_settings(cx);
                     cx.notify();
                 }
@@ -326,7 +327,11 @@ impl Render for SettingsView {
         // 红字文字按钮（kit 无 danger 文字变体；§4.5 红字 + danger-soft 悬停底）
         let reset_btn = div()
             .id("reset-settings")
-            .child(if armed { BTN_RESET_CONFIRM() } else { BTN_RESET() })
+            .child(if armed {
+                BTN_RESET_CONFIRM()
+            } else {
+                BTN_RESET()
+            })
             .px_3()
             .h(px(28.))
             .flex()
@@ -407,7 +412,11 @@ impl Render for SettingsView {
                     .border_color(t.hairline)
                     .child(rows)
             })
-            .child(self.group(div().child(GROUP_ADVANCED()).into_any_element(), advanced, cx))
+            .child(self.group(
+                div().child(GROUP_ADVANCED()).into_any_element(),
+                advanced,
+                cx,
+            ))
     }
 }
 

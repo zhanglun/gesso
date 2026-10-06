@@ -31,12 +31,10 @@ impl HostCommand {
             HostCommand::Resume => "__gesso&&__gesso.resume()".into(),
             HostCommand::SetFps(n) => format!("__gesso&&__gesso.setFps({n})"),
             HostCommand::Tick => "__gesso&&__gesso.tick&&__gesso.tick(Date.now())".into(),
-            HostCommand::MouseLeave => {
-                "__gesso&&__gesso.mouse&&__gesso.mouse(0,0,0,0)".into()
+            HostCommand::MouseLeave => "__gesso&&__gesso.mouse&&__gesso.mouse(0,0,0,0)".into(),
+            HostCommand::Mouse { x, y, buttons } => {
+                format!("__gesso&&__gesso.mouse&&__gesso.mouse(1,{x},{y},{buttons})")
             }
-            HostCommand::Mouse { x, y, buttons } => format!(
-                "__gesso&&__gesso.mouse&&__gesso.mouse(1,{x},{y},{buttons})"
-            ),
         }
     }
 }
@@ -49,9 +47,17 @@ mod tests {
     fn serializes_each_variant() {
         assert_eq!(HostCommand::Pause.to_js(), "__gesso&&__gesso.pause()");
         assert_eq!(HostCommand::SetFps(5).to_js(), "__gesso&&__gesso.setFps(5)");
-        assert_eq!(HostCommand::SetFps(60).to_js(), "__gesso&&__gesso.setFps(60)");
         assert_eq!(
-            HostCommand::Mouse { x: 12, y: 3400, buttons: 1 }.to_js(),
+            HostCommand::SetFps(60).to_js(),
+            "__gesso&&__gesso.setFps(60)"
+        );
+        assert_eq!(
+            HostCommand::Mouse {
+                x: 12,
+                y: 3400,
+                buttons: 1
+            }
+            .to_js(),
             "__gesso&&__gesso.mouse&&__gesso.mouse(1,12,3400,1)"
         );
         assert_eq!(

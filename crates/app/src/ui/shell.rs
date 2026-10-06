@@ -111,34 +111,32 @@ impl Shell {
             .on_click(move |_, window, cx| switch_tab(window, cx, tab))
             // 页签与键位提示（§3 键盘模型：1/2/3 切页签）
             .child(
-                h_flex().gap_1().child(tab.label()).child(
-                    div()
-                        .text_size(px(10.))
-                        .text_color(t.text2)
-                        .opacity(0.7)
-                ),
+                h_flex()
+                    .gap_1()
+                    .child(tab.label())
+                    .child(div().text_size(px(10.)).text_color(t.text2).opacity(0.7)),
             )
             .into_any_element()
     }
 
     /// Windows 标题栏按钮（– □ ✕）：ghost 变体给悬停/按压反馈，行为走窗口方法
-/// 而非 WindowControlArea——控制区交给系统会丢失 gpui 的悬停视觉，且双击
-/// 最大化 / 吸附已由 Drag 区覆盖，这里要的是可控的视觉态。
-#[cfg(target_os = "windows")]
-fn caption_button(
-    id: &'static str,
-    icon: IconName,
-    tooltip: &'static str,
-    action: impl Fn(&gpui_kit::gpui::ClickEvent, &mut Window, &mut App) + 'static,
-) -> Button {
-    Button::new(id)
-        .ghost()
-        .icon(Icon::new(icon))
-        .tooltip(tooltip)
-        .on_click(action)
-}
+    /// 而非 WindowControlArea——控制区交给系统会丢失 gpui 的悬停视觉，且双击
+    /// 最大化 / 吸附已由 Drag 区覆盖，这里要的是可控的视觉态。
+    #[cfg(target_os = "windows")]
+    fn caption_button(
+        id: &'static str,
+        icon: IconName,
+        tooltip: &'static str,
+        action: impl Fn(&gpui_kit::gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Button {
+        Button::new(id)
+            .ghost()
+            .icon(Icon::new(icon))
+            .tooltip(tooltip)
+            .on_click(action)
+    }
 
-fn topbar(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn topbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let left_pad = if cfg!(target_os = "macos") {
             px(76.)
@@ -230,7 +228,10 @@ fn topbar(&self, cx: &mut Context<Self>) -> AnyElement {
             ]))
             .child(
                 // 弹性空档 = 第二拖拽区（覆盖页签右侧到工具钮之间的全部空区）
-                div().flex_1().h_full().window_control_area(WindowControlArea::Drag),
+                div()
+                    .flex_1()
+                    .h_full()
+                    .window_control_area(WindowControlArea::Drag),
             )
             .child(wizard)
             .child(theme_toggle)

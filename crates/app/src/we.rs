@@ -59,7 +59,11 @@ pub enum WeKind {
 pub fn import_we_at(dir: &Path, workshop_id: &str) -> Option<WeEntry> {
     let bytes = std::fs::read(dir.join("project.json")).ok()?;
     let project = serde_json::from_slice::<WeProject>(&bytes).ok()?;
-    Some(WeEntry { workshop_id: workshop_id.to_string(), project, dir: dir.to_path_buf() })
+    Some(WeEntry {
+        workshop_id: workshop_id.to_string(),
+        project,
+        dir: dir.to_path_buf(),
+    })
 }
 
 #[cfg(test)]
@@ -70,7 +74,8 @@ mod tests {
     /// 解析用户选中的 WE project.json：video/web 识别，scene/application 拒绝。
     #[test]
     fn parses_user_selected_project() {
-        let base = std::env::temp_dir().join(format!("gesso-we-parse-{}", gesso_core::generate_id()));
+        let base =
+            std::env::temp_dir().join(format!("gesso-we-parse-{}", gesso_core::generate_id()));
         let dir = base.join("12345");
         fs::create_dir_all(&dir).unwrap();
         fs::write(
@@ -90,7 +95,8 @@ mod tests {
 
     #[test]
     fn missing_project_json_returns_none() {
-        let base = std::env::temp_dir().join(format!("gesso-we-none-{}", gesso_core::generate_id()));
+        let base =
+            std::env::temp_dir().join(format!("gesso-we-none-{}", gesso_core::generate_id()));
         fs::create_dir_all(&base).unwrap();
         assert!(import_we_at(&base, "x").is_none());
         let _ = fs::remove_dir_all(&base);

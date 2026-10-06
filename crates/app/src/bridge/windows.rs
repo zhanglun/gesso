@@ -15,18 +15,18 @@
 use std::collections::BTreeSet;
 
 use windows::core::BOOL;
+use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetLastInputInfo, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON, LASTINPUTINFO,
+    GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowRect, IsWindowVisible,
     GWL_EXSTYLE, WS_EX_TOOLWINDOW,
 };
-use windows::core::{w, PCWSTR};
 
 use crate::pin;
 
@@ -43,7 +43,10 @@ pub fn fullscreen_displays() -> BTreeSet<String> {
     if monitors.is_empty() {
         return out;
     }
-    let mut state = FsState { monitors, out: &mut out };
+    let mut state = FsState {
+        monitors,
+        out: &mut out,
+    };
     unsafe {
         // SAFETY: state 以裸指针经 LPARAM 传入枚举回调，枚举在调用线程同步完成
         let _ = EnumWindows(

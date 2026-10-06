@@ -37,7 +37,12 @@ pub struct MouseSample {
 pub fn sample_mouse() -> MouseSample {
     let (x, y) = macos::mouse_location();
     let (buttons, idle_secs) = macos::mouse_buttons_idle();
-    MouseSample { x, y, buttons, idle_secs }
+    MouseSample {
+        x,
+        y,
+        buttons,
+        idle_secs,
+    }
 }
 
 /// 只采样光标（Windows M5-W）。
@@ -45,7 +50,12 @@ pub fn sample_mouse() -> MouseSample {
 pub fn sample_mouse() -> MouseSample {
     let (x, y) = windows::mouse_location();
     let (buttons, idle_secs) = windows::mouse_buttons_idle();
-    MouseSample { x, y, buttons, idle_secs }
+    MouseSample {
+        x,
+        y,
+        buttons,
+        idle_secs,
+    }
 }
 
 pub fn sample() -> BridgeSnapshot {

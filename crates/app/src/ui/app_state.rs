@@ -285,7 +285,12 @@ pub fn import_with_dialog(_window: &mut Window, cx: &mut App) {
             // 扩展名全集见 gesso_core::content 描述表；rfd 要求 'static 切片，
             // 故在此列明，新增扩展名时同步此处（core 一致性测试会提示类型表侧）。
             let Some(handle) = rfd::AsyncFileDialog::new()
-                .add_filter("壁纸文件", &["mp4", "webm", "gif", "webp", "jpg", "jpeg", "png", "avif", "html", "glsl"])
+                .add_filter(
+                    "壁纸文件",
+                    &[
+                        "mp4", "webm", "gif", "webp", "jpg", "jpeg", "png", "avif", "html", "glsl",
+                    ],
+                )
                 .add_filter("Wallpaper Engine 项目", &["json"])
                 .pick_file()
                 .await
@@ -298,4 +303,3 @@ pub fn import_with_dialog(_window: &mut Window, cx: &mut App) {
         })
         .detach();
 }
-

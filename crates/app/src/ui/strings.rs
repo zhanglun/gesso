@@ -146,7 +146,8 @@ pub const ZH: Texts = Texts {
 
     import_err_unsupported: "不支持的文件类型。支持：mp4 / webm / gif / webp / html / glsl",
     import_err_mkv: ".mkv 容器暂不支持：请用「快速转封装为 mp4」工具转换后再导入",
-    import_err_hevc: "HEVC 视频需要系统安装 HEVC 扩展（Microsoft Store 免费），建议改用 H.264 编码的 mp4",
+    import_err_hevc:
+        "HEVC 视频需要系统安装 HEVC 扩展（Microsoft Store 免费），建议改用 H.264 编码的 mp4",
     import_err_io: "导入失败：文件复制出错（磁盘空间或权限问题）",
 
     dz_hint: "拖到目标显示器上放手",
@@ -315,7 +316,11 @@ static LANG: AtomicU8 = AtomicU8::new(0);
 
 /// 当前语言包。
 pub fn t() -> Texts {
-    if LANG.load(Ordering::Relaxed) == 1 { EN } else { ZH }
+    if LANG.load(Ordering::Relaxed) == 1 {
+        EN
+    } else {
+        ZH
+    }
 }
 
 /// 设置运行时语言（启动时按配置解析、设置页切换时调用）。
@@ -462,8 +467,12 @@ mod tests {
         // 两套包都不得留空字段（漏翻译会是空串）
         let packs = [ZH, EN];
         let strings: Vec<fn(Texts) -> &'static str> = vec![
-            |p| p.tab_library, |p| p.tab_monitors, |p| p.tab_settings,
-            |p| p.set_language, |p| p.wizard_title, |p| p.hint_library,
+            |p| p.tab_library,
+            |p| p.tab_monitors,
+            |p| p.tab_settings,
+            |p| p.set_language,
+            |p| p.wizard_title,
+            |p| p.hint_library,
         ];
         for p in packs {
             for f in &strings {
@@ -477,9 +486,13 @@ mod tests {
         // LANG 是进程级变量，并行测试会互相覆盖——持全局锁
         let _g = crate::ENV_LOCK.lock().unwrap();
         let old = std::env::var("LANG").ok();
-        unsafe { std::env::set_var("LANG", "en_US.UTF-8"); }
+        unsafe {
+            std::env::set_var("LANG", "en_US.UTF-8");
+        }
         assert!(system_is_english());
-        unsafe { std::env::set_var("LANG", "zh_CN.UTF-8"); }
+        unsafe {
+            std::env::set_var("LANG", "zh_CN.UTF-8");
+        }
         assert!(!system_is_english());
         match old {
             Some(v) => unsafe { std::env::set_var("LANG", v) },

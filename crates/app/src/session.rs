@@ -89,7 +89,8 @@ pub struct Session {
     pub downscaled: bool,
     /// 光标 feed：本会话上次推送的量化状态（present,x_q,y_q,bits）。
     /// None = 尚未推送过；present=false 表示光标已离开本屏。
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 光标 feed（M5）读写
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    // 平台面：macOS 光标 feed（M5）读写
     pub mouse_last: Option<(bool, u16, u16, u8)>,
     /// 鼠标静止空闲降帧生效中（与全屏降帧互斥，恢复时回设 fps）。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -136,7 +137,9 @@ impl SessionManager {
             .collect();
         let mut all_ok = true;
         for (mid, monitor, entry, fps) in plans {
-            let Some(s) = self.sessions.get_mut(&mid) else { continue };
+            let Some(s) = self.sessions.get_mut(&mid) else {
+                continue;
+            };
             s.window = None; // 旧窗口多半已被 explorer 连带销毁；Drop 容忍 DestroyWindow 失败
             match Self::build_window_only(&monitor) {
                 Ok(mut w) => {
@@ -300,7 +303,11 @@ impl SessionManager {
             .unwrap_or(self.config.settings.fps_cap_default)
     }
 
-    fn build_session(monitor: MonitorInfo, entry: LibraryEntry, fps: u8) -> gesso_core::Result<Session> {
+    fn build_session(
+        monitor: MonitorInfo,
+        entry: LibraryEntry,
+        fps: u8,
+    ) -> gesso_core::Result<Session> {
         let mut window = pin::create_wallpaper_window(&monitor)?;
         let url = Self::entry_host_url(&entry, fps);
         window.load(&url);
@@ -535,7 +542,9 @@ impl SessionManager {
         let kind = match e.kind() {
             WeKind::Video => WallpaperKind::Video,
             WeKind::Web => WallpaperKind::Html,
-            WeKind::Unsupported(_) | WeKind::UnsupportedStr(_) => return Err(ImportError::Unsupported),
+            WeKind::Unsupported(_) | WeKind::UnsupportedStr(_) => {
+                return Err(ImportError::Unsupported)
+            }
         };
 
         // 零拷贝：source_dir 直接指向 Steam 工坊目录（只读，绝不修改原文件）。
@@ -544,7 +553,11 @@ impl SessionManager {
         let main_file = match kind {
             WallpaperKind::Video if !e.project.file.is_empty() => Some(e.project.file.clone()),
             WallpaperKind::Html => Some(
-                if e.project.file.is_empty() { "index.html" } else { e.project.file.as_str() }
+                if e.project.file.is_empty() {
+                    "index.html"
+                } else {
+                    e.project.file.as_str()
+                }
                 .to_string(),
             ),
             _ => None,
@@ -558,9 +571,11 @@ impl SessionManager {
             main_file,
         };
         self.library.push(entry.clone());
-        gesso_core::LibraryManifest { entries: self.library.clone() }
-            .save(&crate::protocol::library_dir().join("library.json"))
-            .map_err(|_| ImportError::Io)?;
+        gesso_core::LibraryManifest {
+            entries: self.library.clone(),
+        }
+        .save(&crate::protocol::library_dir().join("library.json"))
+        .map_err(|_| ImportError::Io)?;
         Ok(entry)
     }
 
@@ -626,7 +641,8 @@ impl SessionManager {
                         }
                         changed = true;
                         println!("[bridge] {id} 自动暂停（{reason:?}）");
-                    } else if s.state == SessionState::Autopause && s.autopause_reason != Some(reason)
+                    } else if s.state == SessionState::Autopause
+                        && s.autopause_reason != Some(reason)
                     {
                         // 原因切换（全屏退出但仍电池供电）：窗口保持暂停，仅换投影
                         s.autopause_reason = Some(reason);
@@ -696,7 +712,9 @@ impl SessionManager {
 
         let ids: Vec<String> = self.sessions.keys().cloned().collect();
         for id in ids {
-            let Some(s) = self.sessions.get_mut(&id) else { continue };
+            let Some(s) = self.sessions.get_mut(&id) else {
+                continue;
+            };
             let here = target.as_deref() == Some(id.as_str());
 
             // 空闲降帧只在 Playing 且无自动暂停降帧时有意义；其它态一律收敛
@@ -860,8 +878,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("index.html"), b"HOST").unwrap();
         std::fs::write(dir.join("index.png"), b"IMG").unwrap();
-        let got = crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Image);
-        assert_eq!(got.as_deref(), Some("index.png"), "不得误选宿主页 index.html");
+        let got =
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Image);
+        assert_eq!(
+            got.as_deref(),
+            Some("index.png"),
+            "不得误选宿主页 index.html"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -899,7 +922,8 @@ mod tests {
     }
 
     #[test]
-    fn html_entry_asset_is_wallpaper_html_never_host() {        let dir = std::env::temp_dir().join(format!("gesso-html-{}", std::process::id()));
+    fn html_entry_asset_is_wallpaper_html_never_host() {
+        let dir = std::env::temp_dir().join(format!("gesso-html-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
         // 只有宿主页 index.html（导入半途）→ None：index.html 永远不是壁纸资源
@@ -912,7 +936,8 @@ mod tests {
         // wallpaper.html 就位 → 命中
         std::fs::write(dir.join("wallpaper.html"), b"<html>wallpaper</html>").unwrap();
         assert_eq!(
-            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Html).as_deref(),
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Html)
+                .as_deref(),
             Some("wallpaper.html")
         );
 
@@ -933,14 +958,16 @@ mod tests {
         // 只有 index.webm → 命中（类型默认缺失时用任意 index.*）
         std::fs::write(dir.join("index.webm"), b"x").unwrap();
         assert_eq!(
-            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Video).as_deref(),
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Video)
+                .as_deref(),
             Some("index.webm")
         );
 
         // 同时存在 index.mp4 → 类型默认优先
         std::fs::write(dir.join("index.mp4"), b"x").unwrap();
         assert_eq!(
-            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Video).as_deref(),
+            crate::encoding::main_asset_name(&dir.display().to_string(), WallpaperKind::Video)
+                .as_deref(),
             Some("index.mp4")
         );
 
@@ -974,10 +1001,16 @@ mod we_import_tests {
         let home = tempfile_lite::TempHome::new();
         let root = home.path.join("workshop/content/431960/222");
         fs::create_dir_all(root.join("assets")).unwrap();
-        fs::write(root.join("project.json"),
-            r#"{"type":"web","file":"index.html","title":"My Web"}"#).unwrap();
-        fs::write(root.join("index.html"),
-            "<html><head><title>T</title></head><body><h1>hi</h1></body></html>").unwrap();
+        fs::write(
+            root.join("project.json"),
+            r#"{"type":"web","file":"index.html","title":"My Web"}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("index.html"),
+            "<html><head><title>T</title></head><body><h1>hi</h1></body></html>",
+        )
+        .unwrap();
         fs::write(root.join("assets/a.js"), b"JSCODE").unwrap();
         let entry = crate::we::import_we_at(&root, "222").unwrap();
         (home, entry)
@@ -1013,34 +1046,42 @@ mod we_import_tests {
         let home = tempfile_lite::TempHome::new();
         let root = home.path.join("workshop/content/431960/9");
         fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("project.json"), r#"{"type":"scene","file":"s.pkg","title":"S"}"#).unwrap();
+        fs::write(
+            root.join("project.json"),
+            r#"{"type":"scene","file":"s.pkg","title":"S"}"#,
+        )
+        .unwrap();
         let entry = crate::we::import_we_at(&root, "9").unwrap();
         let mut sm = SessionManager::new(Default::default(), Vec::new());
         assert_eq!(sm.import_we_entry(&entry), Err(ImportError::Unsupported));
     }
 }
 
-    /// 最小临时 HOME：设置 HOME 环境变量指向临时目录，drop 时清理。
-    #[cfg(test)]
-    mod tempfile_lite {
-        pub struct TempHome {
-            pub path: std::path::PathBuf,
-        }
-        impl TempHome {
-            pub fn new() -> Self {
-                // 随机后缀：同进程多个 TempHome（并行测试）不得共用同一目录，
-                // 否则后建者的 remove_dir_all 会删掉前者夹具。
-                let suffix = gesso_core::generate_id();
-                let path = std::env::temp_dir().join(format!("gesso-home-{}", suffix));
-                let _ = std::fs::remove_dir_all(&path);
-                std::fs::create_dir_all(&path).unwrap();
-                // ponytail: set_var 依赖测试单进程；并行测试只共享 HOME 变量值，
-                // 但各夹具路径已唯一，find_steam 读到的 HOME 是谁都能各自找到自己的文件。
-                unsafe { std::env::set_var("HOME", &path); }
-                TempHome { path }
+/// 最小临时 HOME：设置 HOME 环境变量指向临时目录，drop 时清理。
+#[cfg(test)]
+mod tempfile_lite {
+    pub struct TempHome {
+        pub path: std::path::PathBuf,
+    }
+    impl TempHome {
+        pub fn new() -> Self {
+            // 随机后缀：同进程多个 TempHome（并行测试）不得共用同一目录，
+            // 否则后建者的 remove_dir_all 会删掉前者夹具。
+            let suffix = gesso_core::generate_id();
+            let path = std::env::temp_dir().join(format!("gesso-home-{}", suffix));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            // ponytail: set_var 依赖测试单进程；并行测试只共享 HOME 变量值，
+            // 但各夹具路径已唯一，find_steam 读到的 HOME 是谁都能各自找到自己的文件。
+            unsafe {
+                std::env::set_var("HOME", &path);
             }
-        }
-        impl Drop for TempHome {
-            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.path); }
+            TempHome { path }
         }
     }
+    impl Drop for TempHome {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}

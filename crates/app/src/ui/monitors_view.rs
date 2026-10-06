@@ -20,10 +20,9 @@ use gpui_kit::component::{h_flex, v_flex, Icon, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     canvas, div, linear_color_stop, linear_gradient, point, px, quad, relative, rgb, size,
-    AnyElement,
-    AppContext as _, Bounds, BorderStyle, BorrowAppContext as _, Context, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, ObjectFit, ParentElement, Pixels, Render, SharedString,
-    Size, StatefulInteractiveElement as _, Styled, Window,
+    AnyElement, AppContext as _, BorderStyle, BorrowAppContext as _, Bounds, Context, Entity,
+    FontWeight, InteractiveElement as _, IntoElement, ObjectFit, ParentElement, Pixels, Render,
+    SharedString, Size, StatefulInteractiveElement as _, Styled, Window,
 };
 
 use super::app_state::{state, update, CardDrag, GessoState};
@@ -91,10 +90,12 @@ impl MonitorsView {
                                         m.fps = fps;
                                     }
                                 });
-                                crate::engine::enqueue(crate::engine::EngineAction::SetMonitorFps {
-                                    monitor_id: real_id.clone(),
-                                    fps: fps as u8,
-                                });
+                                crate::engine::enqueue(
+                                    crate::engine::EngineAction::SetMonitorFps {
+                                        monitor_id: real_id.clone(),
+                                        fps: fps as u8,
+                                    },
+                                );
                                 cx.notify();
                             }
                         }
@@ -137,11 +138,7 @@ impl MonitorsView {
         } else {
             (t.panel, t.hairline)
         };
-        linear_gradient(
-            180.,
-            linear_color_stop(from, 0.),
-            linear_color_stop(to, 1.),
-        )
+        linear_gradient(180., linear_color_stop(from, 0.), linear_color_stop(to, 1.))
     }
 
     fn toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -175,10 +172,7 @@ impl MonitorsView {
     }
 
     /// 屏幕小像内的壁纸面层（cover 铺满；失效=灰底问号；加载中=渐变+指示）。
-    fn screen_surface(
-        item: Option<&super::data::LibraryItem>,
-        cx: &Context<Self>,
-    ) -> AnyElement {
+    fn screen_surface(item: Option<&super::data::LibraryItem>, cx: &Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let Some(item) = item else {
             return div().into_any_element();
@@ -198,9 +192,9 @@ impl MonitorsView {
         if let Some(path) = item.thumbs.first() {
             if std::path::Path::new(path).exists() {
                 use gpui_kit::gpui::StyledImage as _;
-                let source = gpui_kit::gpui::ImageSource::Resource(
-                    gpui_kit::gpui::Resource::Path(std::path::PathBuf::from(path).into()),
-                );
+                let source = gpui_kit::gpui::ImageSource::Resource(gpui_kit::gpui::Resource::Path(
+                    std::path::PathBuf::from(path).into(),
+                ));
                 return gpui_kit::gpui::img(source)
                     .size_full()
                     .object_fit(ObjectFit::Cover)
@@ -230,9 +224,11 @@ impl MonitorsView {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(Icon::new(IconName::RefreshCw).size_3().text_color(
-                        gpui_kit::gpui::white(),
-                    )),
+                    .child(
+                        Icon::new(IconName::RefreshCw)
+                            .size_3()
+                            .text_color(gpui_kit::gpui::white()),
+                    ),
             )
             .into_any_element()
     }
@@ -376,9 +372,7 @@ impl MonitorsView {
             })
             .when(assigned, |d| d.shadow_md())
             .when(glow, |d| d.shadow_lg())
-            .when(!assigned, |d| {
-                d.border_dashed().bg(t.panel).shadow_none()
-            })
+            .when(!assigned, |d| d.border_dashed().bg(t.panel).shadow_none())
             .drag_over::<CardDrag>(move |s, _, _, _| {
                 s.border_color(dz_accent).border_dashed().bg(dz_accent_soft)
             })
@@ -403,16 +397,23 @@ impl MonitorsView {
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.selected = Some(i);
                 cx.notify();
-                if !this
-                    .selected
-                    .is_some_and(|s| state(cx).monitors.get(s).is_some_and(|m| m.wallpaper.is_some()))
-                {
+                if !this.selected.is_some_and(|s| {
+                    state(cx)
+                        .monitors
+                        .get(s)
+                        .is_some_and(|m| m.wallpaper.is_some())
+                }) {
                     // 未指派屏：小像即 CTA，直接跳库页
                     super::shell::switch_tab(window, cx, super::shell::Tab::Library);
                 }
             }))
             .child(
-                div().absolute().inset_0().rounded(px(MINI_INNER_R)).overflow_hidden().child(Self::screen_surface(item.as_ref(), cx)),
+                div()
+                    .absolute()
+                    .inset_0()
+                    .rounded(px(MINI_INNER_R))
+                    .overflow_hidden()
+                    .child(Self::screen_surface(item.as_ref(), cx)),
             )
             .when(assigned, |d| {
                 d.child(Self::status_chip(st_icon, st_label, dimmed))

@@ -113,9 +113,7 @@ pub fn create_webview<H: HasWindowHandle + 'static>(
 }
 
 /// 处理一条 gesso:// 请求（协议回调）。
-fn route(
-    request: lb_wry::http::Request<Vec<u8>>,
-) -> lb_wry::http::Response<Cow<'static, [u8]>> {
+fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<'static, [u8]>> {
     use lb_wry::http::StatusCode;
 
     // URI 结构：gesso://<host 段>/<path>。host 段区分路由：
@@ -171,7 +169,10 @@ fn route(
         "[protocol] {} {} range={:?}",
         request.method(),
         uri,
-        request.headers().get("range").map(|v| v.to_str().unwrap_or("?"))
+        request
+            .headers()
+            .get("range")
+            .map(|v| v.to_str().unwrap_or("?"))
     );
 
     // —— Range 请求：惰性切片（seek + 只读所需字节）——
@@ -213,7 +214,10 @@ fn route(
         if f.read_exact(&mut chunk).is_err() {
             return err(StatusCode::RANGE_NOT_SATISFIABLE, "读取失败");
         }
-        eprintln!("[protocol] 206 bytes {start}-{end}/{len}（惰性切片 {}KB）", chunk.len() / 1024);
+        eprintln!(
+            "[protocol] 206 bytes {start}-{end}/{len}（惰性切片 {}KB）",
+            chunk.len() / 1024
+        );
         return lb_wry::http::Response::builder()
             .status(206)
             .header("Content-Type", mime_of(&file))
@@ -276,17 +280,21 @@ mod tests {
         // 直接接管 HOME（已持 ENV_LOCK，无并行测试竞争）；结束时还原并清理
         let old_home = std::env::var("HOME").unwrap_or_default();
         let thome = std::env::temp_dir().join(format!("gesso-home-{}", gesso_core::generate_id()));
-        unsafe { std::env::set_var("HOME", &thome); }
+        unsafe {
+            std::env::set_var("HOME", &thome);
+        }
         let dir = thome.join("workshop/content/431960/777");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("project.json"),
             r#"{"type":"web","file":"main.html","title":"T"}"#,
-        ).unwrap();
+        )
+        .unwrap();
         std::fs::write(
             dir.join("main.html"),
             b"<html><head><title>T</title></head><body>x</body></html>",
-        ).unwrap();
+        )
+        .unwrap();
         // 用户已导入：清单里有该条目，source_dir 指向用户选中的位置
         let ldir = library_dir();
         std::fs::create_dir_all(&ldir).unwrap();
@@ -305,7 +313,8 @@ mod tests {
         // 已导入条目：主文档 200，shim 内存注入（原文件仍不含）
         let req = lb_wry::http::Request::builder()
             .uri("gesso://steam/abc0000000000001/main.html")
-            .body(vec![]).unwrap();
+            .body(vec![])
+            .unwrap();
         let resp = route(req);
         assert_eq!(resp.status(), 200);
         let body = std::str::from_utf8(resp.body()).unwrap();
@@ -317,37 +326,42 @@ mod tests {
         // 未导入/猜测的 entry id：404（不靠路径空间猜测）
         let unknown = lb_wry::http::Request::builder()
             .uri("gesso://steam/ffffffffffffffff/main.html")
-            .body(vec![]).unwrap();
+            .body(vec![])
+            .unwrap();
         assert_eq!(route(unknown).status(), 404);
         // 已导入条目内路径穿越：403
         let trav = lb_wry::http::Request::builder()
             .uri("gesso://steam/abc0000000000001/../../secret")
-            .body(vec![]).unwrap();
+            .body(vec![])
+            .unwrap();
         assert_eq!(route(trav).status(), 403);
         // 编码态穿越 %2e%2e：先解码再校验，必须仍 403
         let enc_trav = lb_wry::http::Request::builder()
             .uri("gesso://steam/abc0000000000001/%2e%2e/%2e%2e/secret")
-            .body(vec![]).unwrap();
+            .body(vec![])
+            .unwrap();
         assert_eq!(route(enc_trav).status(), 403);
 
         // 百分号解码：含空格文件名以 %20 请求，读到磁盘上的真实文件
         std::fs::write(dir.join("my page.html"), b"<html>space</html>").unwrap();
         let spaced = lb_wry::http::Request::builder()
             .uri("gesso://steam/abc0000000000001/my%20page.html")
-            .body(vec![]).unwrap();
+            .body(vec![])
+            .unwrap();
         let sr = route(spaced);
         assert_eq!(sr.status(), 200, "含空格文件名 %20 应解码后命中");
-        assert!(std::str::from_utf8(sr.body()).unwrap().contains("<html>space</html>"));
+        assert!(std::str::from_utf8(sr.body())
+            .unwrap()
+            .contains("<html>space</html>"));
 
-        unsafe { std::env::set_var("HOME", old_home); }
+        unsafe {
+            std::env::set_var("HOME", old_home);
+        }
         let _ = std::fs::remove_dir_all(&thome);
     }
 }
 
-fn err(
-    status: lb_wry::http::StatusCode,
-    msg: &str,
-) -> lb_wry::http::Response<Cow<'static, [u8]>> {
+fn err(status: lb_wry::http::StatusCode, msg: &str) -> lb_wry::http::Response<Cow<'static, [u8]>> {
     lb_wry::http::Response::builder()
         .status(status)
         .body(Cow::Owned(msg.as_bytes().to_vec()))

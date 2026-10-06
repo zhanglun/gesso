@@ -116,7 +116,9 @@ pub fn main_asset_name(source_dir: &str, kind: WallpaperKind) -> Option<String> 
         let name = ent.file_name().to_string_lossy().to_string();
         if let Some(rest) = name.strip_prefix("index.") {
             // 只认该类型合法扩展名（排除宿主页 index.html 等异名污染）
-            let valid = valid_exts(kind).iter().any(|e| rest.eq_ignore_ascii_case(e));
+            let valid = valid_exts(kind)
+                .iter()
+                .any(|e| rest.eq_ignore_ascii_case(e));
             if valid {
                 // 类型默认扩展名优先，其次任意合法 index.*
                 if rest.eq_ignore_ascii_case(default_ext(kind)) {

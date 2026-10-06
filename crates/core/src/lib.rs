@@ -12,7 +12,9 @@ pub mod session;
 pub mod spec;
 
 pub use config::{AppConfig, MonitorDiff, MonitorFpsMap, PausePolicy, Settings, StartupBehavior};
-pub use content::{content_type, is_animated_image_ext, kind_from_ext, mime_for_ext, ThumbStrategy};
+pub use content::{
+    content_type, is_animated_image_ext, kind_from_ext, mime_for_ext, ThumbStrategy,
+};
 pub use error::{GessoError, Result};
 pub use library::{generate_id, LibraryEntry, LibraryManifest};
 pub use session::{transfer, SessionEvent, SessionState};

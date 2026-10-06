@@ -33,21 +33,20 @@ use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use windows::core::{w, BOOL, PCWSTR};
-use windows::Win32::UI::HiDpi::GetDpiForSystem;
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LRESULT, LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateSolidBrush, EnumDisplayMonitors, GetMonitorInfoW, MONITORINFO, MONITORINFOEXW, HBRUSH,
-    HDC, HMONITOR,
+    CreateSolidBrush, EnumDisplayMonitors, GetMonitorInfoW, HBRUSH, HDC, HMONITOR, MONITORINFO,
+    MONITORINFOEXW,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows, FindWindowExW, FindWindowW,
-    GetWindowRect, IsWindowVisible, RegisterClassW, RegisterWindowMessageW,
-    SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowPos, ShowWindow,
-    HTTRANSPARENT, LWA_ALPHA, MONITORINFOF_PRIMARY, SMTO_NORMAL, SWP_NOACTIVATE,
-    SW_HIDE, SW_SHOWNA, WM_NCHITTEST, WINDOW_EX_STYLE, WNDCLASSW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
-    HWND_BOTTOM, WS_EX_TOPMOST,
+    GetWindowRect, IsWindowVisible, RegisterClassW, RegisterWindowMessageW, SendMessageTimeoutW,
+    SetLayeredWindowAttributes, SetParent, SetWindowPos, ShowWindow, HTTRANSPARENT, HWND_BOTTOM,
+    LWA_ALPHA, MONITORINFOF_PRIMARY, SMTO_NORMAL, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA,
+    WINDOW_EX_STYLE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
 };
 
 use super::{MonitorInfo, WallpaperWindow};
@@ -92,7 +91,10 @@ fn unworkaround_url(url: &str) -> String {
 /// 挂载后子窗口定位：挂载点（WorkerW/Progman）覆盖整个虚拟桌面，其原点即虚拟桌面
 /// 坐标系原点；子窗口坐标 = 显示器虚拟桌面坐标 − 挂载点原点。
 fn child_offset(parent_origin: (i32, i32), monitor_origin: (i32, i32)) -> (i32, i32) {
-    (monitor_origin.0 - parent_origin.0, monitor_origin.1 - parent_origin.1)
+    (
+        monitor_origin.0 - parent_origin.0,
+        monitor_origin.1 - parent_origin.1,
+    )
 }
 
 /// 设备名 → 稳定 ID：`\\.\DISPLAY1` → `win-DISPLAY1`（v1 限制同 macOS：
@@ -387,7 +389,10 @@ fn ensure_pin_env() {
                 windows::core::Error::from_thread()
             );
         }
-        TASKBAR_CREATED.store(RegisterWindowMessageW(w!("TaskbarCreated")), Ordering::Relaxed);
+        TASKBAR_CREATED.store(
+            RegisterWindowMessageW(w!("TaskbarCreated")),
+            Ordering::Relaxed,
+        );
         // 隐藏监听窗口：必须是普通顶层窗口——message-only（HWND_MESSAGE）收不到广播
         if let Err(e) = CreateWindowExW(
             WINDOW_EX_STYLE(0),
@@ -469,7 +474,10 @@ pub fn create(monitor: &MonitorInfo) -> Result<WinWallpaperWindow> {
 
     // 3. webview 直挂本窗口（物理像素铺满）
     let webview = crate::protocol::create_webview(
-        HwndHandle { hwnd, hinstance: hinstance.0 as isize },
+        HwndHandle {
+            hwnd,
+            hinstance: hinstance.0 as isize,
+        },
         "about:blank",
     )
     .map_err(|e| GessoError::UnsupportedPlatform(format!("wry: {e}")))?;
@@ -482,7 +490,10 @@ pub fn create(monitor: &MonitorInfo) -> Result<WinWallpaperWindow> {
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOWNA);
     }
-    println!("[pin] 壁纸窗口 {mx},{my} {mw}×{mh} → {kind:?}（{}）", monitor.id);
+    println!(
+        "[pin] 壁纸窗口 {mx},{my} {mw}×{mh} → {kind:?}（{}）",
+        monitor.id
+    );
 
     Ok(WinWallpaperWindow {
         hwnd,

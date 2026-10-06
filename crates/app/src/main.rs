@@ -4,19 +4,19 @@
 //! 写 = UI 把 EngineAction 入队（engine.rs），引擎 150ms 轮询执行——与托盘同一通道。
 //! UI 不直接触碰 pin/protocol/壁纸窗口生命周期（sync_monitors 独占）。
 mod bridge;
+mod capture;
+#[cfg(target_os = "windows")]
+mod capture_win;
 mod encoding;
 mod engine;
 mod host_cmd;
 mod pin;
 mod protocol;
 mod session;
-mod capture;
-#[cfg(target_os = "windows")]
-mod capture_win;
 mod thumb;
+mod ui;
 mod we;
 mod we_shim;
-mod ui;
 
 use std::time::Duration;
 
@@ -90,11 +90,7 @@ fn spawn_thumb_job(bg: gpui_kit::gpui::BackgroundExecutor, dir: String) {
 /// 串行是崩溃纪律：并发多 webview + 快照 completion 是崩溃放大器（2026-10-04）。
 /// 缩略图策略分派（两处调用共用）：Windows 视频走主线程采集队列（webview 抽帧，
 /// M4-W），macOS 维持后台 AVFoundation 抽帧。
-fn dispatch_thumb(
-    cx: &mut gpui_kit::gpui::AsyncApp,
-    dir: String,
-    kind: WallpaperKind,
-) {
+fn dispatch_thumb(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: WallpaperKind) {
     match gesso_core::content_type(kind).thumb {
         gesso_core::ThumbStrategy::Capture => spawn_capture_job(cx, dir, kind),
         #[cfg(target_os = "windows")]
@@ -107,11 +103,7 @@ fn dispatch_thumb(
     }
 }
 
-fn spawn_capture_job(
-    cx: &mut gpui_kit::gpui::AsyncApp,
-    dir: String,
-    kind: WallpaperKind,
-) {
+fn spawn_capture_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: WallpaperKind) {
     use std::sync::atomic::Ordering;
     capture::CAPTURE_QUEUE.lock().unwrap().push((dir, kind));
     if capture::WORKER_RUNNING.swap(true, Ordering::SeqCst) {
@@ -287,7 +279,8 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                     // 底层同一 Image 渲染器；UI 按主资源扩展名细分动图/静态图
                     if let Some(name) = encoding::main_asset_name(&e.source_dir, e.kind) {
                         let ext = std::path::Path::new(&name)
-                            .extension().and_then(|x| x.to_str())
+                            .extension()
+                            .and_then(|x| x.to_str())
                             .unwrap_or("");
                         if gesso_core::is_animated_image_ext(ext) {
                             ui::data::Kind::Gif
@@ -352,9 +345,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 state: match state {
                     SessionState::Playing | SessionState::Loading => ui::data::PlayState::Playing,
                     SessionState::PausedUser => ui::data::PlayState::UserPaused,
-                    SessionState::Autopause => match
-                        view.and_then(|v| v.autopause_reason)
-                    {
+                    SessionState::Autopause => match view.and_then(|v| v.autopause_reason) {
                         Some(session::AutopauseReason::Battery) => {
                             ui::data::PlayState::BatteryPaused
                         }
@@ -452,14 +443,14 @@ struct ActionOutcome {
 
 /// 执行一条引擎动作：只改引擎状态 + 返回需延后的副作用。
 /// （窗口生命周期/cx 相关操作不在此处理。）
-fn apply_engine_action(
-    app: &mut engine::AppState,
-    action: engine::EngineAction,
-) -> ActionOutcome {
+fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction) -> ActionOutcome {
     let mut out = ActionOutcome::default();
     let sm = &mut app.sm;
     match action {
-        engine::EngineAction::Assign { monitor_id, entry_id } => {
+        engine::EngineAction::Assign {
+            monitor_id,
+            entry_id,
+        } => {
             println!("[ui] 指派 {entry_id} → {monitor_id}");
             sm.assign(&monitor_id, &entry_id);
         }
@@ -484,8 +475,11 @@ fn apply_engine_action(
             let p0 = std::path::Path::new(&path);
             let we_entry = if p0.file_name().and_then(|n| n.to_str()) == Some("project.json") {
                 let dir = p0.parent().unwrap_or(p0);
-                let wid = dir.file_name().and_then(|n| n.to_str())
-                    .unwrap_or_default().to_string();
+                let wid = dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default()
+                    .to_string();
                 we::import_we_at(dir, &wid)
             } else {
                 None
@@ -583,10 +577,7 @@ fn open_main_window(cx: &mut gpui_kit::gpui::App) {
             titlebar: Some(gpui_kit::TitlebarOptions {
                 title: Some("Gesso".into()),
                 appears_transparent: true,
-                traffic_light_position: Some(gpui_kit::point(
-                    gpui_kit::px(14.),
-                    gpui_kit::px(15.),
-                )),
+                traffic_light_position: Some(gpui_kit::point(gpui_kit::px(14.), gpui_kit::px(15.))),
             }),
             ..Default::default()
         },
@@ -745,10 +736,8 @@ fn main() {
                         let mut focus_main = false;
                         cx.update(|cx| {
                             for a in engine_actions {
-                                let out = apply_engine_action(
-                                    cx.global_mut::<engine::AppState>(),
-                                    a,
-                                );
+                                let out =
+                                    apply_engine_action(cx.global_mut::<engine::AppState>(), a);
                                 pending_thumbs.extend(out.pending_thumbs);
                                 if out.focus_main {
                                     focus_main = true;
@@ -811,9 +800,7 @@ fn main() {
                     // 时间脉冲（≈1.05s）：时钟类壁纸的挂钟由引擎驱动
                     if tick.is_multiple_of(TIME_TICK_EVERY) {
                         cx.update(|cx| {
-                            cx.global_mut::<engine::AppState>()
-                                .sm
-                                .broadcast_time_tick()
+                            cx.global_mut::<engine::AppState>().sm.broadcast_time_tick()
                         });
                     }
                     if refresh_ui {
@@ -834,7 +821,9 @@ fn main() {
             // 去重收敛在 ThumbScheduler。
             cx.spawn(async move |cx| {
                 loop {
-                    cx.background_executor().timer(Duration::from_secs(30)).await;
+                    cx.background_executor()
+                        .timer(Duration::from_secs(30))
+                        .await;
                     // 缺帧兜底：统一按策略扫描——Direct（图片）帧发现本就直引源文件，
                     // 只对需"生成"且当前缺帧的 Extract/Capture 起任务。
                     // 真源 = 库目录文件系统，不依赖 UI 快照新鲜度。
@@ -844,7 +833,8 @@ fn main() {
                             .library()
                             .iter()
                             .filter(|e| {
-                                gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct
+                                gesso_core::content_type(e.kind).thumb
+                                    != gesso_core::ThumbStrategy::Direct
                             })
                             .filter(|e| {
                                 app.thumbs.should_start(&e.source_dir)
@@ -872,18 +862,12 @@ fn main() {
             // Windows（M5-W）：GetCursorPos + GetAsyncKeyState + GetLastInputInfo
             // 同语义实现（bridge/windows.rs），左下契约翻转在 poll_mouse 边界。
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            cx.spawn(async move |cx| {
-                loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(33))
-                        .await;
-                    let sample = cx.update(|_| bridge::sample_mouse());
-                    cx.update(|cx| {
-                        cx.global_mut::<engine::AppState>()
-                            .sm
-                            .poll_mouse(&sample)
-                    });
-                }
+            cx.spawn(async move |cx| loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(33))
+                    .await;
+                let sample = cx.update(|_| bridge::sample_mouse());
+                cx.update(|cx| cx.global_mut::<engine::AppState>().sm.poll_mouse(&sample));
             })
             .detach();
 

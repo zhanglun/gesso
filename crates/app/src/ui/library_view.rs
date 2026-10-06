@@ -30,7 +30,8 @@ pub struct LibraryView {
 
 impl LibraryView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder(SEARCH_PLACEHOLDER()));
+        let search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(SEARCH_PLACEHOLDER()));
         // 搜索即时过滤：输入事件 → 全局 query（§4.3 交互表）
         cx.subscribe(&search_input, |_, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -246,7 +247,7 @@ impl LibraryView {
                     })
                 },
             )
-                        .on_hover(cx.listener({
+            .on_hover(cx.listener({
                 let has_thumbs = !item.thumbs.is_empty();
                 move |_, hovering: &bool, window, cx| {
                     // signature #1：悬停点亮对应显示器 + 启动视频帧轮播
@@ -268,14 +269,13 @@ impl LibraryView {
                     }
                 }
             }))
-.context_menu({
+            .context_menu({
                 let id = item.id.clone();
                 let broken = item.broken;
                 move |menu, window, cx| card_context_menu(&id, broken, menu, window, cx)
             });
 
-        let preloading = state(cx).hovered.as_ref() == Some(&item.id)
-            && state(cx).hover_preloading;
+        let preloading = state(cx).hovered.as_ref() == Some(&item.id) && state(cx).hover_preloading;
         card = card
             .child(
                 div()
@@ -561,14 +561,12 @@ fn card_context_menu(
     });
     menu.item(PopupMenuItem::submenu(MENU_SET_WALLPAPER(), sub))
         .separator()
-        .item(
-            PopupMenuItem::new(MENU_OPEN_FOLDER()).on_click({
-                let dir_path = crate::protocol::library_dir().join(item_id.as_ref());
-                move |_, _, _| {
-                    let _ = std::process::Command::new("open").arg(&*dir_path).spawn();
-                }
-            }),
-        )
+        .item(PopupMenuItem::new(MENU_OPEN_FOLDER()).on_click({
+            let dir_path = crate::protocol::library_dir().join(item_id.as_ref());
+            move |_, _, _| {
+                let _ = std::process::Command::new("open").arg(&*dir_path).spawn();
+            }
+        }))
         .item(PopupMenuItem::new(MENU_DETAILS()).on_click({
             let id = item_id.clone();
             move |_, window, cx| {
@@ -787,7 +785,8 @@ fn start_hover_cycle(cx: &mut gpui_kit::gpui::Context<LibraryView>) {
                                 let r = gpui_kit::gpui::Resource::Path(std::sync::Arc::from(
                                     std::path::Path::new(p),
                                 ));
-                                cx.fetch_asset::<gpui_kit::gpui::ImgResourceLoader>(&r).is_none()
+                                cx.fetch_asset::<gpui_kit::gpui::ImgResourceLoader>(&r)
+                                    .is_none()
                             })
                             .take(2)
                             .count(),
@@ -844,4 +843,3 @@ fn start_hover_cycle(cx: &mut gpui_kit::gpui::Context<LibraryView>) {
     })
     .detach();
 }
-

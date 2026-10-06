@@ -9,7 +9,6 @@ use crate::{Result, WallpaperKind};
 /// 显示器→库条目映射；key 为 EDID 哈希稳定 ID（§4.3）。
 pub type MonitorMap = BTreeMap<String, String>;
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {

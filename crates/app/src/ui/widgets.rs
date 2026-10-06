@@ -77,7 +77,11 @@ pub fn preview(
             .rounded_t(px(11.))
             .bg(t.preview_frame)
             .child(
-                div().size_full().flex().items_center().justify_center()
+                div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .text_color(t.text2)
                     .child(Icon::new(IconName::CircleQuestionMark).size_4()),
             )
@@ -98,11 +102,9 @@ pub fn preview(
                     .get(frame.saturating_sub(1))
                     .filter(|p| std::path::Path::new(p).exists())
                     .map(std::path::PathBuf::from);
-                let source = gpui_kit::gpui::ImageSource::Resource(
-                    gpui_kit::gpui::Resource::Path(std::sync::Arc::from(
-                        std::path::Path::new(path),
-                    )),
-                );
+                let source = gpui_kit::gpui::ImageSource::Resource(gpui_kit::gpui::Resource::Path(
+                    std::sync::Arc::from(std::path::Path::new(path)),
+                ));
                 return div()
                     .w_full()
                     .aspect_ratio(16. / 9.)
@@ -195,14 +197,15 @@ pub fn preview(
         .into_any_element()
 }
 
-
 /// 运行状态 →（图标，文案，颜色）：§5 跨屏状态矩阵的视图投影。
 pub fn play_state_visual(state: PlayState, cx: &App) -> (IconName, &'static str, Hsla) {
     let t = tokens(cx);
     match state {
         PlayState::Playing => (IconName::Play, super::strings::ST_PLAYING(), t.accent),
         PlayState::UserPaused => (IconName::Pause, super::strings::ST_PAUSED(), t.text2),
-        PlayState::FullscreenPaused => (IconName::Maximize, super::strings::ST_FULLSCREEN(), t.text2),
+        PlayState::FullscreenPaused => {
+            (IconName::Maximize, super::strings::ST_FULLSCREEN(), t.text2)
+        }
         PlayState::BatteryPaused => (IconName::Zap, super::strings::ST_BATTERY(), t.text2),
     }
 }

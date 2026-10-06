@@ -181,7 +181,10 @@ fn extract_frames_inner(source_dir: &str) -> ThumbOutcome {
         let image = {
             #[allow(deprecated)]
             match unsafe {
-                gen.copyCGImageAtTime_actualTime_error(CMTime::with_seconds(t, 600), std::ptr::null_mut())
+                gen.copyCGImageAtTime_actualTime_error(
+                    CMTime::with_seconds(t, 600),
+                    std::ptr::null_mut(),
+                )
             } {
                 Ok(image) => image,
                 Err(_) => continue,
@@ -252,11 +255,7 @@ mod ffi {
     pub(super) fn cf_string(s: &str) -> Option<CFRef> {
         let c = std::ffi::CString::new(s).ok()?;
         let ptr = unsafe {
-            CFStringCreateWithCString(
-                std::ptr::null(),
-                c.as_ptr(),
-                K_CF_STRING_ENCODING_UTF8,
-            )
+            CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8)
         };
         (!ptr.is_null()).then_some(ptr)
     }
@@ -269,19 +268,26 @@ mod ffi {
 
     /// 把 CGImage 编码为 PNG 写入目标路径（ImageIO 自行处理像素格式/色彩空间）。
     /// 返回 true = 文件已完整落盘（调用方再 rename 转正）。
-    pub(super) fn write_png_to_file(image: &Retained<CGImage>, path: &Path, png_uti: CFRef) -> bool {
+    pub(super) fn write_png_to_file(
+        image: &Retained<CGImage>,
+        path: &Path,
+        png_uti: CFRef,
+    ) -> bool {
         let Some(path_cf) = cf_string(&path.display().to_string()) else {
             return false;
         };
         let url = unsafe {
             CFURLCreateWithFileSystemPath(std::ptr::null(), path_cf, K_CF_URL_POSIX_PATH_STYLE, 0)
         };
-        let dest = (!url.is_null()).then(|| unsafe {
-            CGImageDestinationCreateWithURL(url, png_uti, 1, std::ptr::null())
-        });
+        let dest = (!url.is_null())
+            .then(|| unsafe { CGImageDestinationCreateWithURL(url, png_uti, 1, std::ptr::null()) });
         let result = match dest {
             Some(d) if !d.is_null() => unsafe {
-                CGImageDestinationAddImage(d, std::ptr::from_ref(&**image).cast(), std::ptr::null());
+                CGImageDestinationAddImage(
+                    d,
+                    std::ptr::from_ref(&**image).cast(),
+                    std::ptr::null(),
+                );
                 CGImageDestinationFinalize(d) != 0
             },
             _ => false,
@@ -336,7 +342,10 @@ mod tests {
         assert_eq!(times[0], 0.0);
         // 未被钳制：等差 1/8s，最末帧 1.875 < 10 - 0.05
         for (i, w) in times.windows(2).enumerate() {
-            assert!((w[1] - w[0] - 0.125).abs() < 1e-9, "第 {i} 帧间隔不等于 125ms");
+            assert!(
+                (w[1] - w[0] - 0.125).abs() < 1e-9,
+                "第 {i} 帧间隔不等于 125ms"
+            );
         }
         assert!(*times.last().unwrap() < 10.0);
     }
@@ -345,7 +354,10 @@ mod tests {
     fn frame_times_short_video_clamps_inside_clip() {
         let times = frame_times(0.5);
         assert_eq!(times.len(), HOVER_FRAMES + 1);
-        assert!(times.iter().all(|t| *t >= 0.0 && *t < 0.5), "越界时刻 {times:?}");
+        assert!(
+            times.iter().all(|t| *t >= 0.0 && *t < 0.5),
+            "越界时刻 {times:?}"
+        );
         // 单调不减（短视频后段钳在同一时刻）
         assert!(times.windows(2).all(|w| w[0] <= w[1]));
     }

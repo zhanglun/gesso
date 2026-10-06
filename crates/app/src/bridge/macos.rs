@@ -59,8 +59,8 @@ extern "C" {
 #[link(name = "IOKit", kind = "framework")]
 extern "C" {
     fn IOPSCopyPowerSourcesInfo() -> *const c_void; // +1
-    // 新 SDK 只导出 Copy 变体（+1 要 Release）；老的手写 extern 用的是
-    // 借用式 IOPSGetPowerSourceList——本机 SDK（15.4）tbd 里已无此符号
+                                                    // 新 SDK 只导出 Copy 变体（+1 要 Release）；老的手写 extern 用的是
+                                                    // 借用式 IOPSGetPowerSourceList——本机 SDK（15.4）tbd 里已无此符号
     fn IOPSCopyPowerSourcesList(info: *const c_void) -> *const c_void; // +1
     fn IOPSGetPowerSourceDescription(list: *const c_void, ps: *const c_void) -> *const c_void; // 借用
 }
@@ -99,7 +99,12 @@ fn dict_f64(dict: *const c_void, key: &str) -> Option<f64> {
             return None;
         }
         let mut out = 0f64;
-        if CFNumberGetValue(v, K_CF_NUMBER_DOUBLE_TYPE, &mut out as *mut f64 as *mut c_void) != 0 {
+        if CFNumberGetValue(
+            v,
+            K_CF_NUMBER_DOUBLE_TYPE,
+            &mut out as *mut f64 as *mut c_void,
+        ) != 0
+        {
             Some(out)
         } else {
             None
@@ -230,4 +235,3 @@ pub fn mouse_buttons_idle() -> (u8, f64) {
         (buttons, idle)
     }
 }
-
