@@ -26,6 +26,13 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - ✅ cursor feed: 全局光标位置路由到所在显示器的会话，归一化量化（u16）后经 `__gesso.mouse(present,x,y,buttons)` 喂入，shader 写 `iMouse`、html 收 `{__gesso:"mouse"}`；推送 30 Hz、宿主页每帧快速平滑，变化才推。鼠标静止 5 分钟自动降到 5 fps，一动即恢复。
 - 权限事实（实测）：位置走 `NSEvent::mouseLocation`、按键/空闲走 CoreGraphics HID 源状态表——纯轮询、不做事件 tap，**无需 Input Monitoring / 辅助功能授权**（只有 `CGEventTapCreate` 才要）。
 
+### M5-W — Windows 系统数据桥（✅ 2026-10-06 实机验证）
+
+- ✅ 光标 feed：GetCursorPos（顶左物理像素）+ GetAsyncKeyState 按键 + GetLastInputInfo 空闲（含键盘活动）；左下契约翻转在 poll_mouse 契约边界一次完成。实机：光标 glow 随 SetCursorPos 移动/离开（条带亮度 366 ↔ 114）。
+- ✅ 全屏检测：EnumWindows 找 rect 完整覆盖显示器 frame（±3px）的可见顶层窗口，排除自身类/shell（Progman/WorkerW 恒全屏）/工具窗/DWM cloak 幽灵。实机：真全屏触发自动暂停、退出解除、与空闲降帧状态互斥正确。
+- ✅ 电池：GetSystemPowerStatus（BatteryFlag 128 = 无电池 → None；台式机正确返回 None）。
+- ✅ 空闲降帧：5 分钟无输入 → 5 fps，一动即恢复（实机触发复验）。
+
 ### M1 — Windows pinning（✅ 主体完成，2026-10-05 实机验证）
 - ✅ 自有 Win32 壁纸窗口（WS_POPUP + TOOLWINDOW/NOACTIVATE，非 GPUI 窗口）+ wry/WebView2 子窗口直挂。
 - ✅ WorkerW 挂载阶梯：`Progman 0x052C` → SHELLDLL_DefView 宿主之后的 WorkerW → `SetParent`；兜底 Progman（桌面图标关闭）/ 顶层 HWND_BOTTOM（explorer 未就绪）。实机：shader / html / **视频（协议 Range 206 流式）**均在图标层之下全屏渲染。

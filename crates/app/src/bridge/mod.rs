@@ -8,6 +8,8 @@
 
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 /// 一次桥采样。
 pub struct BridgeSnapshot {
@@ -17,8 +19,9 @@ pub struct BridgeSnapshot {
     pub on_battery: Option<bool>,
 }
 
-/// 光标瞬时态：全局 AppKit 坐标（原点左下，单位 pt）。
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 光标 feed（main.rs M5 循环）构造
+/// 光标瞬时态：平台原生全局坐标，与 MonitorInfo.frame 同系
+/// （macOS = AppKit 左下原点 pt；Windows = 虚拟桌面顶左原点物理像素）。
+/// 宿主页的左下契约翻转在 poll_mouse 的契约边界处理。
 #[derive(Debug, Clone, Copy)]
 pub struct MouseSample {
     pub x: f64,
@@ -37,6 +40,14 @@ pub fn sample_mouse() -> MouseSample {
     MouseSample { x, y, buttons, idle_secs }
 }
 
+/// 只采样光标（Windows M5-W）。
+#[cfg(target_os = "windows")]
+pub fn sample_mouse() -> MouseSample {
+    let (x, y) = windows::mouse_location();
+    let (buttons, idle_secs) = windows::mouse_buttons_idle();
+    MouseSample { x, y, buttons, idle_secs }
+}
+
 pub fn sample() -> BridgeSnapshot {
     #[cfg(target_os = "macos")]
     {
@@ -45,11 +56,11 @@ pub fn sample() -> BridgeSnapshot {
             on_battery: macos::on_battery(),
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
         BridgeSnapshot {
-            fullscreen: Default::default(),
-            on_battery: None,
+            fullscreen: windows::fullscreen_displays(),
+            on_battery: windows::on_battery(),
         }
     }
 }

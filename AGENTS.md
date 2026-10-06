@@ -63,7 +63,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（macOS WKWebView 快照；Windows webview 抽帧 + PrintWindow，`capture_win.rs`，帧契约同构）+ 内置样例 ×5
 - ✅ 协议 Range 惰性切片 + 开放范围 512KB 部分响应（大视频 seek 不再全量过盘）
 - ✅ M1 Windows 贴壁（2026-10-05 实机验证：WorkerW 挂载 + 图标层下渲染 + explorer 重启自愈 + PMv2 DPI；多屏实机/M5 桥接待接）
-- ✅ M5 系统数据桥完整：全屏/电池自动暂停·降帧 + 时间脉冲 + 光标 feed（iMouse 跟随，无需授权）+ 空闲降帧
+- ✅ M5 系统数据桥完整（双平台）：全屏/电池自动暂停·降帧 + 时间脉冲 + 光标 feed（iMouse 跟随，纯轮询无需授权）+ 空闲降帧；Windows 桥见 `bridge/windows.rs`，左下契约翻转在 poll_mouse 边界
 - ✅ M6 WE 用户主动导入/解析（video/web；绝不扫描磁盘）+ jpg/png/avif 静态图 + 独立「图片」分类
 - ✅ 架构还债：content 内容类型表（类型/扩展名/MIME/缩略图策略单一事实源）、HostCommand 类型化、main 上帝循环拆解、session 工具抽到 encoding
 - ✅ 协议已打通（`gesso://` 宿主页走统一副本、资源走 library、WE 源走 steam 只读直引；`bf3c294`）；WE video/web 零拷贝

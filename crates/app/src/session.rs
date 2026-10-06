@@ -673,7 +673,6 @@ impl SessionManager {
     /// 一次 present=0；④ 仅推给光标所在的那一个屏，其余屏不打扰；
     /// ⑤ 暂停 / Autopause / 全屏降帧期间不喂光标。
     /// 空闲降帧：静止超阈值（当前固定 5 分钟）降到 5fps，一动即恢复。
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 光标 feed（main.rs M5 循环）调用
     pub fn poll_mouse(&mut self, m: &crate::bridge::MouseSample) {
         /// ponytail: 空闲阈值先固定 5 分钟；需要 per-user 时挪进 settings
         const IDLE_AFTER: f64 = 300.0;
@@ -721,10 +720,15 @@ impl SessionManager {
                 continue;
             }
 
-            // 归一化（原点左下）并量化
+            // 归一化并量化。宿主页契约 = 左下原点（fragCoord/iMouse）：
+            // macOS 桥交付的 m.y 已是左下全局（AppKit），ny 即左下占比；
+            // Windows 桥/帧同为顶左物理像素，在此契约边界一次翻转为左下
+            // （勿在桥内预翻再此处翻——「勿翻两次」，工程笔记 M5）。
             let (mx, my, mw, mh) = s.monitor.frame;
             let nx = ((m.x - mx) / mw).clamp(0.0, 1.0);
             let ny = ((m.y - my) / mh).clamp(0.0, 1.0);
+            #[cfg(target_os = "windows")]
+            let ny = 1.0 - ny;
             let xq = (nx * Q).round() as u16;
             let yq = (ny * Q).round() as u16;
             let cur = (true, xq, yq, m.buttons);
