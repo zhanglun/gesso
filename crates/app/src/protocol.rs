@@ -40,12 +40,35 @@ const CSP: &str = "default-src 'none'; \
 
 /// 宿主页/样例资源根（开发态 = crate assets；发布态 = exe 旁 assets）
 pub fn assets_dir() -> PathBuf {
-    if let Some(dir) = option_env!("CARGO_MANIFEST_DIR") {
-        return PathBuf::from(dir).join("assets");
+    // 开发构建：直接用源码 assets（改宿主页/样例立即生效，无需打包）。
+    // 发布构建：绝不能硬编码开发机绝对路径（option_env! 会在编译期固化），
+    // 改用 exe 相对路径定位 bundle 内资源。
+    if cfg!(debug_assertions) {
+        if let Some(dir) = option_env!("CARGO_MANIFEST_DIR") {
+            return PathBuf::from(dir).join("assets");
+        }
     }
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("assets")))
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return PathBuf::from("assets"),
+    };
+    #[cfg(target_os = "macos")]
+    {
+        // 标准 .app：Contents/MacOS/gesso → 上两级到 Contents，再 Resources/assets。
+        // 组装脚本把 host/ + samples/ 放在 Resources/assets。
+        let app_bundle = exe
+            .parent() // MacOS
+            .and_then(|p| p.parent()) // Contents
+            .map(|c| c.join("Resources/assets"));
+        if let Some(dir) = app_bundle {
+            if dir.exists() {
+                return dir;
+            }
+        }
+    }
+    // 非 .app / 未命中 bundle：exe 同级 assets（便携 tar、直接跑 release 二进制）。
+    exe.parent()
+        .map(|d| d.join("assets"))
         .unwrap_or_else(|| PathBuf::from("assets"))
 }
 
