@@ -82,6 +82,7 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 
 - 类型 ↔ 扩展名 ↔ MIME ↔ 缩略图策略：查 `gesso_core::content::{content_type, kind_from_ext, mime_for_ext}`，**不要**在 app/ui 里另列扩展名清单。
 - 引擎 → 宿主页命令：构造 `HostCommand`（`app/host_cmd.rs`），序列化只在 `to_js`；不要手拼 `__gesso.xxx(...)` 字符串。
+- 宿主页 WebGPU/WebGL 上下文以 `preserveDrawingBuffer: true` 创建（缩略图采集依赖跨任务 toDataURL，见工程笔记 #41）；缩略图采集的注入 JS 由 `capture.rs` 持有（Rust 侧字符串），宿主页只承载壁纸运行时契约。
 
 ## 5. 已知限制（别在这上面浪费轮次）
 

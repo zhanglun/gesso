@@ -11,6 +11,8 @@ mod pin;
 mod protocol;
 mod session;
 mod capture;
+#[cfg(target_os = "windows")]
+mod capture_win;
 mod thumb;
 mod we;
 mod we_shim;
@@ -84,6 +86,25 @@ fn spawn_thumb_job(bg: gpui_kit::gpui::BackgroundExecutor, dir: String) {
 
 /// shader/html 缩略图采集：入串行队列，惰性起一个主线程工作任务逐个消化。
 /// 串行是崩溃纪律：并发多 webview + 快照 completion 是崩溃放大器（2026-10-04）。
+/// 缩略图策略分派（两处调用共用）：Windows 视频走主线程采集队列（webview 抽帧，
+/// M4-W），macOS 维持后台 AVFoundation 抽帧。
+fn dispatch_thumb(
+    cx: &mut gpui_kit::gpui::AsyncApp,
+    dir: String,
+    kind: WallpaperKind,
+) {
+    match gesso_core::content_type(kind).thumb {
+        gesso_core::ThumbStrategy::Capture => spawn_capture_job(cx, dir, kind),
+        #[cfg(target_os = "windows")]
+        gesso_core::ThumbStrategy::Extract => spawn_capture_job(cx, dir, kind),
+        #[cfg(target_os = "macos")]
+        gesso_core::ThumbStrategy::Extract => {
+            spawn_thumb_job(cx.background_executor().clone(), dir)
+        }
+        _ => {}
+    }
+}
+
 fn spawn_capture_job(
     cx: &mut gpui_kit::gpui::AsyncApp,
     dir: String,
@@ -739,13 +760,7 @@ fn main() {
                                 .thumbs
                                 .mark_started(&dir);
                         });
-                        match gesso_core::content_type(kind).thumb {
-                            gesso_core::ThumbStrategy::Capture => spawn_capture_job(cx, dir, kind),
-                            gesso_core::ThumbStrategy::Extract => {
-                                spawn_thumb_job(cx.background_executor().clone(), dir)
-                            }
-                            gesso_core::ThumbStrategy::Direct => {}
-                        }
+                        dispatch_thumb(cx, dir, kind);
                     }
                     tick += 1;
                     if DIAGNOSE_AT.contains(&tick) {
@@ -835,13 +850,7 @@ fn main() {
                                 .thumbs
                                 .mark_started(&dir);
                         });
-                        match gesso_core::content_type(kind).thumb {
-                            gesso_core::ThumbStrategy::Capture => spawn_capture_job(cx, dir, kind),
-                            gesso_core::ThumbStrategy::Extract => {
-                                spawn_thumb_job(cx.background_executor().clone(), dir)
-                            }
-                            gesso_core::ThumbStrategy::Direct => {}
-                        }
+                        dispatch_thumb(cx, dir, kind);
                     }
                 }
             })

@@ -33,6 +33,7 @@ use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use windows::core::{w, BOOL, PCWSTR};
+use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LRESULT, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     CreateSolidBrush, EnumDisplayMonitors, GetMonitorInfoW, MONITORINFO, MONITORINFOEXW, HBRUSH,
@@ -41,10 +42,12 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows, FindWindowExW, FindWindowW,
-    GetWindowRect, IsWindow, IsWindowVisible, RegisterClassW, RegisterWindowMessageW,
-    SendMessageTimeoutW, SetParent, SetWindowPos, ShowWindow, HTTRANSPARENT, MONITORINFOF_PRIMARY,
-    SMTO_NORMAL, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA, WM_NCHITTEST, WINDOW_EX_STYLE, WNDCLASSW,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP, HWND_BOTTOM,
+    GetWindowRect, IsWindowVisible, RegisterClassW, RegisterWindowMessageW,
+    SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowPos, ShowWindow,
+    HTTRANSPARENT, LWA_ALPHA, MONITORINFOF_PRIMARY, SMTO_NORMAL, SWP_NOACTIVATE,
+    SW_HIDE, SW_SHOWNA, WM_NCHITTEST, WINDOW_EX_STYLE, WNDCLASSW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
+    HWND_BOTTOM, WS_EX_TOPMOST,
 };
 
 use super::{MonitorInfo, WallpaperWindow};
@@ -253,6 +256,48 @@ pub fn take_remount_pending() -> bool {
 /// 重钉未落位（explorer 未就绪）→ 重新置位，下一轮轮询重试。主线程调用。
 pub fn rearm_remount() {
     REMOUNT_PENDING.store(true, Ordering::Relaxed);
+}
+
+/// 采集覆盖窗（M4-W，capture.rs 用）：TOPMOST + 3/255 alpha 的隐形常驻窗口。
+/// 顶层窗口不被普通应用窗口遮挡 → WebView2 全速渲染（macOS「壁纸层之上一档 +
+/// 2% 透明」的 Windows 等价机制；遮挡会让 Chromium 停摆 RAF/合成 → 快照全黑）。
+/// TOOLWINDOW 不进任务栏/Alt-Tab，NOACTIVATE + SW_SHOWNA 不抢焦点，
+/// GessoWallpaper 类过程 HTTRANSPARENT 点击穿透。explorer 重启不影响顶层窗口。
+/// 必须主线程调用（采集任务跑 GPUI 前台执行器）。
+pub(crate) fn create_overlay_window(logical: (i32, i32)) -> Result<HWND> {
+    ensure_pin_env();
+    // SAFETY: 查询系统 DPI（PMv2 下 = 主屏 DPI）
+    let dpi = unsafe { GetDpiForSystem() } as i32;
+    let (w, h) = ((logical.0.max(1) * dpi) / 96, (logical.1.max(1) * dpi) / 96);
+    // SAFETY: 主线程；模块句柄查询无特殊前提
+    let hwnd = unsafe {
+        let hinstance = GetModuleHandleW(PCWSTR::null())
+            .map(|m| HINSTANCE(m.0))
+            .map_err(|e| GessoError::UnsupportedPlatform(format!("GetModuleHandleW: {e}")))?;
+        CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
+            WALLPAPER_CLASS,
+            PCWSTR::null(),
+            WS_POPUP,
+            0,
+            0,
+            w,
+            h,
+            None,
+            None,
+            Some(hinstance),
+            None,
+        )
+        .map_err(|e| GessoError::UnsupportedPlatform(format!("CreateWindowExW(采集): {e}")))?
+    };
+    // SAFETY: 同线程刚创建的窗口；alpha 3/255 ≈ 1.2%，肉眼不可见
+    unsafe {
+        if let Err(e) = SetLayeredWindowAttributes(hwnd, COLORREF(0), 3, LWA_ALPHA) {
+            eprintln!("[pin] 采集窗口 alpha 设置失败：{e}");
+        }
+        let _ = ShowWindow(hwnd, SW_SHOWNA);
+    }
+    Ok(hwnd)
 }
 
 // ---------------------------------------------------------------------------

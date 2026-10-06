@@ -166,7 +166,9 @@
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       const src = new TextDecoder().decode(bytes);
 
-      gl = cvs.getContext("webgl2", { antialias: false, alpha: false });
+      // preserveDrawingBuffer：缩略图采集跨任务 toDataURL 依赖——WebGL 默认
+      // 帧缓冲在合成后即被清空，不开此标志采集侧只能读到黑帧（工程笔记 #41）
+      gl = cvs.getContext("webgl2", { antialias: false, alpha: false, preserveDrawingBuffer: true });
       if (!gl) { msg.textContent = "Gesso: WebGL2 不可用"; state("#FF0000"); return; }
 
       const vs = compile(gl.VERTEX_SHADER, VS_SRC);

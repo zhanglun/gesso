@@ -35,12 +35,12 @@ use gesso_core::WallpaperKind;
 /// - `SAMPLE_FPS`：采样帧率 = 回放帧率（8fps 轮播即 8fps 采样 → 每帧驻留
 ///   125ms = 抽帧间隔，速度与原片一致）
 /// - 片段时长 = HOVER_FRAMES / SAMPLE_FPS = 2 秒（循环点轻微跳变可接受）
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 抽帧/采集路径消费
 pub const SAMPLE_FPS: u64 = 8;
 pub const HOVER_FRAMES: usize = 15; // 2 秒片段（含首帧共 16 帧）
 
-/// 一次抽帧的结果。
+/// 一次抽帧的结果（macOS AVFoundation 路径；Windows webview 管线直接计数）。
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub struct ThumbOutcome {
     /// 本次新写入的帧数（已缓存的帧不计）。
     pub written: usize,
@@ -99,8 +99,7 @@ pub fn preview_frames(source_dir: &str, kind: WallpaperKind) -> Vec<String> {
 
 /// 采样时刻表（纯逻辑）：第 i 帧取 t = i / SAMPLE_FPS；不足 2 秒的短视频按
 /// 实际时长钳制（保证相邻帧 ≥ 原速间隔，最末帧不越界，全部落在 (0, duration) 内）。
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // 平台面：macOS 视频抽帧用
-fn frame_times(duration_secs: f64) -> Vec<f64> {
+pub(crate) fn frame_times(duration_secs: f64) -> Vec<f64> {
     let total = HOVER_FRAMES + 1;
     let clip = duration_secs.min(total as f64 / SAMPLE_FPS as f64);
     (0..total)
@@ -114,12 +113,6 @@ fn frame_times(duration_secs: f64) -> Vec<f64> {
 #[cfg(target_os = "macos")]
 pub fn extract_frames(source_dir: &str) -> ThumbOutcome {
     objc2::rc::autoreleasepool(|_| extract_frames_inner(source_dir))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn extract_frames(_source_dir: &str) -> ThumbOutcome {
-    // Windows（M1）落地的占位：缩略图抽帧走平台 API，当前仅 macOS 实现
-    ThumbOutcome::default()
 }
 
 /// 把已渲染的 CGImage 编码为 PNG 写盘（shader 缩略图采集复用 ImageIO 管线）。

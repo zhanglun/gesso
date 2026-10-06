@@ -37,6 +37,7 @@ windows = { version = "0.62", features = [
   "Win32_Graphics_Gdi",             # 显示器枚举（EnumDisplayMonitors）
   "Win32_UI_HiDpi",                 # PerMonitorV2（main.rs 进程级 DPI 声明）
   "Win32_System_LibraryLoader",     # GetModuleHandleW（窗口类注册）
+  "Win32_Storage_Xps",              # PrintWindow（缩略图截图，capture_win）
   "Win32_UI_Accessibility",         # WinEventHook（全屏检测，M5 Windows 接入）
 ] }
 

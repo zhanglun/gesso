@@ -37,6 +37,36 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - ⬜ 点击穿透语义对齐：WM_NCHITTEST HTTRANSPARENT 只作用于本窗口，空白桌面点击会落入 WebView2 子窗口（技术方案 §6 视作可选交互增强，v1 接受）。
 - ⬜ M5 数据桥 Windows 侧（全屏检测 WinEventHook / 电池 / 光标 feed GetCursorPos，技术方案 §6）。
 
+### M4-W — 缩略图管线 Windows 接入（✅ 2026-10-06 实机验证）
+
+背景：M4 的缩略图生成（视频 AVFoundation 抽帧 / shader·html WKWebView 快照）是 Apple 专属，
+Windows 库页无帧图、无 hover 预览（image 类型 Direct 直引不受影响）。方案：**以 Windows 为
+契机把抽帧收敛到 webview 一条管线**，业务逻辑（调度/抽取/落盘）单份，平台面只剩 html 截图
+一个薄接缝。macOS 现有路径本次零改动（已验证、已投产），待新管线在两侧对齐后再择机退役
+AVFoundation（含其 objc2 崩溃面）。
+
+- ✅ 宿主页：WebGL 上下文加 `preserveDrawingBuffer: true`（工程笔记 #41 认可方案；
+      否则 toDataURL 跨任务读到清空后的黑帧）
+- ✅ Windows 采集窗口：常驻隐形窗口（TOPMOST + 1.2% alpha + TOOLWINDOW + NOACTIVATE，
+      物理像素 800×450），顶层窗口恒不被遮挡、不受 explorer 重启影响——比 macOS
+      的「壁纸层之上一档」更稳（那里靠层级逼近同一效果）
+- ✅ 视频抽帧：采集 JS 用影子 `<video crossorigin=anonymous>`（协议响应已带
+      `Access-Control-Allow-Origin: *`，规避 canvas 跨源污染），seek → cover-fit 绘制
+      → toDataURL；采样时刻表复用 `frame_times`（8fps × 2s = 16 帧契约不变）
+- ✅ shader 定格：`__gessoSeek(t)` + settle 后 `#gl.toDataURL`（依赖 preserveDrawingBuffer）
+- ✅ html 实时帧：PrintWindow(PW_RENDERFULLCONTENT) 截采集窗口（兜底 BitBlt 屏幕区），
+      唯一的平台接缝，独立成 capture_win.rs；实机 800×450 16 帧全出
+- ✅ 落盘：dataURL → base64 解码（encoding.rs 新增解码器）→ `.tmp` → rename 原子写，
+      命名沿用 `thumb.png + thumb-N.png` 契约，UI 零改动
+- ✅ 调度：`dispatch_thumb` 统一分派——Windows 视频走主线程串行采集队列
+      （CAPTURE_QUEUE / ThumbScheduler 原样复用）；macOS 分派不变
+- ✅ 协议 Range 改惰性切片 + 开放范围 512KB 部分响应（大视频逐 seek 全量过盘的
+      顺带修复：394MB 条目就绪超时即此根因，壁纸播放同步受益）
+- ⚠️ 实测坑：ExecuteScript 字符串结果 JSON 编码带引号、布尔裸值——统一去引号
+      （见工程笔记 §2）
+- ✅ 实机验收：五条目全 16 帧（testsrc / plasma / clock + 两条 212/394MB 用户视频），
+      帧内容视觉核验非黑帧；库页卡片/hover 读同一磁盘契约即生效
+
 ### M6 — Wallpaper Engine import I（✅ 已完成）
 - ✅ 工坊内容解析：用户**自己通过导入对话框选中** WE 条目的 `project.json`（或整目录），Gesso 解析并使用——**绝不扫描磁盘、不枚举 Steam/工坊、不依赖 Steam 安装**。法律边界：只读用户主动指定的内容，不下载/不爬取/不再分发。
 - ✅ WE web 垫片：`wallpaperRegisterAudioListener`/媒体等空实现 + 暂停/fps/鼠标/时间桥，注入点紧贴 `<head>`。- ✅ 普通导入可选 `project.json` 触发整目录 WE 导入；法律边界：只读本机已订阅内容，不下载/不爬取/不再分发。

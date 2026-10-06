@@ -1,4 +1,5 @@
-//! Shader / Html 缩略图采集（macOS · 主线程）：隐藏窗口 + wry 宿主页渲染 → WKWebView 快照 → PNG。
+//! 缩略图采集（主线程）：隐藏窗口 + wry 宿主页渲染。
+//! macOS：WKWebView 快照 → PNG（本文件）；Windows：webview 抽帧/PrintWindow（capture_win.rs）。
 //!
 //! 复用宿主页渲染器（shader 走 GLSL，html 走沙箱 iframe），产出与视频条目
 //! 同构的 `thumb.png + thumb-1..15.png` —— 卡片静态预览与 hover 轮播零改动复用。
@@ -22,8 +23,9 @@ use gesso_core::WallpaperKind;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
+use std::time::Duration;
 #[cfg(target_os = "macos")]
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[cfg(target_os = "macos")]
 use block2::RcBlock;
@@ -42,19 +44,14 @@ use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, Wi
 use crate::thumb::{self, HOVER_FRAMES, SAMPLE_FPS};
 
 /// 采集分辨率：640×360 覆盖卡片预览与 hover 轮播（retina 快照 2x = 1280×720）
-#[cfg(target_os = "macos")]
-const CAP_W: f64 = 640.0;
-#[cfg(target_os = "macos")]
-const CAP_H: f64 = 360.0;
+pub(crate) const CAP_W: f64 = 640.0;
+pub(crate) const CAP_H: f64 = 360.0;
 /// 页面就绪上限（含 shader 编译；坏 GLSL 时 `__gessoReady` 永不置位 → 放弃）
-#[cfg(target_os = "macos")]
-const READY_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const READY_TIMEOUT: Duration = Duration::from_secs(5);
 /// seek 后等待 RAF 重绘 + 渲染稳定（RAF 60fps 下一帧 ≤16ms，留足余量）
-#[cfg(target_os = "macos")]
-const FRAME_SETTLE: Duration = Duration::from_millis(140);
+pub(crate) const FRAME_SETTLE: Duration = Duration::from_millis(140);
 /// 单帧快照上限
-#[cfg(target_os = "macos")]
-const SHOT_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const SHOT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 进程级采集队列（串行消费）；`false` = 工作任务未在跑
 pub(crate) static CAPTURE_QUEUE: Mutex<Vec<(String, WallpaperKind)>> = Mutex::new(Vec::new());
@@ -208,19 +205,15 @@ pub(crate) async fn capture_entry(
     written
 }
 
-/// 非 macOS 兜底：采集依赖 WKWebView 快照（Apple 专属），Windows 随 M1 接入。
-#[cfg(not(target_os = "macos"))]
+/// 非 macOS：Windows 走 webview 抽帧管线（capture_win.rs，M4-W）。
+#[cfg(target_os = "windows")]
 pub(crate) async fn capture_entry(
-    _bg: gpui_kit::gpui::BackgroundExecutor,
-    _url: String,
-    _dir: String,
-    _kind: WallpaperKind,
+    bg: gpui_kit::gpui::BackgroundExecutor,
+    url: String,
+    dir: String,
+    kind: WallpaperKind,
 ) -> usize {
-    println!(
-        "[thumbs] shader/html 采集暂不支持平台 {}（随 M1 接入）",
-        std::env::consts::OS
-    );
-    0
+    crate::capture_win::capture_entry(bg, url, dir, kind).await
 }
 
 #[cfg(target_os = "macos")]

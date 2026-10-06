@@ -53,6 +53,8 @@
 | explorer 重启连带销毁壁纸窗口（M1 实测） | 跨进程 `SetParent` 后本方窗口成为 explorer WorkerW 的子窗口——explorer 死亡时子窗口被一并销毁（本进程 Drop 未运行、句柄已失效），重钉不能对旧句柄操作（重建 controller 报 0x80070578 无效句柄），必须**整窗重建**（session 层 `remount_all`）。`TaskbarCreated` 广播只发给顶层窗口——SetParent 后收不到，需要常驻隐藏监听窗口代收 |
 | Windows 进程 DPI awareness 没人替你设（M1 实测） | GPUI 0.3.7 快照与 wry 均不调 `SetProcessDpiAwarenessContext`，默认 DPI-unaware：显示器枚举/窗口定位全部拿到虚拟化坐标，125% 缩放下与 DPI-aware 的 explorer/WorkerW 错位 25%。main() 顶部（任何窗口创建前）运行时声明 `PerMonitorV2` 等效于 manifest |
 | VDF/路径文本按字节解析会毁 UTF-8（M6 实测） | `libraryfolders.vdf` 的库路径含非 ASCII（中文库名）时，字节级 `push(b as char)` 产出 mojibake → 目录判定失败 → 库静默丢失。按字符（`chars()`）处理转义还原；测试夹具写 Windows 路径记得转义反斜杠（真实 Steam 是 `D:\Steam`） |
+| WebView2 ExecuteScript 结果是 JSON 编码（M4-W 实测） | 字符串结果带引号（`"12.0"`）、布尔裸值（`true`）——按裸字符串比较/解析会全部静默失败（表现为：布尔就绪门通过、字符串解析全挂）。回调入口统一去引号再分发；base64/dataURL 载荷无转义字符，不必上完整 JSON 反序列化 |
+| 协议 Range 整读再切片 = 大视频隐性性能地雷（M4-W 实测） | 「`fs::read` 全文件 → 内存切片」让几百 MB 条目的每次 Range 探查/seek 都全量过盘：`bytes=0-` 首字节延迟 = 整文件读取，缩略图 5s 就绪窗口必超。改 seek + 只读所需切片；开放范围（`0-`）回 512KB 前缀的 206 部分响应，客户端按 Content-Range 自行追索（标准行为） |
 | 条目目录里宿主页与用户资源共用 `index.*` 命名空间 | 真实事故：图片条目目录有 `index.html`（每次启动 `ensure_entry_host` 拷入的宿主页）+ `index.png`，`read_dir` 恰好先返回 html；旧 `main_asset_name` 的“任意 `index.*` 兑底”把宿主页当主资源 → 缩略图/类型判定全错。根因做法：`main_asset_name` 只在该类型的扩展名白名单（`content_type(kind).extensions`）内匹配，html 类型主资源固定 `wallpaper.html`。**修 bug 先 grep 所有调用点，在共享函数加一次守卫，而非每个调用方打补丁** |
 | 手拼跨语言命令字符串 | Rust 多处手拼 `__gesso&&__gesso.setFps(5)`，宿主端各自定义，改名靠人肉；`&&__gesso.` 这种空指针守卫还散落各点。正解：`HostCommand` 枚举 + 唯一 `to_js` 序列化点，`WallpaperWindow::send` 统一入口，加/改命令由编译器扫所有调用点 |
 

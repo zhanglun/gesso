@@ -59,7 +59,8 @@ docs/           工程文档 + design/（设计归档）
 - ✅ macOS 视频壁纸钉桌面全链路（贴壁/穿透/多空间/菜单栏带覆盖/暂停恢复/持久化）
 - ✅ 导入（对话框 + 拖入）、托盘（右键菜单）、设置持久化、开机自启、首启向导
 - ✅ 管理窗口三页签（真数据桥接）+ 缩略图悬停预览 + 显示器页「桌面沙盘 + 详情条」改版
-- ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（真实宿主页 WKWebView 快照：静态 + 15 hover 帧）+ 内置样例 ×5
+- ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（macOS WKWebView 快照；Windows webview 抽帧 + PrintWindow，`capture_win.rs`，帧契约同构）+ 内置样例 ×5
+- ✅ 协议 Range 惰性切片 + 开放范围 512KB 部分响应（大视频 seek 不再全量过盘）
 - ✅ M1 Windows 贴壁（2026-10-05 实机验证：WorkerW 挂载 + 图标层下渲染 + explorer 重启自愈 + PMv2 DPI；多屏实机/M5 桥接待接）
 - ✅ M5 系统数据桥完整：全屏/电池自动暂停·降帧 + 时间脉冲 + 光标 feed（iMouse 跟随，无需授权）+ 空闲降帧
 - ✅ M6 WE 用户主动导入/解析（video/web；绝不扫描磁盘）+ jpg/png/avif 静态图 + 独立「图片」分类

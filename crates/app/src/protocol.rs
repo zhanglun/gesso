@@ -173,53 +173,76 @@ fn route(
         uri,
         request.headers().get("range").map(|v| v.to_str().unwrap_or("?"))
     );
+
+    // —— Range 请求：惰性切片（seek + 只读所需字节）——
+    // 整读再切片会让大视频（几百 MB）的每次 Range 探查/seek 都全量过盘，
+    // 缩略图就绪窗口和壁纸播放双双受害。moov 在文件尾的 mp4 依赖尾部随机读。
+    if let Some((start, end_req)) = request
+        .headers()
+        .get("range")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_byte_range)
+    {
+        let Some(meta) = std::fs::metadata(&file).ok().filter(|m| m.is_file()) else {
+            return err(StatusCode::NOT_FOUND, "文件不存在");
+        };
+        let len = meta.len() as usize;
+        if len == 0 {
+            return err(StatusCode::RANGE_NOT_SATISFIABLE, "空文件");
+        }
+        if start >= len {
+            return err(StatusCode::RANGE_NOT_SATISFIABLE, "范围越界");
+        }
+        // 开放范围（bytes=N-/0-）不读到 EOF：回有限前缀（206 部分响应），
+        // 客户端按 Content-Range 自行追索后续区间——否则首字节延迟 = 整文件读取，
+        // 大视频的探查请求和 seek 全部超窗。
+        const OPEN_RANGE_CAP: usize = 512 * 1024;
+        let end = if end_req >= len {
+            (start + OPEN_RANGE_CAP - 1).min(len - 1)
+        } else {
+            end_req
+        };
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        let Ok(mut f) = std::fs::File::open(&file) else {
+            return err(StatusCode::NOT_FOUND, "文件不存在");
+        };
+        if f.seek(SeekFrom::Start(start as u64)).is_err() {
+            return err(StatusCode::RANGE_NOT_SATISFIABLE, "定位失败");
+        }
+        let mut chunk = vec![0u8; end - start + 1];
+        if f.read_exact(&mut chunk).is_err() {
+            return err(StatusCode::RANGE_NOT_SATISFIABLE, "读取失败");
+        }
+        eprintln!("[protocol] 206 bytes {start}-{end}/{len}（惰性切片 {}KB）", chunk.len() / 1024);
+        return lb_wry::http::Response::builder()
+            .status(206)
+            .header("Content-Type", mime_of(&file))
+            .header("Accept-Ranges", "bytes")
+            .header("Content-Range", format!("bytes {start}-{end}/{len}"))
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Content-Security-Policy", CSP)
+            .body(Cow::Owned(chunk))
+            .unwrap();
+    }
+
     match std::fs::read(&file) {
         Ok(mut bytes) => {
             let mime = mime_of(&file);
             // WE web 直引：Steam 原文件只读不能改，主 HTML 文档在此内存注入 shim。
             // 仅注入整页（无 Range；子资源/分片请求 HTML 不注入）。
-            let inject_shim = host == "steam"
-                && mime.starts_with("text/html")
-                && request.headers().get("range").is_none();
-            if inject_shim {
+            if host == "steam" && mime.starts_with("text/html") {
                 if let Ok(html) = std::str::from_utf8(&bytes) {
                     bytes = crate::we_shim::inject(html).into_bytes();
                 }
             }
-            // 视频播放器走 Range：按 bytes=start-end 回 206；无 Range 或解析失败回全量 200
-            if let Some((start, end)) = request
-                .headers()
-                .get("range")
-                .and_then(|v| v.to_str().ok())
-                .and_then(parse_byte_range)
-            {
-                let end = end.min(bytes.len() - 1);
-                if start > end || start >= bytes.len() {
-                    return err(StatusCode::RANGE_NOT_SATISFIABLE, "范围越界");
-                }
-                let chunk = bytes[start..=end].to_vec();
-                lb_wry::http::Response::builder()
-                    .status(206)
-                    .header("Content-Type", mime)
-                    .header("Accept-Ranges", "bytes")
-                    .header(
-                        "Content-Range",
-                        format!("bytes {start}-{end}/{}", bytes.len()),
-                    )
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Content-Security-Policy", CSP)
-                    .body(Cow::Owned(chunk))
-                    .unwrap()
-            } else {
-                lb_wry::http::Response::builder()
-                    .status(200)
-                    .header("Content-Type", mime)
-                    .header("Accept-Ranges", "bytes")
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Content-Security-Policy", CSP)
-                    .body(Cow::Owned(bytes))
-                    .unwrap()
-            }
+            lb_wry::http::Response::builder()
+                .status(200)
+                .header("Content-Type", mime)
+                .header("Accept-Ranges", "bytes")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Content-Security-Policy", CSP)
+                .body(Cow::Owned(bytes))
+                .unwrap()
         }
         Err(_) => err(StatusCode::NOT_FOUND, "文件不存在"),
     }

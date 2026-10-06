@@ -23,6 +23,44 @@ pub fn base64url(data: &[u8]) -> String {
     out
 }
 
+/// 标准 base64 解码（`+/` 字母表，容忍缺省 padding）。
+/// 缩略图采集用：浏览器 `toDataURL("image/png")` 的载荷即此编码。
+/// 返回 None = 含非法字符或长度 %4 == 1。
+pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    fn val(c: u8) -> Option<u32> {
+        match c {
+            b'A'..=b'Z' => Some((c - b'A') as u32),
+            b'a'..=b'z' => Some((c - b'a' + 26) as u32),
+            b'0'..=b'9' => Some((c - b'0' + 52) as u32),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let bytes: Vec<u8> = s
+        .bytes()
+        .filter(|&b| !b.is_ascii_whitespace() && b != b'=')
+        .collect();
+    if bytes.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    for chunk in bytes.chunks(4) {
+        let mut n: u32 = 0;
+        for (i, &b) in chunk.iter().enumerate() {
+            n |= val(b)? << (18 - 6 * i);
+        }
+        out.push((n >> 16) as u8);
+        if chunk.len() > 2 {
+            out.push((n >> 8) as u8);
+        }
+        if chunk.len() > 3 {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
+}
+
 /// urlencode（查询参数值；`/` 也编码）
 pub fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3);
@@ -100,4 +138,20 @@ pub fn entry_main_source(entry: &gesso_core::LibraryEntry) -> String {
         WallpaperKind::Html => "wallpaper.html".to_string(),
         k => format!("index.{}", default_ext(k)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_decode_standard_alphabet() {
+        assert_eq!(base64_decode("aGVsbG8="), Some(b"hello".to_vec()));
+        // 缺省 padding 容忍
+        assert_eq!(base64_decode("aGVsbG8"), Some(b"hello".to_vec()));
+        // 标准 base64 的 62/63 是 +/（与 url 变体 -_ 区分）
+        assert_eq!(base64_decode("+/8="), Some(vec![0xFB, 0xFF]));
+        assert_eq!(base64_decode("A"), None); // 长度 %4 == 1
+        assert_eq!(base64_decode("aGVs*bG8="), None); // 非法字符
+    }
 }
