@@ -13,11 +13,12 @@ Gesso 首次公开发布（0.1.0）的操作清单。按顺序执行；每条都
 
 ---
 
+> **不做代码签名 / 公证**：Gesso 是无签名凭据的开源项目，0.1 两平台产物均为**未签名**。
+> 发布时只在 release notes 里写清首次打开方式（macOS 右键打开 / Windows 过 SmartScreen），
+> 不为此申请证书，也不阻塞发布。
+
 ## 阶段 0 — 发布决策（开工前先定）
 
-- [ ] **签名凭据**：是否有
-  - Apple Developer ID（决定 macOS 能否公证；无则产物带"未签名"说明，用户首次需右键打开）
-  - Windows 代码签名证书（无则 SmartScreen 首次会拦，附绕过说明）
 - [ ] **macOS 架构**：先只发 `aarch64`（Apple Silicon），还是同时做 Intel（`x86_64`）/ Universal binary。
 - [ ] **Windows 分发形态**：便携 zip（解压即用）还是安装器（`msi`/NSIS/Inno）。0.1 建议**便携 zip**，最省事。
 - [ ] **最低系统版本**：macOS（建议 12 Monterey+）/ Windows（建议 10 1809+，WebView2 随系统或引导安装）。
@@ -81,14 +82,11 @@ cargo build --release -p gesso-app
 - [ ] 图标：`Assets.car` / `.icns` 就位。
 - [ ] 资源（宿主页、内置样例）打进 bundle（确认协议层能定位到 bundle 内资源）。
 - [ ] 本地运行**打包后的** `.app`（非 `target/debug`）冒烟一遍。
-- [ ] **签名**（有 Developer ID 时）：
-  - [ ] `codesign --deep --options runtime --sign "Developer ID Application: ..." Gesso.app`
-  - [ ] `codesign --verify --deep --strict --verbose=2 Gesso.app`
-  - [ ] **公证**：`xcrun notarytool submit ... --wait` + `xcrun stapler staple Gesso.app`
-- [ ] 无签名：README/release notes 写明"首次右键 → 打开"及 `xattr -dr com.apple.quarantine` 兜底。
+- [ ] release notes 写明未签名产物首次打开：**右键 → 打开**；被隔离时
+      `xattr -dr com.apple.quarantine /Applications/Gesso.app` 兜底。
 - [ ] 打成 `.dmg`（`hdiutil create`，无需第三方工具）并本地挂载验证。
 - [ ] （可选）Universal：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`，
-      `lipo` 合并两个 release 二进制后再重走签名。
+      `lipo` 合并两个 release 二进制。
 
 ## 阶段 5 — Windows 打包
 
@@ -100,8 +98,7 @@ cargo build --release -p gesso-app
 - [ ] 运行**打包后的 exe** 冒烟（贴壁 WorkerW、托盘、DPI、explorer 自愈）。
 - [ ] **便携方案（0.1 建议）**：exe 打成 zip；release notes 说明解压即用。
 - [ ] **安装器（可选）**：若要开始菜单/卸载项，用 Inno Setup 或 `cargo-wix`（msi）。
-- [ ] **签名**（有证书时）：`signtool sign /tr http://timestamp... /fd sha256 ...`。
-- [ ] 无签名：写明 SmartScreen → "更多信息" → "仍要运行"。
+- [ ] release notes 写明未签名 + SmartScreen 首次拦截：**"更多信息" → "仍要运行"**。
 - [ ] WebView2 Evergreen：确认目标机有 Runtime，或 release notes 附下载链接。
 - [ ] 计算产物 SHA-256。
 
@@ -115,7 +112,7 @@ cargo build --release -p gesso-app
   ```
 - [ ] GitHub 新建 Release（基于 tag）：
   - [ ] 标题 `v0.1.0`
-  - [ ] release notes = CHANGELOG 0.1.0 段落 + 平台签名/绕过说明 + SHA-256。
+  - [ ] release notes = CHANGELOG 0.1.0 段落 + 两平台未签名首次打开说明 + SHA-256。
   - [ ] 上传 `.dmg`、Windows zip（及校验文件）。
   - [ ] 勾选预发布？0.1 可标 **pre-release**（首个版本，收集反馈）或正式发布——发布决策里定。
 - [ ] 发布后从 **Release 页面下载产物**（非本地构建）在干净机器上各装一遍。
@@ -135,9 +132,8 @@ cargo build --release -p gesso-app
 发布所需、但仓库里可能还没有的，按优先级：
 
 1. **`.app` bundle 组装方式**：确认 macOS 发布产物如何从 release 二进制变成标准 `Gesso.app`（`Info.plist` 模板 + 组装脚本）。
-2. **签名/公证凭据**：Apple Developer ID、Windows 证书（没有就走"未签名 + 说明"路线）。
-3. **`.dmg` / Windows 打包脚本**：让打包可复现，而不是手工点。
-4. **release notes 模板**：可复用，含校验值与首次运行说明。
+2. **`.dmg` / Windows 打包脚本**：让打包可复现，而不是手工点。
+3. **release notes 模板**：可复用，含校验值与未签名首次打开说明。
 
-> 原则：0.1 先保证"两平台能下载、安装、跑起来"，签名/自动更新/通用二进制
-> 缺凭据或非必需就显式降级并写清楚，不为此阻塞发布。
+> 原则：0.1 先保证"两平台能下载、安装、跑起来"；不做签名/公证/自动更新，
+> 通用二进制非必需。未签名产物在 release notes 写清打开方式即可，不阻塞发布。
