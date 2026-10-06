@@ -9,7 +9,7 @@
 
 | 项 | 要求 |
 |----|------|
-| Rust | 较新的 stable（开发用 1.95； edition 2021） |
+| Rust | 较新的 stable（当前开发用 **1.99**，与 CI 同步； edition 2021） |
 | macOS | Command Line Tools 即可。**不需要完整 Xcode**——Metal 着色器经 GPUI 快照的 `runtime_shaders` 特性在运行时编译（ spike 实测确认） |
 | Windows | MSVC 工具链（WebView2 SDK 随之提供；已在真机验证） |
 | 可选 | `ffmpeg`（生成测试素材）、终端的**屏幕录制**权限（授权后 `screencapture` 才能拍到窗口内容，用于验证壁纸） |
@@ -18,10 +18,14 @@
 
 ## 2. 常用命令
 
+> **本地 rustfmt 要与 CI 对齐**：CI 用最新 stable 的 rustfmt，排版规则随版本变。
+> 若 `cargo fmt --all --check` 本地过、CI 挂（或反过来），先 `rustup update stable`
+> 再 `cargo fmt --all`。升级 Rust 后建议跑一次这条，避免提交一堆意外重排版。
+
 ```bash
 cargo build -p gesso-app                  # 构建
 cargo run   -p gesso-app                  # 运行（托盘 + 管理窗口 + 壁纸）
-cargo test  -p gesso-core -p gesso-app    # 单测（core 14 项 + 引擎/导入逻辑）
+cargo test  -p gesso-core -p gesso-app    # 单测（core 18 项 + app 29 项）
 cargo clippy -p gesso-core --all-targets -- -D warnings
 cargo fmt -p gesso-core
 pkill -f "target/debug/gesso"             # 退出（有单实例锁）

@@ -45,7 +45,7 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 
 - **macOS**: Command Line Tools are enough — **Xcode is not required** (Metal shaders are compiled at runtime via the `runtime_shaders` feature in the GPUI snapshot we depend on).
 - **Windows**: MSVC toolchain (WebView2 SDK ships with it); runs verified on real hardware.
-- **Rust**: recent stable (developed on 1.95).
+- **Rust**: recent stable (developed on 1.99, matching CI).
 
 ## Quick start
 

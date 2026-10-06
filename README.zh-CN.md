@@ -44,7 +44,7 @@
 
 - **macOS**：Command Line Tools 即可，**不需要完整 Xcode**（Metal 着色器经 `runtime_shaders` 在运行时编译）。
 - **Windows**：MSVC 工具链（WebView2 SDK 随之提供），已在真机验证运行。
-- **Rust**：较新的 stable（开发用 1.95）。
+- **Rust**：较新的 stable（开发用 1.99，与 CI 同步）。
 
 ## 快速开始
 
