@@ -42,7 +42,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - ✅ gesso:// 协议在 WebView2 下的 workaround 全链路：导航 `gesso://X/…` ↔ `http://gesso.X/…` 由 wry 翻译/还原，页面子资源 URL 由 `protocol::entry_url` 直接产出 workaround 形态，CSP 按 workaround 宿主枚举。
 - ⬜ 多显示器实机验证（实现已就位：EnumDisplayMonitors 物理像素 + 各屏独立窗口；验证机单屏）。
 - ⬜ 点击穿透语义对齐：WM_NCHITTEST HTTRANSPARENT 只作用于本窗口，空白桌面点击会落入 WebView2 子窗口（技术方案 §6 视作可选交互增强，v1 接受）。
-- ⬜ M5 数据桥 Windows 侧（全屏检测 WinEventHook / 电池 / 光标 feed GetCursorPos，技术方案 §6）。
+- ~~⬜ M5 数据桥 Windows 侧~~ → ✅ Done（M5-W，2026-10-06 实机验证，见上）。
 
 ### M4-W — 缩略图管线 Windows 接入（✅ 2026-10-06 实机验证）
 
