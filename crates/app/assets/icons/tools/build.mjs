@@ -114,7 +114,8 @@ function appSvg(compact) {
 // ---------- 托盘字形(viewBox 24,「屏中有浪」) ----------
 // 圆角屏描边 + 内腔底部实浪:读作「显示器 + 活的桌面」。
 // 刻意避开双/错位矩形 —— macOS 菜单栏「屏幕镜像」系统字形即双圆角矩形,不能撞。
-// 纯黑+alpha = macOS template;白色版供 Windows 深色任务栏。
+// 单色字形只服务 macOS template(纯黑+alpha,系统负责亮暗);Windows 托盘不走字形,
+// 直接用彩色 compact 应用图标(见下方 tray-app-32 产出,2026-10-06 用户决策)。
 function traySvg(fill) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
   <defs>
@@ -133,7 +134,7 @@ async function render(svg, size, out) {
     .resize(size, size, { kernel: "lanczos3" })
     .png()
     .toBuffer();
-  await sharp(buf).toFile(out);
+  if (out) await sharp(buf).toFile(out);
   return buf;
 }
 
@@ -181,15 +182,34 @@ for (const [name, size] of iconset) {
     writeFileSync(join(MAC, name), png);
   }
 }
-execSync(`iconutil -c icns "${MAC}" -o "${join(ROOT, "mac", "Gesso.icns")}"`);
+// icns 打包只在 macOS 有 iconutil;Windows/CI 上跑管线时 icns 产物保持不变
+if (process.platform === "darwin") {
+  execSync(`iconutil -c icns "${MAC}" -o "${join(ROOT, "mac", "Gesso.icns")}"`);
+} else {
+  console.log("→ 非 macOS,跳过 icns 打包");
+}
 
-console.log("→ Windows ico…");
+// ---------- Windows 满幅稿(2026-10-06) ----------
+// Big Sur 边距(四周 100/1024)是 macOS Dock 网格惯例;Windows 任务栏/托盘图标满幅铺满,
+// 带边距 = 比别家小一圈(实测)。ico 与 tray-app-32 用裁边距稿:viewBox 裁到 824 图形区。
+const bleed = (svg) => svg.replace('viewBox="0 0 1024 1024"', 'viewBox="100 100 824 824"');
+const FB_STD = bleed(STD), FB_SMALL = bleed(SMALL);
+const fbMaster1024 = await sharp(Buffer.from(FB_STD), { density: 300 })
+  .resize(1024, 1024, { kernel: "lanczos3" })
+  .png()
+  .toBuffer();
+const fromFbMaster = (s) =>
+  sharp(fbMaster1024).resize(s, s, { kernel: "lanczos3" }).png().toBuffer();
+
+console.log("→ Windows ico(满幅)…");
 const icoEntries = [];
 for (const s of [16, 20, 24, 32, 48, 64, 128, 256]) {
-  const png = s <= 32 ? await render(SMALL, s, join(SRC, `app-icon@${s}.png`)) : await fromMaster(s);
+  const png = s <= 32 ? await render(FB_SMALL, s) : await fromFbMaster(s);
   icoEntries.push([s, png]);
 }
 writeFileSync(join(WIN, "gesso.ico"), packIco(icoEntries));
+// src 小尺寸 master 维持带边距稿(源档,macOS 语义),与 ico 解耦
+for (const s of [16, 20, 24, 32]) await render(SMALL, s, join(SRC, `app-icon@${s}.png`));
 
 console.log("→ 托盘图标…");
 const trayBlack = traySvg("#000000");
@@ -200,9 +220,11 @@ writeFileSync(join(SRC, "tray-white.svg"), trayWhite);
 await render(trayBlack, 22, join(TRAY, "trayTemplate.png"));
 await render(trayBlack, 44, join(TRAY, "trayTemplate@2x.png"));
 await render(trayBlack, 32, join(TRAY, "tray-32.png"));
-// Windows:深色任务栏用白色;预留黑色版(浅色任务栏)
 await render(trayWhite, 32, join(TRAY, "tray-white-32.png"));
 await render(trayWhite, 24, join(TRAY, "tray-white-24.png"));
 await render(trayBlack, 32, join(TRAY, "tray-black-32.png"));
+// Windows:彩色 compact 应用图标(与任务栏/exe 图标同稿)——单色 template 机制仅 macOS;
+// 描边字形缩到托盘 16px 只剩轮廓线,读不出(2026-10-06 用户决策);满幅稿见上
+await render(FB_SMALL, 32, join(TRAY, "tray-app-32.png"));
 
 console.log("✓ 全部产出完成:", ROOT);

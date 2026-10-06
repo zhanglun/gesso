@@ -76,6 +76,9 @@
   .taskbar { height:52px; border-radius:7px; background:var(--mocktask);
     display:flex; align-items:center; gap:16px; padding:0 14px; border:1px solid #00000055; }
   .taskbar .ticon { width:26px; height:26px; border-radius:6px; background:#3A3D45; }
+  .taskbar.light { background:#F3F3F3; border-color:var(--hairline); }
+  .taskbar.light .ticon { background:#D2D4D9; }
+  .taskbar.light .clock { color:#5A5A5E; }
   .taskbar .glyph { width:22px; height:22px; display:block; }
   .taskbar .clock { margin-left:auto; color:#DADADA; font-size:11px; text-align:right; line-height:1.3; }
   .dock { border-radius:12px; background:var(--mockbar); backdrop-filter:blur(8px);
@@ -167,7 +170,7 @@
 
     <section class="card">
       <h2>真机场景</h2>
-      <div class="hint">托盘字形为黑 template / 白字形两种产物；应用图标在 Dock 与任务栏的场景</div>
+      <div class="hint">托盘：macOS 黑 template 字形 / Windows 彩色 compact 应用图标；应用图标在 Dock 与任务栏的场景</div>
       <div class="scene">
         <div class="lab">macOS 菜单栏 · 22pt 约束 · template 随亮暗自适应</div>
         <div class="menubar light" style="margin-bottom:8px">
@@ -190,10 +193,16 @@
         </div>
       </div>
       <div class="scene">
-        <div class="lab">Windows 11 任务栏 · 白字形常驻深色任务栏</div>
+        <div class="lab">Windows 11 任务栏 · 彩色 compact 应用图标（满幅稿，与任务栏/exe 图标同稿，2026-10-06 用户决策）</div>
+        <div class="taskbar light" style="margin-bottom:8px">
+          <div class="ticon"></div>
+          <img class="glyph" src="../../crates/app/assets/icons/tray/tray-app-32.png" alt="">
+          <div class="ticon"></div><div class="ticon" style="background:#4A4E58"></div>
+          <div class="clock num">10:24<br>2026/10/03</div>
+        </div>
         <div class="taskbar">
           <div class="ticon"></div>
-          <img class="glyph" src="../../crates/app/assets/icons/tray/tray-white-32.png" alt="">
+          <img class="glyph" src="../../crates/app/assets/icons/tray/tray-app-32.png" alt="">
           <div class="ticon"></div><div class="ticon" style="background:#4A4E58"></div>
           <div class="clock num">10:24<br>2026/10/03</div>
         </div>
@@ -291,7 +300,7 @@
           <li><b>读法</b><span>显示器 + 活的桌面（浪在屏内，不在屏外叠层）</span></li>
           <li><b>禁双矩形</b><span>macOS「屏幕镜像」即双圆角矩形 — 一稿踩过，永不回头</span></li>
           <li><b>macOS</b><span>黑字形 + template · 内嵌 44px@2x（22pt 约束，Retina 清晰）</span></li>
-          <li><b>Windows</b><span>白字形 32px（深色任务栏）· 黑 32px 备浅色</span></li>
+          <li><b>Windows</b><span>彩色 compact 应用图标 32px 满幅（带 Big Sur 边距在 Windows 显小一圈）</span></li>
           <li><b>运行时</b><span class="mono">main.rs::tray_icon_rgba</span></li>
         </ul>
       </div>
@@ -301,7 +310,7 @@
       <h2>使用规则</h2>
       <div class="hint">改图形先改 DESIGN.md §品牌图形 与源 SVG，再跑管线</div>
       <ul class="rules">
-        <li class="no"><span class="mark">✕</span><span><b>托盘字形上色 / 加投影 / 带底板</b> — template 机制要求纯黑+alpha，系统负责亮暗</span></li>
+        <li class="no"><span class="mark">✕</span><span><b>macOS template 字形上色 / 加投影 / 带底板</b> — template 机制要求纯黑+alpha，系统负责亮暗（单色字形仅 macOS；Windows 托盘直接用彩色 compact 应用图标，2026-10-06 用户决策）</span></li>
         <li class="no"><span class="mark">✕</span><span><b>用彩色应用图标来充当托盘</b> — 16px 下日出成噪点，单色字形才可读</span></li>
         <li class="no"><span class="mark">✕</span><span><b>托盘用双/错位矩形</b> — macOS「屏幕镜像」系统字形即双圆角矩形，Gesso 常驻菜单栏必撞</span></li>
         <li class="no"><span class="mark">✕</span><span><b>旋转 / 重排渐变色相次序</b> — 蓝始终主导，暖只做收边（地平线在右）</span></li>

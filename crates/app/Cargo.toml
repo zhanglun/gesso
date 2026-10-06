@@ -9,6 +9,11 @@ license.workspace = true
 name = "gesso"
 path = "src/main.rs"
 
+# Windows exe 资源内嵌（build.rs）：gesso.ico → ID 1，GPUI 窗口类图标/任务栏/资源管理器共用。
+# winresource 全宿主可编译，build.rs 内按目标 OS 门控，不污染 macOS 构建路径。
+[build-dependencies]
+winresource = "0.1"
+
 [dependencies]
 gesso-core = { path = "../core" }
 serde.workspace = true

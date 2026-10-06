@@ -34,12 +34,13 @@ static MAIN_WINDOW: std::sync::Mutex<Option<gpui_kit::AnyWindowHandle>> =
 /// 托盘勾选镜像（自启翻转判定用；真源 = AppConfig.settings.autostart）。
 static AUTOSTART_HINT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// 托盘图标源（黑 = macOS template，随菜单栏亮暗自适应；白 = Windows 深色任务栏）。
+/// 托盘图标源（黑 = macOS template，随菜单栏亮暗自适应；彩色 compact 应用图标 = Windows，
+/// 与任务栏/exe 图标同稿——描边字形缩到托盘 16px 只剩轮廓线，读不出，2026-10-06 实测）。
 /// 源文件与再生成见 assets/icons/tools/build.mjs（§DESIGN 品牌图形）。
 #[cfg(target_os = "macos")]
 const TRAY_PNG: &[u8] = include_bytes!("../assets/icons/tray/trayTemplate@2x.png");
 #[cfg(not(target_os = "macos"))]
-const TRAY_PNG: &[u8] = include_bytes!("../assets/icons/tray/tray-white-32.png");
+const TRAY_PNG: &[u8] = include_bytes!("../assets/icons/tray/tray-app-32.png");
 
 /// 解码内嵌 PNG 为托盘 RGBA。macOS 传 44px @2x：tray-icon 按菜单栏 22pt 约束尺寸，
 /// 位图仍为 44px → Retina 下清晰。
@@ -75,6 +76,7 @@ fn apply_dock_icon() {
 ///
 /// 调用方必须先经 `ThumbScheduler`（should_start + mark_started）去重/限额——
 /// 统一从这两个入口走：导入后立即补帧、30s 扫描兜底。
+#[cfg(target_os = "macos")]
 fn spawn_thumb_job(bg: gpui_kit::gpui::BackgroundExecutor, dir: String) {
     bg.spawn(async move {
         let written = thumb::extract_frames(&dir).written;
@@ -702,7 +704,7 @@ fn main() {
                 .with_tooltip("Gesso")
                 .with_menu(Box::new(menu));
             // macOS：黑字形 + template 标志，随菜单栏亮暗自适应；
-            // Windows：白色字形常驻深色任务栏
+            // Windows：彩色 compact 应用图标（与任务栏图标同稿，描边字形在托盘尺寸读不出）
             #[cfg(target_os = "macos")]
             {
                 tray_builder = tray_builder.with_icon_templated(icon);
