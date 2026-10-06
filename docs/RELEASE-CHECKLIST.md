@@ -70,23 +70,27 @@ Gesso 首次公开发布（0.1.0）的操作清单。按顺序执行；每条都
 
 ## 阶段 4 — macOS 打包
 
+打包脚本在 `packaging/macos/`（纯 bash + `hdiutil`，无第三方依赖）：
+
 ```bash
-# release 构建
-cargo build --release -p gesso-app
+packaging/macos/build_app.sh   # release 构建 + 组装 target/release-bundle/Gesso.app
+packaging/macos/build_dmg.sh   # 打成 Gesso-<version>-<arch>.dmg + 打印 SHA-256
 ```
 
-- [ ] 产出 `.app` bundle：标准目录结构（`Contents/MacOS`、`Contents/Resources`、`Info.plist`）。
-  - 0.1 若尚无 `.app` 打包脚本：先确认当前产物形态，最小方案是一个组装脚本（`cp` 二进制 + 资源 + 写 `Info.plist`）。
-- [ ] `Info.plist` 关键字段：`CFBundleIdentifier`、`CFBundleShortVersionString=0.1.0`、
-      `CFBundleVersion`、minimum OS、所需用途说明（若有录屏/输入描述）。
-- [ ] 图标：`Assets.car` / `.icns` 就位。
-- [ ] 资源（宿主页、内置样例）打进 bundle（确认协议层能定位到 bundle 内资源）。
-- [ ] 本地运行**打包后的** `.app`（非 `target/debug`）冒烟一遍。
+- [ ] 跑 `build_app.sh` 产出标准 `.app`：`Contents/MacOS`、`Contents/Resources`、`Info.plist`。
+- [ ] `Info.plist`（模板 `packaging/macos/Info.plist`，版本由脚本注入）：
+      `CFBundleIdentifier=com.zhanglun.gesso`、`CFBundleShortVersionString`、`LSMinimumSystemVersion=12.0`、
+      `LSUIElement=true`（托盘应用，无 Dock 常驻）、`CFBundleIconFile`。
+- [ ] 图标 `Gesso.icns` 打进 `Contents/Resources`。
+- [ ] 资源：宿主页 `host/` + 内置样例 `samples/` 打进 `Contents/Resources/assets`。
+      release 二进制的 `assets_dir()` 定位此处（**不再硬编码开发机路径**，见 protocol.rs）。
+- [ ] **关键验证**：`SKIP_BUILD=1 build_app.sh` 后，用临时 `HOME` 跑打包后的二进制，
+      确认 6 个内置样例从 bundle 复制入库、`gesso://host/index.html` 200、无 panic。
 - [ ] release notes 写明未签名产物首次打开：**右键 → 打开**；被隔离时
       `xattr -dr com.apple.quarantine /Applications/Gesso.app` 兜底。
-- [ ] 打成 `.dmg`（`hdiutil create`，无需第三方工具）并本地挂载验证。
-- [ ] （可选）Universal：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`，
-      `lipo` 合并两个 release 二进制。
+- [ ] 跑 `build_dmg.sh`，挂载验证含 `Gesso.app` + `Applications` 拖拽快捷方式。
+- [ ] （可选，非必需）Universal：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`，
+      `lipo` 合并两个 release 二进制后再组装。
 
 ## 阶段 5 — Windows 打包
 
@@ -123,17 +127,18 @@ cargo build --release -p gesso-app
 - [ ] README / 官网（若有）更新下载链接与版本徽章。
 - [ ] 公告渠道（release post / 社区）。
 - [ ] 开启 0.2 规划：把发布后反馈整理进 ROADMAP。
-- [ ] 清理本地备份/临时产物（确认发布无误后再删 bundle 与备份分支）。
+- [ ] 确认本地无遗留临时产物（历史改写备份已删除）。
 
 ---
 
 ## 当前缺口（要在阶段 0/4/5 补齐的东西）
 
-发布所需、但仓库里可能还没有的，按优先级：
+发布所需、仓库里当前的就绪情况：
 
-1. **`.app` bundle 组装方式**：确认 macOS 发布产物如何从 release 二进制变成标准 `Gesso.app`（`Info.plist` 模板 + 组装脚本）。
-2. **`.dmg` / Windows 打包脚本**：让打包可复现，而不是手工点。
-3. **release notes 模板**：可复用，含校验值与未签名首次打开说明。
+1. ✅ **macOS `.app` 组装**：`packaging/macos/build_app.sh`（Info.plist 模板 + 资源定位修复）。
+2. ✅ **macOS `.dmg`**：`packaging/macos/build_dmg.sh`（含 SHA-256）。
+3. ⬜ **Windows 打包脚本**：release exe → 便携 zip（当前需手工压缩，待补脚本）。
+4. ⬜ **release notes 模板**：可复用，含两平台校验值与未签名首次打开说明。
 
 > 原则：0.1 先保证"两平台能下载、安装、跑起来"；不做签名/公证/自动更新，
 > 通用二进制非必需。未签名产物在 release notes 写清打开方式即可，不阻塞发布。
