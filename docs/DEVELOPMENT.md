@@ -11,7 +11,7 @@
 |----|------|
 | Rust | 较新的 stable（开发用 1.95； edition 2021） |
 | macOS | Command Line Tools 即可。**不需要完整 Xcode**——Metal 着色器经 GPUI 快照的 `runtime_shaders` 特性在运行时编译（ spike 实测确认） |
-| Windows | MSVC 工具链（WebView2 SDK 随之提供；此阶段未验证） |
+| Windows | MSVC 工具链（WebView2 SDK 随之提供；已在真机验证） |
 | 可选 | `ffmpeg`（生成测试素材）、终端的**屏幕录制**权限（授权后 `screencapture` 才能拍到窗口内容，用于验证壁纸） |
 
 > 曾有结论"macOS 构建需要完整 Xcode"——那是 `gpui 0.2.2` 直依赖时的旧行为；换用 gpui-kit（`gpui-pre` 快照 + `runtime_shaders`）后已不需要。若未来升级依赖后构建报 `unable to find utility "metal"`，才需要装 Xcode。

@@ -16,11 +16,11 @@ macOS（已验证）与 Windows（进行中，需要真机验证贴壁）。**v1
 
 ## 和 Wallpaper Engine 的素材兼容吗？
 
-计划中（M6 起，见 [WALLPAPER-ENGINE.md](WALLPAPER-ENGINE.md)）。原则：只读你本机已订阅的工坊内容，不做下载器与再分发。`application` 类型（原生 exe）永远不会支持。
+支持（M6，见 [WALLPAPER-ENGINE.md](WALLPAPER-ENGINE.md)）：你在导入对话框主动选择 WE 的 `project.json`，Gesso 只解析和只读使用你指定的内容，不扫描磁盘、不枚举 Steam/工坊、不下载或再分发。`video`/`web` 已支持；`scene` 是 M7 目标，`application` 类型（原生 exe）永远不会支持。
 
 ## 为什么导入的文件被复制进库目录，而不是原地引用？
 
-条目自包含（宿主页 + 素材同目录）是当前内容管线的根基——webview 按扩展名判定媒体类型、相对路径引用素材、失效判定都能自洽。原地引用（WE 工坊那种）会随 M6 引入，届时两类共存。
+普通导入（视频/图片/Shader/HTML）采用自包含：素材入库目录，webview 按扩展名判型、相对路径引用、失效判定都自洽。WE 条目（M6 起）则是**零拷贝只读引用**你指定的原目录、不复制素材——两类共存。
 
 `.mkv` 与 HEVC 会被拒绝并给出提示（转封装 / 系统扩展），因为 webview 的解码能力由系统决定。
 

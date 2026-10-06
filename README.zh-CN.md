@@ -22,7 +22,7 @@
 | 平台 | 贴壁 | 说明 |
 |---|---|---|
 | **macOS** | ✅ 可用 | `NSWindow` 压到图标层之下（`level = -2147483604`）+ 点击穿透 + 全空间跟随；已用全屏视频壁纸实机验证 |
-| **Windows** | 🚧 进行中 | 计划走自有 Win32 窗口 + WebView2 子窗口，`SetParent` 到 `WorkerW`。**需要 Windows 机器验证** |
+| **Windows** | ✅ 可用 | 自有 Win32 窗口 + WebView2 子窗口，经 WorkerW 梯子（`Progman 0x052C` → `SetParent`）钉到图标层之下，点击穿透、PMv2 DPI、explorer 重启自愈；已真机验证（单屏，多屏待多显示器环境复验） |
 | **Linux** | ❌ v1 不做 | KDE/GNOME/X11/Wayland 各需一套桌面集成路径，见[常见问题](docs/FAQ.md) |
 
 | 能力 | 状态 |
@@ -38,12 +38,12 @@
 | Shader 渲染器（Shadertoy 子集，WebGL2） | ✅ |
 | HTML 渲染器（沙箱 iframe，拒绝存储/IPC） | ✅ |
 | 系统数据桥（全屏/电池自动暂停 · 时间脉冲 · 光标跟随 · 空闲降帧） | ✅ M5 |
-| Wallpaper Engine 工坊素材（只读） | 🚧 计划（M6），见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
+| Wallpaper Engine video/web 壁纸（用户主动导入，只读） | ✅ M6，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
 ## 环境要求
 
 - **macOS**：Command Line Tools 即可，**不需要完整 Xcode**（Metal 着色器经 `runtime_shaders` 在运行时编译）。
-- **Windows**：MSVC 工具链（此阶段未验证）。
+- **Windows**：MSVC 工具链（WebView2 SDK 随之提供），已在真机验证运行。
 - **Rust**：较新的 stable（开发用 1.95）。
 
 ## 快速开始

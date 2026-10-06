@@ -5,7 +5,7 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 
 [AGENTS.md](AGENTS.md)（AI 会话指南） · [简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [FAQ](docs/FAQ.md) · [Contributing](CONTRIBUTING.md)
 
-> **Status: early development (0.1.x), macOS working, Windows in progress.**
+> **Status: early development (0.1.x); macOS and Windows are working (Windows verified on single-display hardware).**
 > Design and engineering decisions are documented in-repo; everything below is verified on real hardware unless marked otherwise.
 
 ---
@@ -23,7 +23,7 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 | Platform | Wallpaper pinning | Notes |
 |---|---|---|
 | **macOS** | ✅ working | `NSWindow` below the icon layer (`level = -2147483604`), click-through, all-spaces; verified on macOS with a full-screen video wallpaper |
-| **Windows** | 🚧 in progress | Planned via `WorkerW` + `SetParent` on our own Win32 window + WebView2 child. Needs a Windows machine to verify |
+| **Windows** | ✅ working | Own Win32 window + WebView2 child mounted under the icon layer via the WorkerW ladder (`Progman 0x052C` → `SetParent`), click-through, PMv2 DPI, explorer-restart self-heal; verified on real hardware (single display) |
 | **Linux** | ❌ out of scope (v1) | KDE/GNOME/X11/Wayland would each need a separate desktop-integration path — see [FAQ](docs/FAQ.md) |
 
 | Feature | Status |
@@ -39,12 +39,12 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 | Shader renderer (Shadertoy subset, WebGL2) | ✅ |
 | HTML renderer (sandboxed iframe, storage/IPC denied) | ✅ |
 | System data bridge (fullscreen/battery auto-pause · time · cursor · idle) | ✅ M5 |
-| Wallpaper Engine workshop assets (read-only) | 🚧 planned (M6) — see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
+| Wallpaper Engine `video`/`web` wallpapers (user-driven import, read-only) | ✅ M6 — see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
 ## Requirements
 
 - **macOS**: Command Line Tools are enough — **Xcode is not required** (Metal shaders are compiled at runtime via the `runtime_shaders` feature in the GPUI snapshot we depend on).
-- **Windows**: MSVC toolchain (untested at this stage).
+- **Windows**: MSVC toolchain (WebView2 SDK ships with it); runs verified on real hardware.
 - **Rust**: recent stable (developed on 1.95).
 
 ## Quick start
@@ -85,7 +85,7 @@ tray + manager window ── GPUI ──────────┐
                               │
               ┌───────────────▼───────────────────────────┐
               │  wallpaper window = native window          │  macOS: AppKit NSWindow
-              │  + wry webview (host page, sandboxed)      │  Windows: Win32 (planned)
+              │  + wry webview (host page, sandboxed)      │  Windows: Win32 + WorkerW
               └───────────────────────────────────────────┘
 ```
 
