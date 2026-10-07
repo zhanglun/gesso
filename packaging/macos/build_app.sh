@@ -49,5 +49,12 @@ mkdir -p "$APP/Contents/Resources/assets"
 cp -R crates/app/assets/host "$APP/Contents/Resources/assets/host"
 cp -R crates/app/assets/samples "$APP/Contents/Resources/assets/samples"
 
+# Ad-hoc 重签整个 bundle（免费、无需开发者账号）。
+# 链接器对裸二进制的 linker-signed 签名不覆盖 bundle 结构（Info.plist/Resources），
+# Gatekeeper 会以“签名结构无效”直接拒绝启动（表现为双击无反应/提示已损坏）。
+# 重签后走标准未公证流程：首次右键→打开即可。
+codesign --force --sign - "$APP"
+codesign --verify --strict "$APP" || { echo "codesign verify 失败" >&2; exit 1; }
+
 echo ">> 完成：${APP}"
 echo "   本地试运行：open \"${APP}\""
