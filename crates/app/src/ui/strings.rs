@@ -156,7 +156,6 @@ pub struct Texts {
     pub url_import_desc: &'static str,
     pub url_import_placeholder: &'static str,
     pub url_import_invalid: &'static str,
-
 }
 
 /// 简体中文。
@@ -238,7 +237,6 @@ pub const ZH: Texts = Texts {
     url_import_placeholder: "https://…（网页地址）",
     url_import_invalid: "无效的网页地址（需要 https://）",
 
-
     btn_redetect: "重新检测",
     monitor_hover_note: "悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制",
     st_select_wallpaper: "选择壁纸",
@@ -286,7 +284,6 @@ pub const ZH: Texts = Texts {
     btn_reset: "重置…",
     btn_reset_confirm: "确认重置？",
     toast_reset: "设置已恢复默认",
-
 };
 
 /// English.

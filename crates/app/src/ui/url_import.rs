@@ -104,7 +104,13 @@ impl Render for UrlImport {
                     .text_color(t.text2)
                     .child(URL_IMPORT_DESC()),
             )
-            .child(div().child(Input::new(&self.input).with_size(Size::Small).cleanable(true)))
+            .child(
+                div().child(
+                    Input::new(&self.input)
+                        .with_size(Size::Small)
+                        .cleanable(true),
+                ),
+            )
             .when_some(self.error, |r, err| {
                 r.child(div().text_size(px(12.)).text_color(t.danger).child(err))
             })

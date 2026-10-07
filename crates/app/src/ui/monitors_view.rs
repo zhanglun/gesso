@@ -638,9 +638,7 @@ impl MonitorsView {
         let fps_select = self.fps_selects.get(sel).map(|s| {
             div().w(px(96.)).child(
                 // 详情条控件统一 Small（§1.2 工艺基准；Medium 32px 在 12px 状态行旁头重脚轻）
-                Select::new(s)
-                    .with_size(KitSize::Small)
-                    .appearance(true),
+                Select::new(s).with_size(KitSize::Small).appearance(true),
             )
         });
 

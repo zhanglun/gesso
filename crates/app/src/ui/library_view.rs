@@ -4,9 +4,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::menu::{
-    ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem,
-};
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _, Size, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
@@ -131,9 +129,11 @@ impl LibraryView {
             .secondary()
             .icon(Icon::new(IconName::Plus))
             .dropdown_menu(|menu, _, _| {
-                menu.item(PopupMenuItem::new(BTN_IMPORT_FILE()).on_click(|_, window, cx| {
-                    super::app_state::import_with_dialog(window, cx);
-                }))
+                menu.item(
+                    PopupMenuItem::new(BTN_IMPORT_FILE()).on_click(|_, window, cx| {
+                        super::app_state::import_with_dialog(window, cx);
+                    }),
+                )
                 .item(PopupMenuItem::new(URL_IMPORT_TITLE()).on_click(|_, _, cx| {
                     super::url_import::UrlImport::open(cx);
                 }))

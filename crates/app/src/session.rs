@@ -487,9 +487,7 @@ impl SessionManager {
         // 删目录会造成「清单有、磁盘无」的失效条目
         if saved {
             if let Some(entry) = removed {
-                if let Some(dir) =
-                    Self::owned_dir_in(&entry, &crate::protocol::library_dir())
-                {
+                if let Some(dir) = Self::owned_dir_in(&entry, &crate::protocol::library_dir()) {
                     if let Err(e) = trash::delete(&dir) {
                         println!(
                             "[session] 条目目录移入回收站失败，保留原地（{}）：{e}",
@@ -522,7 +520,7 @@ impl SessionManager {
         }
     }
 
-/// 导入结果的类型判定（UI 预检与引擎执行共用同一套规则）。
+    /// 导入结果的类型判定（UI 预检与引擎执行共用同一套规则）。
     /// 类型知识查 core 描述表；这里只保留"已知但拒绝"的特殊错误。
     pub fn classify_import(path: &std::path::Path) -> ImportCheck {
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
@@ -967,22 +965,35 @@ mod tests {
             Some(inside.clone())
         );
         // builtin 同 local 语义
-        assert!(SessionManager::owned_dir_in(&entry_with("builtin", inside.to_str().unwrap()), &root).is_some());
+        assert!(SessionManager::owned_dir_in(
+            &entry_with("builtin", inside.to_str().unwrap()),
+            &root
+        )
+        .is_some());
         // local 指向库外 → 守卫拒绝（canonicalize 防 ../ 与符号链接逃逸）
         assert_eq!(
             SessionManager::owned_dir_in(&entry_with("local", outside.to_str().unwrap()), &root),
             None
         );
         // source_dir = 库根本身 → 拒绝（绝不能删整库）
-        assert_eq!(SessionManager::owned_dir_in(&entry_with("local", root.to_str().unwrap()), &root), None);
+        assert_eq!(
+            SessionManager::owned_dir_in(&entry_with("local", root.to_str().unwrap()), &root),
+            None
+        );
         // 目录不存在（canonicalize 失败）→ 拒绝
         assert_eq!(
-            SessionManager::owned_dir_in(&entry_with("local", root.join("nope").to_str().unwrap()), &root),
+            SessionManager::owned_dir_in(
+                &entry_with("local", root.join("nope").to_str().unwrap()),
+                &root
+            ),
             None
         );
         // WE 零拷贝 → 永不删
         assert_eq!(
-            SessionManager::owned_dir_in(&entry_with("wallpaper-engine", inside.to_str().unwrap()), &root),
+            SessionManager::owned_dir_in(
+                &entry_with("wallpaper-engine", inside.to_str().unwrap()),
+                &root
+            ),
             None
         );
         // url → 库内 <id>/ 缩略图家目录

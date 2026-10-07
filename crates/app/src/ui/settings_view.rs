@@ -7,8 +7,8 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{IndexPath, Sizable as _, Size};
 use gpui_kit::component::{h_flex, v_flex, WindowExt as _};
+use gpui_kit::component::{IndexPath, Sizable as _, Size};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     div, px, AnyElement, App, AppContext as _, BorrowAppContext as _, Context, Entity, FontWeight,
@@ -292,19 +292,31 @@ impl Render for SettingsView {
             set_row(
                 SET_FPS_CAP(),
                 None,
-                select_slot(Select::new(&self.fps_cap).with_size(Size::Small).into_any_element()),
+                select_slot(
+                    Select::new(&self.fps_cap)
+                        .with_size(Size::Small)
+                        .into_any_element(),
+                ),
                 cx,
             ),
             set_row(
                 SET_FULLSCREEN(),
                 Some(SET_FULLSCREEN_DESC()),
-                select_slot(Select::new(&self.fullscreen).with_size(Size::Small).into_any_element()),
+                select_slot(
+                    Select::new(&self.fullscreen)
+                        .with_size(Size::Small)
+                        .into_any_element(),
+                ),
                 cx,
             ),
             set_row(
                 SET_BATTERY(),
                 None,
-                select_slot(Select::new(&self.battery).with_size(Size::Small).into_any_element()),
+                select_slot(
+                    Select::new(&self.battery)
+                        .with_size(Size::Small)
+                        .into_any_element(),
+                ),
                 cx,
             ),
             set_row(
@@ -339,13 +351,21 @@ impl Render for SettingsView {
             set_row(
                 SET_STARTUP_BEHAVIOR(),
                 None,
-                select_slot(Select::new(&self.startup).with_size(Size::Small).into_any_element()),
+                select_slot(
+                    Select::new(&self.startup)
+                        .with_size(Size::Small)
+                        .into_any_element(),
+                ),
                 cx,
             ),
             set_row(
                 SET_LANGUAGE(),
                 None,
-                select_slot(Select::new(&self.language).with_size(Size::Small).into_any_element()),
+                select_slot(
+                    Select::new(&self.language)
+                        .with_size(Size::Small)
+                        .into_any_element(),
+                ),
                 cx,
             ),
         ];
@@ -354,7 +374,11 @@ impl Render for SettingsView {
         let mut linkage = vec![set_row(
             SET_WEATHER(),
             Some(SET_WEATHER_DESC()),
-            select_slot(Select::new(&self.weather).with_size(Size::Small).into_any_element()),
+            select_slot(
+                Select::new(&self.weather)
+                    .with_size(Size::Small)
+                    .into_any_element(),
+            ),
             cx,
         )];
         if s.weather_custom_key {
