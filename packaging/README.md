@@ -19,8 +19,9 @@ packaging/
 │  └─ build_dmg.sh           # 打成 Gesso-<version>-<arch>.dmg（打印 SHA-256）
 ├─ windows/                  # Windows：便携 zip + 安装器
 │  ├─ build_portable.ps1     # 打成 Gesso-<version>-x64-portable.zip（打印 SHA-256）；
-│  │                         #   找到 Inno Setup 6 则顺带出 Gesso-<version>-x64-setup.exe
-│  └─ gesso.iss              # 安装器脚本（per-user，免管理员；CI runner 预装 Inno 6）
+│  │                         #   找到 NSIS 则顺带出 Gesso-<version>-x64-setup.exe
+│  └─ gesso.nsi              # 安装器脚本（NSIS 3，per-user 免管理员；与 Tauri 项目的
+│                            #   setup.exe 同形态；CI runner 预装 NSIS）
 └─ release-notes/
    └─ v0.1.0.md              # GitHub Release 文案（下载/校验值/未签名首次打开）
 ```

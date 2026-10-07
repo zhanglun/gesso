@@ -15,7 +15,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Cursor feed (M5): global mouse location routed to the display it is on → shader `iMouse` (30 Hz push, per-frame smoothing) and html `postMessage`; idle 5 min auto-downscale to 5 fps. No Input Monitoring permission needed — position via `NSEvent::mouseLocation`, buttons/idle via CoreGraphics HID source state (polling, not an event tap).
 - Built-in `Cursor Glow` shader sample demonstrating mouse tracking.
 - Import flow: extension validation (`mp4/webm/gif/webp/glsl/html`; `mkv`/HEVC rejected with actionable copy), source-extension preservation, random unguessable entry IDs.
-- Windows installer: per-user `setup.exe` (Inno Setup 6, no admin) alongside the portable zip — Start-menu / optional desktop shortcut, uninstaller, installs to `%LOCALAPPDATA%\Programs\Gesso`; user data in `~\.gesso` survives uninstall. The release job tolerates a missing installer (zip/dmg always ship).
+- Windows installer: per-user `setup.exe` (NSIS 3 — same installer form as our Tauri projects, no admin) alongside the portable zip — Start-menu + desktop shortcuts, uninstaller with an "Apps & features" entry, installs to `%LOCALAPPDATA%\Gesso`; user data in `~\.gesso` survives uninstall. The release job tolerates a missing installer (zip/dmg always ship).
 - Tray: full menu (pause-all / cycle / manager / autostart / quit).
 - First-run wizard wired to the real library; autostart via `auto-launch`.
 - Thumbnail pipeline: AVFoundation frame extraction (generated objc2 bindings + ImageIO PNG encode, background `autoreleasepool`), `ThumbScheduler` (30s scan, in-flight dedup, 3 attempts/entry), import schedules extraction asynchronously.
