@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# 把已组装的 Gesso.app 打成 .dmg（不签名）。
+# 把 Gesso 打成 .dmg（不签名公证；.app 每次重新组装，幂等）。
 #
 # 用法：
-#   packaging/macos/build_dmg.sh            # 先确保 .app 存在（不存在则构建），再打 dmg
+#   packaging/macos/build_dmg.sh                  # 构建/复用 release 二进制 + 重组装 .app + 打 dmg
+#   SKIP_BUILD=1 packaging/macos/build_dmg.sh     # 复用已有 release 二进制，跳过 cargo build
 #
 # 产物：target/release-bundle/Gesso-<version>-<arch>.dmg
 set -euo pipefail
@@ -14,15 +15,14 @@ VERSION="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' Cargo.toml |
 ARCH="$(uname -m)"
 APP="target/release-bundle/Gesso.app"
 
-# .app 不在则先构建
-if [[ ! -d "$APP" ]]; then
-    echo ">> 未找到 ${APP}，先执行 build_app.sh"
-    packaging/macos/build_app.sh
-fi
-
 DMG="target/release-bundle/Gesso-${VERSION}-${ARCH}.dmg"
 STAGE="target/release-bundle/dmg-staging"
 echo ">> 打包 ${DMG}"
+
+# 每次都重新组装 .app（幂等，含 ad-hoc 重签；几秒的事）。
+# 绝不能"已存在就跳过"：CI 的 rust-cache 会恢复 target/，里面的旧/残缺 .app
+# 会被当现成产物打进 dmg（0.1.0 首发事故：17KB 空 dmg）。
+SKIP_BUILD="${SKIP_BUILD:-0}" packaging/macos/build_app.sh
 
 rm -f "$DMG"
 rm -rf "$STAGE"
