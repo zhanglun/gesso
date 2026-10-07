@@ -4,7 +4,7 @@
 
 [AGENTS.md](AGENTS.md)（AI 会话指南） · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [常见问题](docs/FAQ.md) · [参与开发](CONTRIBUTING.md)
 
-> **状态：早期开发（0.1.x）——macOS 可用，Windows 进行中。**
+> **状态：早期开发（0.1.x）——macOS 与 Windows 均可用（Windows 已在单屏真机验证）。**
 > 除标注外，下文所有能力均在真机验证过。
 
 ---

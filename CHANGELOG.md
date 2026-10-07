@@ -4,7 +4,15 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ## [Unreleased]
 
-### Added — 0.1.0 development milestones
+### Added
+
+### Changed
+
+### Fixed
+
+## [0.1.0] - 2026-10-07
+
+### Added
 
 **Engine**
 
