@@ -1,11 +1,27 @@
 # 打包脚本
 
-把 Gesso 构建成可分发产物的脚本。当前仅 macOS；Windows 待补。
+把 Gesso 构建成可分发产物的脚本，覆盖两平台。
 完整发布流程见 [../docs/RELEASE-CHECKLIST.md](../docs/RELEASE-CHECKLIST.md)。
+所有脚本**不签名、不公证**，只用系统内置工具，无第三方依赖。
+
+## 目录结构
+
+```
+packaging/
+├─ README.md                 # 本文件
+├─ macos/                    # macOS：.app / .dmg
+│  ├─ Info.plist             # .app 元信息模板，__VERSION__ 由脚本注入
+│  ├─ build_app.sh           # release 构建 + 组装 target/release-bundle/Gesso.app
+│  └─ build_dmg.sh           # 打成 Gesso-<version>-<arch>.dmg（打印 SHA-256）
+├─ windows/                  # Windows：便携 zip
+│  └─ build_portable.ps1     # 打成 Gesso-<version>-x64-portable.zip（打印 SHA-256）
+└─ release-notes/
+   └─ v0.1.0.md              # GitHub Release 文案（下载/校验值/未签名首次打开）
+```
 
 ## macOS
 
-纯 bash + 系统自带 `hdiutil`，**无需第三方工具、不签名不公证**。
+纯 bash + 系统自带 `hdiutil`。
 
 ```bash
 # 1. release 构建 + 组装 .app → target/release-bundle/Gesso.app
@@ -14,14 +30,6 @@ packaging/macos/build_app.sh
 # 2. 打成 .dmg → target/release-bundle/Gesso-<version>-<arch>.dmg（并打印 SHA-256）
 packaging/macos/build_dmg.sh
 ```
-
-文件说明：
-
-| 文件 | 作用 |
-|------|------|
-| `macos/Info.plist` | `.app` 元信息模板，`__VERSION__` 由脚本注入 |
-| `macos/build_app.sh` | release 构建，把二进制 / 图标 / `host/` / `samples/` 组装成标准 `Gesso.app` |
-| `macos/build_dmg.sh` | 把 `.app` + Applications 快捷方式压成可分发 `.dmg` |
 
 ### 资源定位（重要）
 
@@ -51,5 +59,18 @@ pkill -f release-bundle/Gesso.app; rm -rf "$TMPHOME" /tmp/g.log
 
 ## Windows
 
-待补：`cargo build --release -p gesso-app` → exe 压便携 zip。
-当前需手工完成，见发布清单阶段 5。
+PowerShell 5.1 / 7+，仅内置 cmdlet。产出解压即用的便携 zip
+（顶层含 `Gesso/gesso.exe` + `assets/`；图标已内嵌 exe，WebView2 用系统 Evergreen）。
+
+```powershell
+packaging\windows\build_portable.ps1              # release 构建 + 打包
+packaging\windows\build_portable.ps1 -SkipBuild   # 复用已有 release，只重新打包
+```
+
+产物：`target/release-bundle/Gesso-<version>-x64-portable.zip`（脚本打印 SHA-256）。
+
+## Release notes
+
+`release-notes/v0.1.0.md` 是 GitHub Release 的正式文案，已包含：
+下载清单、**SHA-256 占位**（产物出来后填真实值）、两平台未签名首次打开说明、
+已知限制。后续版本复制一份改成新版本号即可。
