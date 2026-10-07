@@ -5,8 +5,8 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 
 [AGENTS.md](AGENTS.md)（AI 会话指南） · [简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [FAQ](docs/FAQ.md) · [Contributing](CONTRIBUTING.md)
 
-> **Status: early development (0.1.x); macOS and Windows are working (Windows verified on single-display hardware).**
-> Design and engineering decisions are documented in-repo; everything below is verified on real hardware unless marked otherwise.
+> **Status: v0.1.0 released** — [downloads on GitHub Releases](https://github.com/zhanglun/gesso/releases) (macOS dmg / Windows portable zip, unsigned).
+> macOS and Windows are working (Windows verified on single-display hardware). Everything below is verified on real hardware unless marked otherwise.
 
 ---
 
@@ -14,6 +14,7 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 
 - **Pinned behind the icons** — the wallpaper window sits *below* the desktop icon layer: your icons stay visible, stay clickable, and keep working.
 - **One host pipeline, four content kinds** — video (`mp4`/`webm`), animated images (`gif`/`webp`), shaders (`glsl`, Shadertoy-style) and web pages (`html`). The host page is the single contract; renderers are pluggable.
+- **Remote pages, zero copy** — paste any `https://` URL in the library toolbar to use a live web page as wallpaper (no local files); Wallpaper Engine `project.json` imports are also read-only references.
 - **Real pause** — pausing stops the JS render loop and video decoding, not just the visuals. Full-screen apps and battery mode will pause automatically (see [Roadmap](docs/ROADMAP.md)).
 - **Tray-first UX** — pause/resume and switch wallpapers from the menu bar; open the manager window only when you want to manage content.
 - **No IPC into the app** — wallpaper content is treated as untrusted: it runs in a webview sandbox and can only read its own asset folder.

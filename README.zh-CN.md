@@ -4,8 +4,8 @@
 
 [AGENTS.md](AGENTS.md)（AI 会话指南） · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [常见问题](docs/FAQ.md) · [参与开发](CONTRIBUTING.md)
 
-> **状态：早期开发（0.1.x）——macOS 与 Windows 均可用（Windows 已在单屏真机验证）。**
-> 除标注外，下文所有能力均在真机验证过。
+> **状态：v0.1.0 已发布** ——[GitHub Releases 下载](https://github.com/zhanglun/gesso/releases)（macOS dmg / Windows 便携 zip，未签名）。
+> macOS 与 Windows 均可用（Windows 已在单屏真机验证）；除标注外，下文所有能力均在真机验证过。
 
 ---
 
@@ -13,6 +13,7 @@
 
 - **钉在图标层之下**：壁纸窗口位于桌面图标层下方，图标可见、可点（点击穿透），不遮挡任何工作内容。
 - **一套宿主管线，四类内容**：视频（`mp4`/`webm`）、动图（`gif`/`webp`）、Shader（`glsl`，Shadertoy 风格）、网页（`html`）。宿主页是唯一契约，渲染器可插拔。
+- **远端网页零拷贝**：库页工具条粘贴任意 `https://` 地址即可用在线网页当壁纸（不落盘）；Wallpaper Engine 的 `project.json` 导入同样是只读引用。
 - **暂停是真停**：暂停时 JS 渲染循环停止、视频解码停止，画面定格而非淡出；全屏应用与电池模式下会自动暂停（见[路线图](docs/ROADMAP.md)）。
 - **托盘优先**：暂停/恢复、换壁纸都在菜单栏；管理窗口只用来管内容。
 - **壁纸内容零 IPC**：壁纸内容按不可信代码对待，运行在 webview 沙箱里，只能读自己的素材目录。

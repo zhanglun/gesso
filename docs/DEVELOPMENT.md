@@ -25,7 +25,7 @@
 ```bash
 cargo build -p gesso-app                  # 构建
 cargo run   -p gesso-app                  # 运行（托盘 + 管理窗口 + 壁纸）
-cargo test  -p gesso-core -p gesso-app    # 单测（core 18 项 + app 29 项）
+cargo test  -p gesso-core -p gesso-app    # 单测（core 20 项 + app 31 项）
 cargo clippy -p gesso-core --all-targets -- -D warnings
 cargo fmt -p gesso-core
 pkill -f "target/debug/gesso"             # 退出（有单实例锁）

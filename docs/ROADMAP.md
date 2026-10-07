@@ -15,12 +15,15 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M6    Wallpaper Engine import I (video/web) + static images + content-type registry refactor
 ✅ M1    Windows pinning（实机验证：图标层下渲染 / TaskbarCreated 自愈 / PMv2 DPI）
 ✅ M-URL 远端网页壁纸（origin=url 条目 + 宿主页 iframe 直装 https；2026-10-07 macOS 实机验证：louie.co.nz/25th_hour 跨域渲染 + 缩略图 16 帧）
+✅ 0.1.0 发布（2026-10-07，GitHub Actions 自动打包发布：macOS dmg + Windows 便携 zip + checksums；ad-hoc 签名、未公证）
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 
 ## Next up, in priority order
 
-1. **0.1 release** — 发布操作清单见 [docs/RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md)。关键前置：确认 `.app` 组装方式、签名/公证凭据（无则显式降级）、两平台产物实机冒烟。
+1. **发布后反馈消化**：安装/首启问题归集进 issue，质量修补随 0.1.x 小版本滚动（发布全自动化在 `.github/workflows/release.yml`，打 tag 即出产物）。
+2. **Windows 多显示器实机验证**（实现已就位，等环境）。
+3. **M7 Wallpaper Engine import II (scene)**（长期）。
 
 ### M5 — system data bridge（✅ 已完成）
 - ✅ fullscreen detection: `CGWindowList` layer-0 window covering a display frame（±3pt 容差，y 轴按主显示器高度翻转）→ 按全屏策略执行：暂停 / 降帧到 5 fps / 忽略。
