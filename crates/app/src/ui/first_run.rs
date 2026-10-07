@@ -1,11 +1,11 @@
 //! 首启向导（§4.6）：独立 600×420 小窗，一次性。三步：
-//! ① 欢迎「让桌面动起来」 ② 内置样例网格（双击即应用） ③ 完成。
-//! 跳过 = 使用纯色桌面，之后不再骚扰。
+//! ① 欢迎「让桌面动起来」 ② 库条目网格（双击即应用） ③ 完成。
+//! 自动弹出由 config.wizard_seen 把守（bootstrap 置位并落盘，此后不弹）；
+//! 跳过 = 保留当前壁纸。手动重放在设置页「高级」。
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{h_flex, v_flex, Icon, WindowExt as _};
+use gpui_kit::component::{h_flex, v_flex, Icon};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     div, px, size, AnyElement, App, AppContext as _, Bounds, ClickEvent, Context, FocusHandle,
@@ -42,7 +42,7 @@ impl FirstRun {
         }
     }
 
-    /// 打开向导小窗（顶栏「重放首启向导」钮 / 正式版首启自动调用）。
+    /// 打开向导小窗（设置页「高级 · 首启向导 · 重放」钮 / 首启自动调用）。
     pub fn open(cx: &mut App) -> Option<AnyWindowHandle> {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -177,17 +177,20 @@ impl FirstRun {
                                     .truncate()
                                     .child(w.name.to_string()),
                             )
-                            .child(
-                                div()
-                                    .px_1()
-                                    .text_size(px(9.))
-                                    .line_height(px(14.))
-                                    .text_color(t.text2)
-                                    .border_1()
-                                    .border_color(t.hairline)
-                                    .rounded(px(3.))
-                                    .child(WIZARD_SAMPLE_TAG()),
-                            ),
+                            // 样例角标只标内置条目：重放时用户导入的内容不误标（§4.6）
+                            .when(w.builtin, |row| {
+                                row.child(
+                                    div()
+                                        .px_1()
+                                        .text_size(px(9.))
+                                        .line_height(px(14.))
+                                        .text_color(t.text2)
+                                        .border_1()
+                                        .border_color(t.hairline)
+                                        .rounded(px(3.))
+                                        .child(WIZARD_SAMPLE_TAG()),
+                                )
+                            }),
                     )
                     .into_any_element()
             })
@@ -310,9 +313,10 @@ impl Render for FirstRun {
                 Button::new("wiz-skip")
                     .label(WIZARD_SKIP())
                     .text()
-                    .on_click(|_, window, cx| {
-                        // 跳过 = 使用纯色桌面，不再骚扰
-                        window.push_notification(Notification::info(WIZARD_SKIP_TOAST()), cx);
+                    .on_click(|_, window, _| {
+                        // 跳过 = 保留当前壁纸（首启即内置样例）；wizard_seen 已在
+                        // bootstrap 落盘，任何退出路径都不会再自动弹出（§4.6）
+                        window.remove_window();
                     })
                     .into_any_element(),
             ],

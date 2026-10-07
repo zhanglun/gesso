@@ -144,15 +144,6 @@ impl Shell {
             px(14.)
         };
 
-        // 原型的「重放首启向导」钮：页面验收用（正式版 = 首启一次性弹出）
-        let wizard = Button::new("btn-wizard")
-            .ghost()
-            .icon(Icon::new(IconName::RotateCcw))
-            .tooltip(TIP_REPLAY_WIZARD())
-            .on_click(|_, _, cx| {
-                let _ = super::first_run::FirstRun::open(cx);
-            });
-
         let theme_toggle = Button::new("btn-theme")
             .ghost()
             .icon(Icon::new(IconName::Moon))
@@ -233,7 +224,6 @@ impl Shell {
                     .h_full()
                     .window_control_area(WindowControlArea::Drag),
             )
-            .child(wizard)
             .child(theme_toggle)
             .children(caption)
             .into_any_element()

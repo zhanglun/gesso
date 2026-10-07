@@ -148,7 +148,9 @@ fn bootstrap() -> (session::SessionManager, bool) {
     let mut config = AppConfig::load(&cfg_path).unwrap_or_default();
     // 启动即按配置设定界面语言（UI 创建前；之后设置页切换实时更新）
     ui::strings::set_lang(config.settings.language);
-    let first_run = config.monitors.is_empty();
+    // 首启判定 = 向导标志未落盘（§4.6）。显示器指派被清空不是首启——
+    // 不重指派样例、不重弹向导；老版本升级用户（无此键）会补弹一次向导。
+    let first_run = !config.wizard_seen;
 
     let mut library = {
         let p = protocol::library_dir().join("library.json");
@@ -236,11 +238,16 @@ fn bootstrap() -> (session::SessionManager, bool) {
     }
 
     if first_run {
-        config
-            .monitors
-            .insert("main".into(), "builtin-testsrc".into());
+        config.wizard_seen = true;
+        // 首启一次性指派内置样例：仅当从未指派过（真实新装）。升级用户已有
+        // 指派、或日后主动清空指派的配置，都不覆盖（§4.6 变更记录）。
+        if config.monitors.is_empty() {
+            config
+                .monitors
+                .insert("main".into(), "builtin-testsrc".into());
+            println!("[boot] 首启：主屏指派内置样例");
+        }
         config.save(&cfg_path).ok();
-        println!("[boot] 首启：主屏指派内置样例");
     }
 
     let mut sm = session::SessionManager::new(config, library);
@@ -318,6 +325,8 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 name: e.title.clone().into(),
                 kind,
                 we: e.origin == "wallpaper-engine",
+                // 内置样例（origin=builtin）：向导步「样例」角标依据
+                builtin: e.origin == "builtin",
                 // 远端网页条目：meta 行展示来源域名
                 meta: if let Some(url) = &e.source_url {
                     encoding::host_of_url(url).unwrap_or("url").into()
@@ -744,6 +753,9 @@ fn main() {
     // 相对路径 create 会 EPERM → unwrap panic → 静默退出（双击没反应的根因）。
     let lock_suffix = std::env::var("GESSO_LOCK").unwrap_or_default();
     let lock_path = protocol::config_dir().join(format!("gesso-app-lock{lock_suffix}"));
+    // 真新装时 config 目录尚不存在（bootstrap 在锁之后才落 config）：
+    // 不先建目录 SingleInstance 会 NotFound → unwrap 恐慌 → 首启秒退
+    std::fs::create_dir_all(protocol::config_dir()).ok();
     {
         let si = single_instance::SingleInstance::new(&lock_path.display().to_string()).unwrap();
         if !si.is_single() {
@@ -953,7 +965,7 @@ fn main() {
             // 管理窗口：三页签 UI（§4.3–4.5；44px 顶栏 + 键盘模型 + 双主题）
             open_main_window(cx);
 
-            // 首启（config.monitors 为空）：一次性打开向导（§4.6）
+            // 首启（wizard_seen 未落盘，bootstrap 已置位）：一次性打开向导（§4.6）
             if first_run {
                 let _ = ui::first_run::FirstRun::open(cx);
             }

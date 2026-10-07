@@ -92,6 +92,8 @@ pub struct Texts {
     pub weather_key_placeholder: &'static str,
     pub set_log_dir: &'static str,
     pub btn_open: &'static str,
+    pub set_wizard: &'static str,
+    pub btn_replay: &'static str,
     pub set_language: &'static str,
     pub language_auto: &'static str,
     pub language_zh: &'static str,
@@ -126,7 +128,6 @@ pub struct Texts {
     pub meta_builtin: &'static str,
 
     // 顶栏
-    pub tip_replay_wizard: &'static str,
     pub tip_toggle_theme: &'static str,
     // Windows 标题栏按钮专用（调用点 cfg = windows），macOS 构建下未被读取
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -158,7 +159,6 @@ pub struct Texts {
     // 向导补充
     pub wizard_title_suffix: &'static str,
     pub wizard_back: &'static str,
-    pub wizard_skip_toast: &'static str,
     pub wizard_title: &'static str,
     pub wizard_subtitle: &'static str,
     pub wizard_start: &'static str,
@@ -229,7 +229,6 @@ pub const ZH: Texts = Texts {
     mon_main_short: "主屏",
     meta_builtin: "内置样例",
 
-    tip_replay_wizard: "重放首启向导",
     tip_toggle_theme: "切换亮 / 暗主题",
     win_minimize: "最小化",
     win_maximize: "最大化 / 还原",
@@ -253,7 +252,6 @@ pub const ZH: Texts = Texts {
 
     wizard_title_suffix: "首启向导",
     wizard_back: "上一步",
-    wizard_skip_toast: "已使用纯色桌面；随时可以从托盘开始",
 
     btn_redetect: "重新检测",
     monitor_hover_note: "悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制",
@@ -294,6 +292,8 @@ pub const ZH: Texts = Texts {
     weather_key_placeholder: "粘贴 API key",
     set_log_dir: "日志目录",
     btn_open: "打开",
+    set_wizard: "首启向导",
+    btn_replay: "重放",
     set_language: "界面语言",
     language_auto: "跟随系统",
     language_zh: "简体中文",
@@ -306,7 +306,7 @@ pub const ZH: Texts = Texts {
     wizard_title: "让桌面动起来",
     wizard_subtitle: "视频、Shader、网页，都能钉在桌面图标层之下。",
     wizard_start: "开始",
-    wizard_skip: "跳过（使用纯色桌面）",
+    wizard_skip: "跳过（保留当前壁纸）",
     wizard_pick_title: "选一张内置样例",
     wizard_pick_subtitle: "双击即应用到主显示器",
     wizard_import_own: "导入自己的文件…",
@@ -372,7 +372,6 @@ pub const EN: Texts = Texts {
     mon_main_short: "Main",
     meta_builtin: "Built-in sample",
 
-    tip_replay_wizard: "Replay first-run wizard",
     tip_toggle_theme: "Toggle light / dark theme",
     win_minimize: "Minimize",
     win_maximize: "Maximize / Restore",
@@ -396,7 +395,6 @@ pub const EN: Texts = Texts {
 
     wizard_title_suffix: "First-Run Wizard",
     wizard_back: "Back",
-    wizard_skip_toast: "Plain desktop in use — start from the tray anytime",
 
     btn_redetect: "Redetect",
     monitor_hover_note: "Hovering a library card highlights its display · Click a display to select and control it below",
@@ -437,6 +435,8 @@ pub const EN: Texts = Texts {
     weather_key_placeholder: "Paste API key",
     set_log_dir: "Log directory",
     btn_open: "Open",
+    set_wizard: "First-run wizard",
+    btn_replay: "Replay",
     set_language: "Interface language",
     language_auto: "System",
     language_zh: "简体中文",
@@ -449,7 +449,7 @@ pub const EN: Texts = Texts {
     wizard_title: "Bring your desktop to life",
     wizard_subtitle: "Video, shaders, and the web — pinned below your desktop icons.",
     wizard_start: "Get started",
-    wizard_skip: "Skip (keep a plain desktop)",
+    wizard_skip: "Skip (keep current wallpaper)",
     wizard_pick_title: "Pick a built-in sample",
     wizard_pick_subtitle: "Double-click to apply on the main display",
     wizard_import_own: "Import my own file…",
@@ -537,7 +537,7 @@ accessors! {
     tray_pause_all => TRAY_PAUSE_ALL, tray_random => TRAY_RANDOM,
     tray_main_window => TRAY_MAIN_WINDOW, tray_autostart => TRAY_AUTOSTART, tray_quit => TRAY_QUIT,
     mon_main => MON_MAIN, mon_main_short => MON_MAIN_SHORT, meta_builtin => META_BUILTIN,
-    tip_replay_wizard => TIP_REPLAY_WIZARD, tip_toggle_theme => TIP_TOGGLE_THEME,
+    tip_toggle_theme => TIP_TOGGLE_THEME,
     // win_minimize/win_maximize/win_close 只在 Windows 编译进调用点（标题栏按钮），
     // 走 t().win_* 取文案，避免 macOS 构建下 dead_code 告警，故不列于此。
     menu_main_display => MENU_MAIN_DISPLAY, menu_second_display => MENU_SECOND_DISPLAY,
@@ -548,7 +548,6 @@ accessors! {
     url_import_desc => URL_IMPORT_DESC, url_import_placeholder => URL_IMPORT_PLACEHOLDER,
     url_import_invalid => URL_IMPORT_INVALID, btn_cancel => BTN_CANCEL,
     wizard_title_suffix => WIZARD_TITLE_SUFFIX, wizard_back => WIZARD_BACK,
-    wizard_skip_toast => WIZARD_SKIP_TOAST,
     btn_redetect => BTN_REDETECT, monitor_hover_note => MONITOR_HOVER_NOTE,
     st_select_wallpaper => ST_SELECT_WALLPAPER, monitors_empty_title => MONITORS_EMPTY_TITLE,
     edid_note_short => EDID_NOTE_SHORT, btn_change => BTN_CHANGE,
@@ -566,7 +565,7 @@ accessors! {
     set_weather => SET_WEATHER, set_weather_desc => SET_WEATHER_DESC,
     weather_open_meteo => WEATHER_OPEN_METEO, weather_custom => WEATHER_CUSTOM,
     weather_key_placeholder => WEATHER_KEY_PLACEHOLDER, set_log_dir => SET_LOG_DIR,
-    btn_open => BTN_OPEN,
+    btn_open => BTN_OPEN, set_wizard => SET_WIZARD, btn_replay => BTN_REPLAY,
     set_language => SET_LANGUAGE, language_auto => LANGUAGE_AUTO,
     language_zh => LANGUAGE_ZH, language_en => LANGUAGE_EN,
     set_reset => SET_RESET, btn_reset => BTN_RESET, btn_reset_confirm => BTN_RESET_CONFIRM,

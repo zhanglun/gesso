@@ -74,6 +74,10 @@ pub struct AppConfig {
     /// 显示器稳定 ID → 帧率上限（缺省用 settings.fps_cap_default）。
     pub monitor_fps: MonitorFpsMap,
     pub settings: Settings,
+    /// 首启向导已触发过（§4.6）：真首启的唯一判定。不放进 [`Settings`]——
+    /// 设置页「重置全部设置」与 UpdateSettings 均只写 settings 子结构，
+    /// 不应让向导再次自动弹出。
+    pub wizard_seen: bool,
 }
 
 pub type MonitorFpsMap = BTreeMap<String, u8>;
@@ -164,5 +168,18 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.fps_cap_default, 60);
         assert_eq!(s.fullscreen_policy, PausePolicy::Pause);
+        assert!(!AppConfig::default().wizard_seen);
+    }
+
+    #[test]
+    fn legacy_config_without_wizard_seen_loads_as_unseen() {
+        // 升级路径：旧版 config.json 无 wizard_seen 键 → 视为未看过向导（§4.6）
+        let dir = std::env::temp_dir().join(format!("gesso-wiz-legacy-{}", std::process::id()));
+        let p = dir.join("config.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&p, r#"{"monitors":{},"monitor_fps":{},"settings":{}}"#).unwrap();
+        let cfg = AppConfig::load(&p).unwrap();
+        assert!(!cfg.wizard_seen);
+        std::fs::remove_file(&p).ok();
     }
 }

@@ -378,6 +378,13 @@ impl Render for SettingsView {
                 let _ = std::process::Command::new("open").arg(&dir).spawn();
             });
         let armed = self.reset_armed;
+        // 首启向导重放入口（§4.6 变更：顶栏无常驻钮，收进设置页高级区）
+        let wizard_btn = Button::new("replay-wizard")
+            .label(BTN_REPLAY())
+            .secondary()
+            .on_click(|_, _, cx| {
+                let _ = super::first_run::FirstRun::open(cx);
+            });
         // 红字文字按钮（kit 无 danger 文字变体；§4.5 红字 + danger-soft 悬停底）
         let reset_btn = div()
             .id("reset-settings")
@@ -424,6 +431,7 @@ impl Render for SettingsView {
             }));
         let advanced = vec![
             set_row(SET_LOG_DIR(), None, log_btn.into_any_element(), cx),
+            set_row(SET_WIZARD(), None, wizard_btn.into_any_element(), cx),
             set_row(SET_RESET(), None, reset_btn.into_any_element(), cx),
         ];
 
