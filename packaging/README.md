@@ -1,7 +1,11 @@
 # 打包脚本
 
 把 Gesso 构建成可分发产物的脚本，覆盖两平台。
-完整发布流程见 [../docs/RELEASE-CHECKLIST.md](../docs/RELEASE-CHECKLIST.md)。
+
+**发布主路径是 CI**：推送 `v*` tag 后，`.github/workflows/release.yml` 的 matrix
+会分别调用下面的脚本打包，并自动创建 GitHub Release（产物 + `checksums.txt` + notes）。
+脚本本地也能跑，用于调试或手工打包。完整流程见 [../docs/RELEASE-CHECKLIST.md](../docs/RELEASE-CHECKLIST.md)。
+
 所有脚本**不签名、不公证**，只用系统内置工具，无第三方依赖。
 
 ## 目录结构
@@ -72,5 +76,6 @@ packaging\windows\build_portable.ps1 -SkipBuild   # 复用已有 release，只�
 ## Release notes
 
 `release-notes/v0.1.0.md` 是 GitHub Release 的正式文案，已包含：
-下载清单、**SHA-256 占位**（产物出来后填真实值）、两平台未签名首次打开说明、
-已知限制。后续版本复制一份改成新版本号即可。
+下载清单、两平台未签名首次打开说明、已知限制。CI 按 tag 名读取对应文件
+（`packaging/release-notes/<tag>.md`）；**SHA-256 不用手填**——CI 自动生成并附上
+`checksums.txt`。发新版本时复制一份改成对应 tag 名即可。
