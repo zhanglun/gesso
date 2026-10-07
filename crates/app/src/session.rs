@@ -459,7 +459,9 @@ impl SessionManager {
 
     /// 从库移除条目：清单 + 显示器映射 + 会话一并拆除。目录清理（§7 移除语义,
     /// 2026-10-07 变更）：local/builtin 的库内拷贝与 url 条目的缩略图家目录由
-    /// Gesso 托管，随条目删除；WE 零拷贝引用指向用户 Steam 目录，绝不触碰。
+    /// Gesso 托管，随条目**移入系统回收站/废纸篓**（误删可恢复）；WE 零拷贝
+    /// 引用指向用户 Steam 目录，绝不触碰。回收站不可用（如网络卷）则保留
+    /// 原地并打日志——绝不回退为永久删除。
     pub fn remove_entry(&mut self, entry_id: &str) {
         let removed = self.library.iter().find(|e| e.id == entry_id).cloned();
         self.library.retain(|e| e.id != entry_id);
@@ -485,12 +487,14 @@ impl SessionManager {
         // 删目录会造成「清单有、磁盘无」的失效条目
         if saved {
             if let Some(entry) = removed {
-                if let Some(dir) = Self::owned_dir_in(
-                    &entry,
-                    &crate::protocol::library_dir(),
-                ) {
-                    if let Err(e) = std::fs::remove_dir_all(&dir) {
-                        println!("[session] 条目目录清理失败（{}）：{e}", dir.display());
+                if let Some(dir) =
+                    Self::owned_dir_in(&entry, &crate::protocol::library_dir())
+                {
+                    if let Err(e) = trash::delete(&dir) {
+                        println!(
+                            "[session] 条目目录移入回收站失败，保留原地（{}）：{e}",
+                            dir.display()
+                        );
                     }
                 }
             }
@@ -989,6 +993,19 @@ mod tests {
 
         std::fs::remove_dir_all(&root).ok();
         std::fs::remove_dir_all(&outside).ok();
+    }
+
+    /// 真实回收站路径验证（会动用户废纸篓，故 ignored；手动跑：
+    /// `cargo test -p gesso-app -- --ignored trash_deletes`）。
+    /// 断言：目录离开原位（macOS 经 NSFileManager 移入 ~/.Trash）。
+    #[test]
+    #[ignore = "会向用户废纸篓移入目录，仅手动执行"]
+    fn trash_deletes_directory_to_system_trash() {
+        let dir = std::env::temp_dir().join(format!("gesso-trash-verify-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("probe.txt"), b"gesso").unwrap();
+        trash::delete(&dir).expect("trash::delete 应成功");
+        assert!(!dir.exists(), "目录应已离开原位");
     }
 
     #[test]

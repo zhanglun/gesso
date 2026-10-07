@@ -34,6 +34,7 @@ tray-icon = "0.26.0"
 png = "0.17"
 # gesso:// URI 路径百分号解码（WE 文件名含空格/非 ASCII；已在依赖树中）
 percent-encoding = "2.3"
+trash = "5"
 
 # 平台依赖（贴壁层 §4）
 [target.'cfg(windows)'.dependencies]

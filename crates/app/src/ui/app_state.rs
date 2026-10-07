@@ -140,7 +140,7 @@ impl GessoState {
         Ok(self.library[pos].name.to_string())
     }
 
-    /// 从库中移除（§7 移除语义：local 拷贝连库内目录删除，WE/url 只断引用）。
+    /// 从库中移除（§7 移除语义：local 拷贝目录入回收站，WE/url 只断引用）。
     pub fn remove(&mut self, item_id: &str) {
         self.library.retain(|w| w.id.as_ref() != item_id);
         if self
