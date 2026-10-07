@@ -457,8 +457,11 @@ impl SessionManager {
         println!("[session] {monitor_id} 帧率上限 = {fps} fps（热重载）");
     }
 
-    /// 从库移除条目：清单 + 显示器映射 + 会话一并拆除（文件保留）。
+    /// 从库移除条目：清单 + 显示器映射 + 会话一并拆除。目录清理（§7 移除语义,
+    /// 2026-10-07 变更）：local/builtin 的库内拷贝与 url 条目的缩略图家目录由
+    /// Gesso 托管，随条目删除；WE 零拷贝引用指向用户 Steam 目录，绝不触碰。
     pub fn remove_entry(&mut self, entry_id: &str) {
+        let removed = self.library.iter().find(|e| e.id == entry_id).cloned();
         self.library.retain(|e| e.id != entry_id);
         let affected: Vec<String> = self
             .config
@@ -473,15 +476,49 @@ impl SessionManager {
         }
         let _ = self.save_config();
         let p = crate::protocol::library_dir().join("library.json");
-        gesso_core::LibraryManifest {
+        let saved = gesso_core::LibraryManifest {
             entries: self.library.clone(),
         }
         .save(&p)
-        .map_err(|_| ())
-        .ok();
+        .is_ok();
+        // 目录清理只在清单落盘成功后执行——落盘失败时清单仍含该条目，
+        // 删目录会造成「清单有、磁盘无」的失效条目
+        if saved {
+            if let Some(entry) = removed {
+                if let Some(dir) = Self::owned_dir_in(
+                    &entry,
+                    &crate::protocol::library_dir(),
+                ) {
+                    if let Err(e) = std::fs::remove_dir_all(&dir) {
+                        println!("[session] 条目目录清理失败（{}）：{e}", dir.display());
+                    }
+                }
+            }
+        }
     }
 
-    /// 导入结果的类型判定（UI 预检与引擎执行共用同一套规则）。
+    /// 条目移除时 Gesso 有权删除的目录（纯函数，安全守卫可测）：
+    /// - `wallpaper-engine`：None——零拷贝引用指向用户 Steam 工坊，绝不删除
+    /// - `url`：库内 `<id>/`（缩略图家目录，内容全由 Gesso 生成）
+    /// - `local`/`builtin`：`source_dir` 本身，但**仅当它经 canonicalize 后
+    ///   确实位于库根之内**——异常清单指向库外时守卫拒绝（防 ../ 与符号链接逃逸）
+    fn owned_dir_in(
+        entry: &LibraryEntry,
+        lib_root: &std::path::Path,
+    ) -> Option<std::path::PathBuf> {
+        match entry.origin.as_str() {
+            "wallpaper-engine" => None,
+            "url" => Some(lib_root.join(&entry.id)),
+            _ => {
+                let p = std::path::PathBuf::from(&entry.source_dir);
+                let canon_entry = std::fs::canonicalize(&p).ok()?;
+                let canon_root = std::fs::canonicalize(lib_root).ok()?;
+                (canon_entry != canon_root && canon_entry.starts_with(canon_root)).then_some(p)
+            }
+        }
+    }
+
+/// 导入结果的类型判定（UI 预检与引擎执行共用同一套规则）。
     /// 类型知识查 core 描述表；这里只保留"已知但拒绝"的特殊错误。
     pub fn classify_import(path: &std::path::Path) -> ImportCheck {
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
@@ -898,6 +935,60 @@ mod tests {
             suspend_effect(false, true, P::Pause, P::Ignore),
             SuspendEffect::None
         );
+    }
+
+    fn entry_with(origin: &str, source_dir: &str) -> LibraryEntry {
+        LibraryEntry {
+            id: "test0123456789ab".into(),
+            kind: gesso_core::WallpaperKind::Video,
+            title: "t".into(),
+            origin: origin.into(),
+            source_dir: source_dir.into(),
+            main_file: None,
+            source_url: None,
+        }
+    }
+
+    #[test]
+    fn owned_dir_rules_by_origin_and_guard() {
+        let root = std::env::temp_dir().join(format!("gesso-owned-{}", std::process::id()));
+        let inside = root.join("entry01");
+        std::fs::create_dir_all(&inside).unwrap();
+        let outside = std::env::temp_dir().join(format!("gesso-outside-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+
+        // local 在库内 → 删；source_dir 即守卫判定的返回路径
+        assert_eq!(
+            SessionManager::owned_dir_in(&entry_with("local", inside.to_str().unwrap()), &root),
+            Some(inside.clone())
+        );
+        // builtin 同 local 语义
+        assert!(SessionManager::owned_dir_in(&entry_with("builtin", inside.to_str().unwrap()), &root).is_some());
+        // local 指向库外 → 守卫拒绝（canonicalize 防 ../ 与符号链接逃逸）
+        assert_eq!(
+            SessionManager::owned_dir_in(&entry_with("local", outside.to_str().unwrap()), &root),
+            None
+        );
+        // source_dir = 库根本身 → 拒绝（绝不能删整库）
+        assert_eq!(SessionManager::owned_dir_in(&entry_with("local", root.to_str().unwrap()), &root), None);
+        // 目录不存在（canonicalize 失败）→ 拒绝
+        assert_eq!(
+            SessionManager::owned_dir_in(&entry_with("local", root.join("nope").to_str().unwrap()), &root),
+            None
+        );
+        // WE 零拷贝 → 永不删
+        assert_eq!(
+            SessionManager::owned_dir_in(&entry_with("wallpaper-engine", inside.to_str().unwrap()), &root),
+            None
+        );
+        // url → 库内 <id>/ 缩略图家目录
+        assert_eq!(
+            SessionManager::owned_dir_in(&entry_with("url", ""), &root),
+            Some(root.join("test0123456789ab"))
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&outside).ok();
     }
 
     #[test]

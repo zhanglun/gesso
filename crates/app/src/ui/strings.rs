@@ -540,10 +540,12 @@ pub fn toast_apply_main(name: &str) -> String {
 }
 
 pub fn toast_removed(name: &str) -> String {
+    // §7 移除语义（2026-10-07）：local 拷贝条目连库内目录一并删除，
+    // WE/url 只断引用——措辞不再承诺「文件未删除」
     if LANG.load(Ordering::Relaxed) == 1 {
-        format!("Removed \"{name}\" from the library (files kept)")
+        format!("Removed \"{name}\" from the library")
     } else {
-        format!("已从库中移除「{name}」（文件未删除）")
+        format!("已从库中移除「{name}」")
     }
 }
 

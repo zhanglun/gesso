@@ -86,7 +86,7 @@ pub enum EngineAction {
     UpdateSettings(Settings),
     /// 开机自启开关（auto-launch，随设置页/托盘勾选项）。
     SetAutostart(bool),
-    /// 从库移除条目（SessionManager::remove_entry，不删文件）。
+    /// 从库移除条目（SessionManager::remove_entry；local 拷贝连目录删除，WE/url 只断引用）。
     Remove { entry_id: String },
     /// 单显示器帧率上限（SessionManager::set_fps，§4.4）。
     SetMonitorFps { monitor_id: String, fps: u8 },
