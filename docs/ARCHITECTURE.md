@@ -6,7 +6,7 @@ This document describes how Gesso actually works. Everything below was verified 
 
 ```
 ┌─ UI layer (gpui-kit, GPUI) ──────────────────────────────┐
-│  manager window (library / monitors / settings / wizard)  │
+│  manager window (library / monitors / settings) + dialogs │
 │  tray menus                                               │
 ├─ engine bridge ──────────────────────────────────────────┤
 │  AppState global · EngineAction queue · snapshot_ui       │

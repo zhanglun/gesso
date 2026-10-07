@@ -36,7 +36,6 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 | Manager UI (library / monitors / settings) | ✅ |
 | Import files (dialog + drag & drop) | ✅ |
 | Settings persistence, autostart | ✅ |
-| First-run wizard | ✅ |
 | Shader renderer (Shadertoy subset, WebGL2) | ✅ |
 | HTML renderer (sandboxed iframe, storage/IPC denied) | ✅ |
 | System data bridge (fullscreen/battery auto-pause · time · cursor · idle) | ✅ M5 |

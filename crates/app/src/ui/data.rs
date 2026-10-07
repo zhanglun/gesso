@@ -55,8 +55,6 @@ pub struct LibraryItem {
     pub we: bool,
     /// 远端网页条目（origin=url）：无本地目录，「打开所在目录」置灰。
     pub remote: bool,
-    /// 内置样例（origin=builtin）：向导选壁纸步的「样例」角标依据（§4.6）。
-    pub builtin: bool,
     /// meta 行：分辨率 · 时长/帧率（tabular 数字）。
     pub meta: SharedString,
     /// 指派到的显示器下标；None = 未指派。

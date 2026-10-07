@@ -92,8 +92,6 @@ pub struct Texts {
     pub weather_key_placeholder: &'static str,
     pub set_log_dir: &'static str,
     pub btn_open: &'static str,
-    pub set_wizard: &'static str,
-    pub btn_replay: &'static str,
     pub set_language: &'static str,
     pub language_auto: &'static str,
     pub language_zh: &'static str,
@@ -103,7 +101,7 @@ pub struct Texts {
     pub btn_reset_confirm: &'static str,
     pub toast_reset: &'static str,
 
-    // 内容类型（筛选段控 + 向导种类行）
+    // 内容类型（筛选段控）
     pub kind_video: &'static str,
     pub kind_gif: &'static str,
     pub kind_photo: &'static str,
@@ -156,21 +154,6 @@ pub struct Texts {
     pub url_import_placeholder: &'static str,
     pub url_import_invalid: &'static str,
 
-    // 向导补充
-    pub wizard_title_suffix: &'static str,
-    pub wizard_back: &'static str,
-    pub wizard_title: &'static str,
-    pub wizard_subtitle: &'static str,
-    pub wizard_start: &'static str,
-    pub wizard_skip: &'static str,
-    pub wizard_pick_title: &'static str,
-    pub wizard_pick_subtitle: &'static str,
-    pub wizard_import_own: &'static str,
-    pub wizard_done_title: &'static str,
-    pub wizard_another: &'static str,
-    pub wizard_finish: &'static str,
-    pub wizard_sample_tag: &'static str,
-    pub wizard_empty_library: &'static str,
 }
 
 /// 简体中文。
@@ -250,8 +233,6 @@ pub const ZH: Texts = Texts {
     url_import_placeholder: "https://…（网页地址）",
     url_import_invalid: "无效的网页地址（需要 https://）",
 
-    wizard_title_suffix: "首启向导",
-    wizard_back: "上一步",
 
     btn_redetect: "重新检测",
     monitor_hover_note: "悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制",
@@ -292,8 +273,6 @@ pub const ZH: Texts = Texts {
     weather_key_placeholder: "粘贴 API key",
     set_log_dir: "日志目录",
     btn_open: "打开",
-    set_wizard: "首启向导",
-    btn_replay: "重放",
     set_language: "界面语言",
     language_auto: "跟随系统",
     language_zh: "简体中文",
@@ -303,18 +282,6 @@ pub const ZH: Texts = Texts {
     btn_reset_confirm: "确认重置？",
     toast_reset: "设置已恢复默认",
 
-    wizard_title: "让桌面动起来",
-    wizard_subtitle: "视频、Shader、网页，都能钉在桌面图标层之下。",
-    wizard_start: "开始",
-    wizard_skip: "跳过（保留当前壁纸）",
-    wizard_pick_title: "选一张内置样例",
-    wizard_pick_subtitle: "双击即应用到主显示器",
-    wizard_import_own: "导入自己的文件…",
-    wizard_done_title: "已应用到主显示器",
-    wizard_another: "再配一块屏幕",
-    wizard_finish: "完成",
-    wizard_sample_tag: "样例",
-    wizard_empty_library: "库里还没有壁纸——点下方「导入自己的文件…」或稍后从主窗口拖入",
 };
 
 /// English.
@@ -393,8 +360,6 @@ pub const EN: Texts = Texts {
     url_import_placeholder: "https://… (page URL)",
     url_import_invalid: "Invalid web page URL (https:// required)",
 
-    wizard_title_suffix: "First-Run Wizard",
-    wizard_back: "Back",
 
     btn_redetect: "Redetect",
     monitor_hover_note: "Hovering a library card highlights its display · Click a display to select and control it below",
@@ -435,8 +400,6 @@ pub const EN: Texts = Texts {
     weather_key_placeholder: "Paste API key",
     set_log_dir: "Log directory",
     btn_open: "Open",
-    set_wizard: "First-run wizard",
-    btn_replay: "Replay",
     set_language: "Interface language",
     language_auto: "System",
     language_zh: "简体中文",
@@ -446,18 +409,6 @@ pub const EN: Texts = Texts {
     btn_reset_confirm: "Confirm reset?",
     toast_reset: "Settings restored to defaults",
 
-    wizard_title: "Bring your desktop to life",
-    wizard_subtitle: "Video, shaders, and the web — pinned below your desktop icons.",
-    wizard_start: "Get started",
-    wizard_skip: "Skip (keep current wallpaper)",
-    wizard_pick_title: "Pick a built-in sample",
-    wizard_pick_subtitle: "Double-click to apply on the main display",
-    wizard_import_own: "Import my own file…",
-    wizard_done_title: "Applied to the main display",
-    wizard_another: "Set up another display",
-    wizard_finish: "Done",
-    wizard_sample_tag: "Sample",
-    wizard_empty_library: "The library is empty — use \"Import my own file…\" below or drag into the main window later",
 };
 
 /// 当前语言：0 = 简体中文，1 = English。
@@ -547,7 +498,6 @@ accessors! {
     url_import_title => URL_IMPORT_TITLE,
     url_import_desc => URL_IMPORT_DESC, url_import_placeholder => URL_IMPORT_PLACEHOLDER,
     url_import_invalid => URL_IMPORT_INVALID, btn_cancel => BTN_CANCEL,
-    wizard_title_suffix => WIZARD_TITLE_SUFFIX, wizard_back => WIZARD_BACK,
     btn_redetect => BTN_REDETECT, monitor_hover_note => MONITOR_HOVER_NOTE,
     st_select_wallpaper => ST_SELECT_WALLPAPER, monitors_empty_title => MONITORS_EMPTY_TITLE,
     edid_note_short => EDID_NOTE_SHORT, btn_change => BTN_CHANGE,
@@ -565,17 +515,11 @@ accessors! {
     set_weather => SET_WEATHER, set_weather_desc => SET_WEATHER_DESC,
     weather_open_meteo => WEATHER_OPEN_METEO, weather_custom => WEATHER_CUSTOM,
     weather_key_placeholder => WEATHER_KEY_PLACEHOLDER, set_log_dir => SET_LOG_DIR,
-    btn_open => BTN_OPEN, set_wizard => SET_WIZARD, btn_replay => BTN_REPLAY,
+    btn_open => BTN_OPEN,
     set_language => SET_LANGUAGE, language_auto => LANGUAGE_AUTO,
     language_zh => LANGUAGE_ZH, language_en => LANGUAGE_EN,
     set_reset => SET_RESET, btn_reset => BTN_RESET, btn_reset_confirm => BTN_RESET_CONFIRM,
     toast_reset => TOAST_RESET,
-    wizard_title => WIZARD_TITLE, wizard_subtitle => WIZARD_SUBTITLE,
-    wizard_start => WIZARD_START, wizard_skip => WIZARD_SKIP,
-    wizard_pick_title => WIZARD_PICK_TITLE, wizard_pick_subtitle => WIZARD_PICK_SUBTITLE,
-    wizard_import_own => WIZARD_IMPORT_OWN, wizard_done_title => WIZARD_DONE_TITLE,
-    wizard_another => WIZARD_ANOTHER, wizard_finish => WIZARD_FINISH,
-    wizard_sample_tag => WIZARD_SAMPLE_TAG, wizard_empty_library => WIZARD_EMPTY_LIBRARY,
 }
 
 // ── 带参文案：包内模板拼装，调用处不拼 ─────────────────────────────────────
@@ -698,7 +642,6 @@ mod tests {
             |p| p.tab_monitors,
             |p| p.tab_settings,
             |p| p.set_language,
-            |p| p.wizard_title,
             |p| p.hint_library,
             |p| p.policy_pause,
             |p| p.policy_downclock,

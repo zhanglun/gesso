@@ -28,7 +28,7 @@ GPUI 落地：两套 `Theme` Entity + 系统主题监听（Win 注册表 / mac `
 
 ## 排版
 
-系统栈单一 sans（SF Pro / Segoe UI Variable / PingFang SC）。固定阶梯（比例 1.16）：12 / **13（基准）** / 15 / 20 / 28（仅向导）。数据一律 tabular-nums。UI 内不用 mono（那是代码与数据的事）。
+系统栈单一 sans（SF Pro / Segoe UI Variable / PingFang SC）。固定阶梯（比例 1.16）：12 / **13（基准）** / 15 / 20。数据一律 tabular-nums。UI 内不用 mono（那是代码与数据的事）。
 
 ## 组件（12 件，六态齐全；基础控件用 gpui-kit，业务件自绘）
 
@@ -38,7 +38,7 @@ GPUI 落地：两套 `Theme` Entity + 系统主题监听（Win 注册表 / mac `
 
 **控件档位**（2026-10-07 校准：kit 无 28px 档，按语义取两档，不再逐处自定）：
 - **Small（24px 高 / 14px 字）= 表单行/详情条控件**——设置页、显示器详情条的全部按钮与下拉；挨着 13px 行文字不显笨重
-- **Medium（32px 高 / 16px 字）= 工具条与画布主操作**——库页「导入」、空状态主 CTA、向导「开始」；大目标、独立区域
+- **Medium（32px 高 / 16px 字）= 工具条与画布主操作**——库页「导入」、空状态主 CTA；大目标、独立区域
 - 自定义尺寸（`Size::px(..)`）禁用：kit 对非档位字号回退 16px，与档位纪律冲突
 
 图标：自绘线性 SVG，1.5px 描边圆角端点，16/20 两档；**禁 emoji/unicode 代替图标**。

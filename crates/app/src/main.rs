@@ -148,9 +148,9 @@ fn bootstrap() -> (session::SessionManager, bool) {
     let mut config = AppConfig::load(&cfg_path).unwrap_or_default();
     // 启动即按配置设定界面语言（UI 创建前；之后设置页切换实时更新）
     ui::strings::set_lang(config.settings.language);
-    // 首启判定 = 向导标志未落盘（§4.6）。显示器指派被清空不是首启——
-    // 不重指派样例、不重弹向导；老版本升级用户（无此键）会补弹一次向导。
-    let first_run = !config.wizard_seen;
+    // 首启判定 = initialized 标志未落盘。显示器指派被清空不是首启——
+    // 不重指派样例；老版本升级用户（无此键）按首启补一次样例指派。
+    let first_run = !config.initialized;
 
     let mut library = {
         let p = protocol::library_dir().join("library.json");
@@ -238,7 +238,7 @@ fn bootstrap() -> (session::SessionManager, bool) {
     }
 
     if first_run {
-        config.wizard_seen = true;
+        config.initialized = true;
         // 首启一次性指派内置样例：仅当从未指派过（真实新装）。升级用户已有
         // 指派、或日后主动清空指派的配置，都不覆盖（§4.6 变更记录）。
         if config.monitors.is_empty() {
@@ -325,8 +325,6 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 name: e.title.clone().into(),
                 kind,
                 we: e.origin == "wallpaper-engine",
-                // 内置样例（origin=builtin）：向导步「样例」角标依据
-                builtin: e.origin == "builtin",
                 // 远端网页条目：meta 行展示来源域名
                 meta: if let Some(url) = &e.source_url {
                     encoding::host_of_url(url).unwrap_or("url").into()
@@ -964,11 +962,6 @@ fn main() {
 
             // 管理窗口：三页签 UI（§4.3–4.5；44px 顶栏 + 键盘模型 + 双主题）
             open_main_window(cx);
-
-            // 首启（wizard_seen 未落盘，bootstrap 已置位）：一次性打开向导（§4.6）
-            if first_run {
-                let _ = ui::first_run::FirstRun::open(cx);
-            }
 
             cx.activate(true);
         });

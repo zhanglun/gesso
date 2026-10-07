@@ -303,35 +303,6 @@ select.sel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .tray-panel h4{font-size:12px;color:var(--text-2);font-weight:500;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
 .tray-panel h4 a{color:var(--accent);text-decoration:none;font-size:12px;cursor:pointer}
 
-/* ============ 首启向导 ============ */
-.wizard-overlay{
-  position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.4);display:none;place-items:center;
-}
-.wizard-overlay.open{display:grid}
-.wizard{
-  width:600px;max-width:calc(100vw - 40px);height:420px;background:var(--bg-surface);border-radius:12px;
-  border:1px solid var(--hairline);box-shadow:0 24px 64px rgba(0,0,0,.4);display:flex;flex-direction:column;padding:28px 32px;
-}
-.wizard .step-ind{display:flex;gap:6px;margin-bottom:22px}
-.wizard .step-ind span{width:20px;height:3px;border-radius:2px;background:var(--hairline)}
-.wizard .step-ind span.on{background:var(--accent)}
-.wizard h2{font-size:20px;font-weight:600;margin-bottom:6px}
-.wizard .lead{color:var(--text-2);margin-bottom:20px}
-.wizard .body{flex:1;min-height:0;overflow-y:auto}
-.wizard .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
-.wiz-types{display:flex;gap:12px;margin-top:16px}
-.wiz-type{flex:1;border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
-.wiz-type .p{aspect-ratio:16/9;background:#0E0F13;position:relative;overflow:hidden}
-.wiz-type .p canvas{position:absolute;inset:0;width:100%;height:100%}
-.wiz-type .t{padding:8px 10px;font-size:12px;color:var(--text-2);background:var(--bg-panel)}
-.wiz-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-.wiz-grid .w{aspect-ratio:16/9;border-radius:8px;overflow:hidden;position:relative;cursor:pointer;background:#0E0F13;border:2px solid transparent}
-.wiz-grid .w:hover{border-color:var(--accent)}
-.wiz-grid .w canvas,.wiz-grid .w .css-anim{position:absolute;inset:0;width:100%;height:100%}
-.wiz-grid .w .frame{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-2);background:var(--bg-panel);font-size:11px}
-.wiz-done{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px}
-.wiz-done .ok-ring{width:56px;height:56px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center}
-
 /* ================== 拖拽投放层 ================== */
 #dragzone{
   position:fixed;inset:0;z-index:250;display:none;place-items:center;
@@ -494,7 +465,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <div class="set-group">
           <h3>高级</h3>
           <div class="set-row"><div class="label">日志目录</div><button class="btn secondary" onclick="toast('已打开日志目录（演示）')">打开</button></div>
-          <div class="set-row"><div class="label">首启向导</div><button class="btn secondary" onclick="wizStep=0;renderWiz();wiz.classList.add('open')">重放</button></div>
           <div class="set-row"><div class="label">重置全部设置</div><button class="btn danger-text" onclick="toast('需要内联二次确认（演示）')">重置…</button></div>
         </div>
       </div>
@@ -522,15 +492,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 <!-- ================= 右键菜单 ================= -->
 <div class="ctxmenu" id="ctxmenu"></div>
 <div class="toasts" id="toasts"></div>
-
-<!-- ================= 首启向导 ================= -->
-<div class="wizard-overlay" id="wiz">
-  <div class="wizard" role="dialog" aria-label="首启向导">
-    <div class="step-ind"><span class="on"></span><span></span><span></span></div>
-    <div id="wiz-body"></div>
-    <div class="foot" id="wiz-foot"></div>
-  </div>
-</div>
 
 <script>
 /* ================== 数据（演示素材，规格 §7 诚实标注） ================== */
@@ -891,47 +852,8 @@ document.addEventListener('keydown',e=>{
   if(e.key==='2')switchView('monitors');
   if(e.key==='3')switchView('settings');
   if(e.key==='f'||e.key==='/'){e.preventDefault();q.focus();}
-  if(e.key==='Escape'){closeCtx();closeTray();wiz.classList.remove('open');}
+  if(e.key==='Escape'){closeCtx();closeTray();}
 });
-
-/* ================== 首启向导 ================== */
-const wiz=document.getElementById('wiz'),wizBody=document.getElementById('wiz-body'),wizFoot=document.getElementById('wiz-foot');
-let wizStep=0;
-const wizSteps=document.querySelectorAll('.step-ind span');
-function renderWiz(){
-  wizSteps.forEach((s,i)=>s.classList.toggle('on',i<=wizStep));
-  if(wizStep===0){
-    wizBody.innerHTML=`<h2>让桌面动起来</h2><p class="lead">视频、Shader、网页，钉在桌面图标层之下；全屏应用时自动安静。</p>
-      <div class="wiz-types">
-        <div class="wiz-type"><div class="p" id="wt-0"></div><div class="t">视频 · MP4 / WebM</div></div>
-        <div class="wiz-type"><div class="p" id="wt-1"></div><div class="t">Shader · Shadertoy 子集</div></div>
-        <div class="wiz-type"><div class="p" id="wt-2"></div><div class="t">网页 · HTML</div></div>
-      </div>`;
-    attachPreview(document.getElementById('wt-0'),'nebula',true);
-    attachPreview(document.getElementById('wt-1'),'waves',true);
-    attachPreview(document.getElementById('wt-2'),'clock',true);
-    wizFoot.innerHTML=`<button class="btn text" id="wiz-skip">跳过（保留当前壁纸）</button><button class="btn primary" id="wiz-next">开始</button>`;
-    document.getElementById('wiz-next').onclick=()=>{wizStep=1;renderWiz();};
-    document.getElementById('wiz-skip').onclick=()=>{wiz.classList.remove('open');};
-  }else if(wizStep===1){
-    wizBody.innerHTML=`<h2>选第一张壁纸</h2><p class="lead">双击立即应用；也可以 <a href="#" id="wiz-import" style="color:var(--accent)">导入自己的文件</a></p>
-      <div class="wiz-grid" id="wiz-grid"></div>`;
-    const g=document.getElementById('wiz-grid');
-    LIB.filter(w=>!w.invalid).slice(0,8).forEach(w=>{
-      const d=document.createElement('div');d.className='w';d.title=w.name;
-      attachPreview(d,w.kind,true);
-      d.ondblclick=()=>{assign(w.id,0);wizStep=2;renderWiz();};
-      g.appendChild(d);
-    });
-    document.getElementById('wiz-import').onclick=e=>{e.preventDefault();toast('已打开文件选择（演示）');};
-    wizFoot.innerHTML=`<button class="btn text" onclick="wizStep=0;renderWiz()">上一步</button>`;
-  }else{
-    wizBody.innerHTML=`<div class="wiz-done"><div class="ok-ring">${I.check}</div>
-      <h2>已应用到主显示器</h2><p class="lead">托盘左键随时快速切换 · 高频操作两击完成</p></div>`;
-    wizFoot.innerHTML=`<button class="btn secondary" onclick="wizStep=1;renderWiz()">再看看</button><button class="btn primary" id="wiz-done">完成</button>`;
-    document.getElementById('wiz-done').onclick=()=>wiz.classList.remove('open');
-  }
-}
 
 /* ================== 启动 ================== */
 renderGrid();renderMonitors();renderTray();

@@ -2,14 +2,6 @@
 
 All notable changes to Gesso are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [SemVer](https://semver.org/spec/v2.0.0.html) once 0.1 ships.
 
-## [Unreleased]
-
-### Added
-
-### Changed
-
-### Fixed
-
 ## [0.1.0] - 2026-10-07
 
 ### Added
@@ -57,6 +49,18 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - Feasibility spikes with verified conclusions (`SPIKE-REPORT.md`): GPUI integration, macOS desktop layering, Xcode-free builds via `runtime_shaders`.
 - Engine API contract (`crates/app/API.md`), engineering notes (architecture rules + pitfall ledger), architecture doc, roadmap, FAQ, security policy, contribution guide, dual MIT/Apache-2.0 licensing.
 - Product icon set ("gesso ground" concept, DESIGN.md §品牌图形): `mac/Gesso.icns` (16→1024), `win/gesso.ico` (16→256), tray glyphs (macOS template @2x / Windows white); tray placeholder pixels in `main.rs` replaced by embedded PNGs (template-aware on macOS), runtime Dock icon via `NSImage`; regen pipeline `crates/app/assets/icons/tools/build.mjs` + brand spec sheet `docs/design/06-品牌图标.brand.html`.
+
+### Changed
+
+- Import entry consolidated: the library toolbar has a single **Import ▾** menu button (Import file… / Import web page from URL…); the standalone link-icon button is gone. Drag-and-drop import is unchanged.
+- Control scale rule (DESIGN.md §组件): form-row and display-detail controls use kit **Small** (24px / 14px text — settings selects & buttons & the weather-key input, monitor detail bar incl. the FPS dropdown, the URL-import dialog's input and buttons, text actions like "clear search"); toolbar and canvas primary CTAs stay **Medium** (32px / 16px; the monitor toolbar's Redetect dropped its leftover `compact()` to match the library toolbar). Custom `Size::px` sizes are banned (kit falls back to 16px text for non-tier sizes). Replaces the old "button height 28" contract — gpui-kit has no 28px tier.
+- First-run detection flag renamed `wizard_seen` → `initialized` (semantics: one-time built-in sample assignment on first launch, no wizard involved). Legacy configs without the key load as uninitialized and get the sample assignment once on next start (zero-migration, covered by a test).
+- macOS titlebar: content left inset 76 → 88px — the traffic-light cluster ends at x=66, so the brand icon sat 10px from the green light; now 22px, matching Apple's 44px toolbar rhythm.
+- Protocol request logging (`gesso://` GET / 206 Range lines) is silent by default — video wallpapers fire Range requests on every buffer/seek, which flooded startup logs. Enable with `GESSO_PROTOCOL_LOG=1` for protocol debugging.
+
+### Removed
+
+- **First-run wizard** (superseded decision — spec §4.6, 2026-10-07): the three-step wizard window, its replay button (topbar, later Settings ▸ Advanced), and all wizard strings are gone. First launch now just assigns the built-in sample to the main display once (`config.initialized`); users add content via drag-and-drop or the Import menu. Upgrade path: existing configs keep their assignments; a fresh install (or a config without `initialized`) gets the one-time sample assignment.
 
 ### Fixed
 
