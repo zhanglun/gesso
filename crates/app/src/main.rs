@@ -119,7 +119,8 @@ fn spawn_capture_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: Wallp
                 app.sm
                     .library()
                     .iter()
-                    .find(|e| e.source_dir == dir)
+                    // 采集队列键 = 缩略图家目录（本地/WE = source_dir；远端 = 库内 <id>/）
+                    .find(|e| encoding::thumb_home(e) == dir)
                     .map(|e| session::SessionManager::entry_host_url(e, 60))
             });
             let written = match url {
@@ -221,6 +222,7 @@ fn bootstrap() -> (session::SessionManager, bool) {
             origin: "builtin".into(),
             source_dir: dst.display().to_string(),
             main_file: None,
+            source_url: None,
         });
         println!("[boot] 内置样例已入库：{id}");
     }
@@ -243,6 +245,23 @@ fn bootstrap() -> (session::SessionManager, bool) {
 
     let mut sm = session::SessionManager::new(config, library);
     sm.sync_monitors();
+
+    // 开发验证钩子（仅 debug 构建）：GESSO_DEV_URL=<https 地址> 启动即导入并指派
+    // 主屏，用于无头验证远端网页链路（跨域 iframe 装载/缩略图），如
+    // GESSO_DEV_URL=https://louie.co.nz/25th_hour/ GESSO_LOCK=dev ./target/debug/gesso
+    #[cfg(debug_assertions)]
+    if let Ok(url) = std::env::var("GESSO_DEV_URL") {
+        match sm.import_url_entry(&url) {
+            Ok(e) => {
+                if let Some(m) = sm.monitors().first() {
+                    println!("[boot][dev] 远端网页验证：{} → {}", e.id, m.id);
+                    sm.assign(&m.id, &e.id);
+                }
+            }
+            Err(err) => println!("[boot][dev] GESSO_DEV_URL 导入失败：{err:?}"),
+        }
+    }
+
     (sm, first_run)
 }
 
@@ -299,16 +318,22 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 name: e.title.clone().into(),
                 kind,
                 we: e.origin == "wallpaper-engine",
-                meta: if e.origin == "builtin" {
+                // 远端网页条目：meta 行展示来源域名
+                meta: if let Some(url) = &e.source_url {
+                    encoding::host_of_url(url).unwrap_or("url").into()
+                } else if e.origin == "builtin" {
                     ui::strings::META_BUILTIN().into()
                 } else {
                     e.origin.clone().into()
                 },
                 assigned: None,
-                broken: encoding::main_asset_name(&e.source_dir, e.kind).is_none(),
+                // 远端条目无本地素材，不按文件缺失判失效（断网 = 空白帧降级）
+                broken: e.source_url.is_none()
+                    && encoding::main_asset_name(&e.source_dir, e.kind).is_none(),
+                remote: e.source_url.is_some(),
                 real: true,
                 art: kind_art(e.kind),
-                thumbs: thumb::preview_frames(&e.source_dir, e.kind),
+                thumbs: thumb::preview_frames(&encoding::thumb_home(e), e.kind),
             }
         })
         .collect();
@@ -571,10 +596,23 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             if let Ok(e) = result {
                 println!("[ui] 已导入「{}」→ {}", e.title, e.id);
                 if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
-                    out.pending_thumbs.push((e.source_dir, e.kind));
+                    out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
                 }
             } else if let Err(err) = result {
                 println!("[ui] 导入失败：{err:?}");
+            }
+        }
+        engine::EngineAction::ImportUrl { url } => {
+            // 远端网页（§4.3 🔗）：UI 预检已过，引擎侧再走同一 parse 规则兜底
+            match sm.import_url_entry(&url) {
+                Ok(e) => {
+                    println!("[ui] 已导入远端网页「{}」← {url}", e.title);
+                    if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct
+                    {
+                        out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
+                    }
+                }
+                Err(err) => println!("[ui] 远端网页导入失败：{err:?}"),
             }
         }
         engine::EngineAction::UpdateSettings(settings) => {
@@ -703,9 +741,12 @@ fn main() {
     }
 
     // 单实例（§4.1 对策 5）。GESSO_LOCK 供开发期多实例并存（UI 验收 vs 会话调试）。
-    let lock_name = std::env::var("GESSO_LOCK").unwrap_or_else(|_| "gesso-app-lock".into());
+    // 锁文件必须用绝对路径：Finder/open 启动的 GUI 进程 cwd=/（只读），
+    // 相对路径 create 会 EPERM → unwrap panic → 静默退出（双击没反应的根因）。
+    let lock_suffix = std::env::var("GESSO_LOCK").unwrap_or_default();
+    let lock_path = protocol::config_dir().join(format!("gesso-app-lock{lock_suffix}"));
     {
-        let si = single_instance::SingleInstance::new(&lock_name).unwrap();
+        let si = single_instance::SingleInstance::new(&lock_path.display().to_string()).unwrap();
         if !si.is_single() {
             eprintln!("[boot] 已有实例运行，退出");
             return;
