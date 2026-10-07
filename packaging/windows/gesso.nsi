@@ -18,7 +18,9 @@ Unicode true
 !endif
 
 Name "${APPNAME} ${VERSION}"
-OutFile "target\release-bundle\Gesso-${VERSION}-${ARCH}-setup.exe"
+; NSIS resolves relative paths against the SCRIPT directory
+; (packaging\windows), so repo-root targets need ..\..\ — CWD is ignored.
+OutFile "..\..\target\release-bundle\Gesso-${VERSION}-${ARCH}-setup.exe"
 InstallDir "$LOCALAPPDATA\${APPNAME}"
 InstallDirRegKey HKCU "Software\${APPNAME}" "InstallDir"
 RequestExecutionLevel user
@@ -35,11 +37,11 @@ UninstPage instfiles
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File "target\release\gesso.exe"
+  File "..\..\target\release\gesso.exe"
   ; Asset trees copied whole (host page + built-in samples)
   SetOutPath "$INSTDIR\assets"
-  File /r "crates\app\assets\host"
-  File /r "crates\app\assets\samples"
+  File /r "..\..\crates\app\assets\host"
+  File /r "..\..\crates\app\assets\samples"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
