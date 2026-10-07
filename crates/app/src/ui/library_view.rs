@@ -8,7 +8,7 @@ use gpui_kit::component::menu::{
     ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem,
 };
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{h_flex, v_flex, Icon, WindowExt as _};
+use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _, Size, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     div, px, rgba, AnyElement, App, AppContext as _, BorrowAppContext as _, ClickEvent, Context,
@@ -726,6 +726,7 @@ fn empty_search(cx: &mut Context<LibraryView>) -> AnyElement {
             Button::new("clear-search")
                 .label(BTN_CLEAR_SEARCH())
                 .text()
+                .with_size(Size::Small)
                 .on_click(|_, window, cx| {
                     cx.update_global::<GessoState, _>(|g, _| {
                         g.query.clear();

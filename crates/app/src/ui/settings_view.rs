@@ -363,7 +363,11 @@ impl Render for SettingsView {
                 None,
                 div()
                     .w(px(220.))
-                    .child(Input::new(&self.weather_key_input).cleanable(true))
+                    .child(
+                        Input::new(&self.weather_key_input)
+                            .with_size(Size::Small)
+                            .cleanable(true),
+                    )
                     .into_any_element(),
                 cx,
             ));

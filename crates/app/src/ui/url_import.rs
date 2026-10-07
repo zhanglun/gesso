@@ -5,7 +5,7 @@
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{h_flex, v_flex, WindowExt as _};
+use gpui_kit::component::{h_flex, v_flex, Sizable as _, Size, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     div, px, size, App, AppContext as _, Bounds, Context, FocusHandle, Focusable, FontWeight,
@@ -104,7 +104,7 @@ impl Render for UrlImport {
                     .text_color(t.text2)
                     .child(URL_IMPORT_DESC()),
             )
-            .child(div().child(Input::new(&self.input).cleanable(true)))
+            .child(div().child(Input::new(&self.input).with_size(Size::Small).cleanable(true)))
             .when_some(self.error, |r, err| {
                 r.child(div().text_size(px(12.)).text_color(t.danger).child(err))
             })
@@ -114,15 +114,18 @@ impl Render for UrlImport {
                     .justify_end()
                     .gap_2()
                     .child(
+                        // 表单场景 = Small（DESIGN.md §组件控件档位；与上方输入框同档）
                         Button::new("btn-cancel")
                             .label(BTN_CANCEL())
                             .text()
+                            .with_size(Size::Small)
                             .on_click(|_, window, _| window.remove_window()),
                     )
                     .child(
                         Button::new("btn-ok")
                             .label(BTN_IMPORT())
                             .primary()
+                            .with_size(Size::Small)
                             .on_click(cx.listener(|this, _, window, cx| this.confirm(window, cx))),
                     ),
             )

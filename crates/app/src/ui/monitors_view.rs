@@ -148,7 +148,6 @@ impl MonitorsView {
         let redetect = Button::new("btn-redetect")
             .label(BTN_REDETECT())
             .secondary()
-            .compact()
             .icon(Icon::new(IconName::RefreshCw))
             .on_click(|_, window, cx| {
                 // 重新检测：走引擎动作队列（sync_monitors 幂等；API.md §1/§4）
