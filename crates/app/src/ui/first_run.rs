@@ -51,7 +51,11 @@ impl FirstRun {
                 cx,
             ))),
             titlebar: Some(TitlebarOptions {
-                title: Some(SharedString::from(format!("{} · 首启向导", APP_NAME()))),
+                title: Some(SharedString::from(format!(
+                    "{} · {}",
+                    APP_NAME(),
+                    WIZARD_TITLE_SUFFIX()
+                ))),
                 ..Default::default()
             }),
             ..Default::default()
@@ -82,9 +86,9 @@ impl FirstRun {
     fn step_welcome(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let kinds = [
-            (Kind::Video, "视频"),
-            (Kind::Shader, "Shader"),
-            (Kind::Web, "网页"),
+            (Kind::Video, KIND_VIDEO()),
+            (Kind::Shader, KIND_SHADER()),
+            (Kind::Web, KIND_WEB()),
         ];
         v_flex()
             .flex_1()
@@ -308,10 +312,7 @@ impl Render for FirstRun {
                     .text()
                     .on_click(|_, window, cx| {
                         // 跳过 = 使用纯色桌面，不再骚扰
-                        window.push_notification(
-                            Notification::info("已使用纯色桌面；随时可以从托盘开始"),
-                            cx,
-                        );
+                        window.push_notification(Notification::info(WIZARD_SKIP_TOAST()), cx);
                     })
                     .into_any_element(),
             ],
@@ -326,7 +327,7 @@ impl Render for FirstRun {
                     })
                     .into_any_element(),
                 Button::new("wiz-back")
-                    .label("上一步")
+                    .label(WIZARD_BACK())
                     .ghost()
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.step = 0;

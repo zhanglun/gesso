@@ -148,7 +148,7 @@ impl Shell {
         let wizard = Button::new("btn-wizard")
             .ghost()
             .icon(Icon::new(IconName::RotateCcw))
-            .tooltip("重放首启向导")
+            .tooltip(TIP_REPLAY_WIZARD())
             .on_click(|_, _, cx| {
                 let _ = super::first_run::FirstRun::open(cx);
             });
@@ -156,7 +156,7 @@ impl Shell {
         let theme_toggle = Button::new("btn-theme")
             .ghost()
             .icon(Icon::new(IconName::Moon))
-            .tooltip("切换亮 / 暗主题")
+            .tooltip(TIP_TOGGLE_THEME())
             .on_click(|_, _, cx| super::theme::toggle(cx));
 
         // Windows 标题栏按钮（– □ ✕，规格 §2/§4.3 顶栏「窗口控制」的实现欠账）：
@@ -172,19 +172,19 @@ impl Shell {
                 .child(Self::caption_button(
                     "btn-win-min",
                     IconName::Minus,
-                    "最小化",
+                    super::strings::t().win_minimize,
                     |_, window, _| window.minimize_window(),
                 ))
                 .child(Self::caption_button(
                     "btn-win-max",
                     IconName::Square,
-                    "最大化 / 还原",
+                    super::strings::t().win_maximize,
                     |_, window, _| window.zoom_window(),
                 ))
                 .child(Self::caption_button(
                     "btn-win-close",
                     IconName::X,
-                    "关闭",
+                    super::strings::t().win_close,
                     |_, window, _| window.remove_window(),
                 )),
         );

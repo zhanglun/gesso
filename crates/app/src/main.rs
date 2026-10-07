@@ -300,7 +300,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 kind,
                 we: e.origin == "wallpaper-engine",
                 meta: if e.origin == "builtin" {
-                    "内置样例".into()
+                    ui::strings::META_BUILTIN().into()
                 } else {
                     e.origin.clone().into()
                 },
@@ -324,14 +324,14 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
             let state = view.map(|v| v.state).unwrap_or(SessionState::Idle);
             ui::data::MonitorEntry {
                 name: if m.is_main {
-                    "主显示器".into()
+                    ui::strings::MON_MAIN().into()
                 } else {
-                    format!("显示器 {}", i + 1).into()
+                    ui::strings::monitor_name(i + 1).into()
                 },
                 short: if m.is_main {
-                    "主屏".into()
+                    ui::strings::MON_MAIN_SHORT().into()
                 } else {
-                    format!("屏{}", i + 1).into()
+                    ui::strings::monitor_short(i + 1).into()
                 },
                 label: format!("{:.0}×{:.0}", m.frame.2.max(1.), m.frame.3.max(1.)).into(),
                 rect: (
@@ -439,6 +439,86 @@ struct ActionOutcome {
     pending_thumbs: Vec<(String, WallpaperKind)>,
     /// 请求激活/重建主管理窗口（需 window/cx，不能在纯动作处理里完成）。
     focus_main: bool,
+    /// 界面语言变化（托盘菜单文案需重建，见主循环）。
+    lang_changed: bool,
+}
+
+/// 托盘菜单（文案唯一出处 = ui::strings；语言切换后主循环重建整个菜单，
+/// 事件经全局 handler 按 id 路由，重建不影响逻辑）。
+fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
+    use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+    let menu = Menu::new();
+    let mi_pause = MenuItem::with_id("pause", ui::strings::TRAY_PAUSE_ALL(), true, None);
+    let mi_cycle = MenuItem::with_id("cycle", ui::strings::TRAY_RANDOM(), true, None);
+    let mi_main = MenuItem::with_id("main", ui::strings::TRAY_MAIN_WINDOW(), true, None);
+    let mi_auto = CheckMenuItem::with_id(
+        "autostart",
+        ui::strings::TRAY_AUTOSTART(),
+        true,
+        autostart_on,
+        None,
+    );
+    let mi_quit = MenuItem::with_id("quit", ui::strings::TRAY_QUIT(), true, None);
+    menu.append_items(&[
+        &mi_pause,
+        &mi_cycle,
+        &PredefinedMenuItem::separator(),
+        &mi_main,
+        &PredefinedMenuItem::separator(),
+        &mi_auto,
+        &PredefinedMenuItem::separator(),
+        &mi_quit,
+    ])
+    .expect("菜单");
+    menu
+}
+
+/// 托盘菜单事件（一次性注册；菜单重建后 id 不变，处理逻辑无需重挂）。
+fn install_tray_menu_handler() {
+    tray_icon::menu::MenuEvent::set_event_handler(Some(|e: tray_icon::menu::MenuEvent| {
+        use engine::EngineAction;
+        match e.id().as_ref() {
+            // 菜单文案恒为「暂停全部壁纸」（muda handler 要求 Send，不能持菜单句柄改文案；
+            // 当前状态经托盘图标/状态矩阵反映）
+            "pause" => {
+                // fetch_xor 翻转并返回旧值（swap(true) 会永远读到同一个旧值 →
+                // 该项变成"只暂停不恢复"，M0.5 踩过同款坑）
+                let paused = !TRAY_PAUSED.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
+                engine::enqueue(EngineAction::PauseAll(paused));
+            }
+            "cycle" => engine::enqueue(EngineAction::CycleMain),
+            "main" => engine::enqueue(EngineAction::FocusMainWindow),
+            "autostart" => {
+                // CheckMenuItem 在 macOS 原生翻转；此处读翻转后的近似值
+                let now = !AUTOSTART_HINT.load(std::sync::atomic::Ordering::SeqCst);
+                AUTOSTART_HINT.store(now, std::sync::atomic::Ordering::SeqCst);
+                engine::enqueue(EngineAction::SetAutostart(now));
+            }
+            "quit" => std::process::exit(0),
+            _ => {}
+        }
+    }));
+}
+
+/// 构建托盘本体（菜单文案取当前语言；图标平台差异见内注）。
+fn build_tray(autostart_on: bool) -> tray_icon::TrayIcon {
+    let (rgba, w, h) = tray_icon_rgba();
+    let icon = tray_icon::Icon::from_rgba(rgba, w, h).unwrap();
+    let mut tray_builder = tray_icon::TrayIconBuilder::new()
+        .with_tooltip("Gesso")
+        .with_menu(Box::new(build_tray_menu(autostart_on)));
+    // macOS：黑字形 + template 标志，随菜单栏亮暗自适应；
+    // Windows：彩色 compact 应用图标（与任务栏图标同稿，描边字形在托盘尺寸读不出）
+    #[cfg(target_os = "macos")]
+    {
+        tray_builder = tray_builder.with_icon_templated(icon);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tray_builder = tray_builder.with_icon(icon);
+    }
+    // 左/右键都弹菜单（§4.1，2026-10-03 决策：纯菜单形态）
+    tray_builder.build().expect("托盘")
 }
 
 /// 执行一条引擎动作：只改引擎状态 + 返回需延后的副作用。
@@ -499,6 +579,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         }
         engine::EngineAction::UpdateSettings(settings) => {
             println!("[ui] 设置更新并落盘");
+            out.lang_changed = sm.config().settings.language != settings.language;
             sm.update_settings(settings);
         }
         engine::EngineAction::SetAutostart(enable) => apply_autostart(enable),
@@ -653,69 +734,11 @@ fn main() {
             cx.set_global(engine::AppState::new(sm));
             cx.set_global(snapshot_ui(&cx.global::<engine::AppState>().sm));
 
-            // 托盘（§4.1/§4.2）：左键 = 快速面板；右键 = 菜单
-            use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-            let menu = Menu::new();
-            let mi_pause = MenuItem::with_id("pause", "暂停全部壁纸", true, None);
-            let mi_cycle = MenuItem::with_id("cycle", "随机换一张", true, None);
-            let mi_main = MenuItem::with_id("main", "管理窗口…", true, None);
-            let mi_auto = CheckMenuItem::with_id("autostart", "开机自启", true, autostart_on, None);
-            let mi_quit = MenuItem::with_id("quit", "退出 Gesso", true, None);
-            menu.append_items(&[
-                &mi_pause,
-                &mi_cycle,
-                &PredefinedMenuItem::separator(),
-                &mi_main,
-                &PredefinedMenuItem::separator(),
-                &mi_auto,
-                &PredefinedMenuItem::separator(),
-                &mi_quit,
-            ])
-            .expect("菜单");
-            MenuEvent::set_event_handler(Some(|e: MenuEvent| {
-                use engine::EngineAction;
-                match e.id().as_ref() {
-                    // 菜单文案恒为「暂停全部壁纸」（muda handler 要求 Send，不能持菜单句柄改文案；
-                    // 当前状态经托盘图标/状态矩阵反映）
-                    "pause" => {
-                        // fetch_xor 翻转并返回旧值（swap(true) 会永远读到同一个旧值 →
-                        // 该项变成"只暂停不恢复"，M0.5 踩过同款坑）
-                        let paused =
-                            !TRAY_PAUSED.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
-                        engine::enqueue(EngineAction::PauseAll(paused));
-                    }
-                    "cycle" => engine::enqueue(EngineAction::CycleMain),
-                    "main" => engine::enqueue(EngineAction::FocusMainWindow),
-                    "autostart" => {
-                        // CheckMenuItem 在 macOS 原生翻转；此处读翻转后的近似值
-                        let now = !AUTOSTART_HINT.load(std::sync::atomic::Ordering::SeqCst);
-                        AUTOSTART_HINT.store(now, std::sync::atomic::Ordering::SeqCst);
-                        engine::enqueue(EngineAction::SetAutostart(now));
-                    }
-                    "quit" => std::process::exit(0),
-                    _ => {}
-                }
-            }));
-            let (rgba, w, h) = tray_icon_rgba();
-            let icon = tray_icon::Icon::from_rgba(rgba, w, h).unwrap();
-            let mut tray_builder = tray_icon::TrayIconBuilder::new()
-                .with_tooltip("Gesso")
-                .with_menu(Box::new(menu));
-            // macOS：黑字形 + template 标志，随菜单栏亮暗自适应；
-            // Windows：彩色 compact 应用图标（与任务栏图标同稿，描边字形在托盘尺寸读不出）
-            #[cfg(target_os = "macos")]
-            {
-                tray_builder = tray_builder.with_icon_templated(icon);
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                tray_builder = tray_builder.with_icon(icon);
-            }
-            let tray = tray_builder
-                // 左/右键都弹菜单（§4.1，2026-10-03 决策：纯菜单形态）
-                .build()
-                .expect("托盘");
-            Box::leak(Box::new(tray));
+            // 托盘（§4.1/§4.2）：左键 = 快速面板；右键 = 菜单。
+            // 事件处理器全局按 id 路由，一次注册即可；语言切换后主循环
+            // 用同一 build_tray 重建菜单（id 不变，处理逻辑无需重挂）。
+            install_tray_menu_handler();
+            let tray: &'static tray_icon::TrayIcon = Box::leak(Box::new(build_tray(autostart_on)));
 
             cx.spawn(async move |cx| {
                 // 定时基准：150ms 一拍。各周期用拍数命名，不再出现裸魔数。
@@ -734,6 +757,7 @@ fn main() {
                     let mut pending_thumbs: Vec<(String, WallpaperKind)> = Vec::new();
                     if !engine_actions.is_empty() {
                         let mut focus_main = false;
+                        let mut lang_changed = false;
                         cx.update(|cx| {
                             for a in engine_actions {
                                 let out =
@@ -742,6 +766,19 @@ fn main() {
                                 if out.focus_main {
                                     focus_main = true;
                                 }
+                                if out.lang_changed {
+                                    lang_changed = true;
+                                }
+                            }
+                            // 语言切换：以新语言重建托盘菜单（勾选态取真源 config）
+                            if lang_changed {
+                                let autostart_on = cx
+                                    .global::<engine::AppState>()
+                                    .sm
+                                    .config()
+                                    .settings
+                                    .autostart;
+                                tray.set_menu(Some(Box::new(build_tray_menu(autostart_on))));
                             }
                         });
                         // FocusMainWindow 需 window/cx：借用结束后兑现

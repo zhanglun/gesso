@@ -26,14 +26,14 @@ impl Kind {
         }
     }
 
-    /// 筛选段控件用的中文名。
+    /// 筛选段控件用的本地化名（文案唯一出处 = strings，语言切换实时生效）。
     pub fn filter_label(self) -> &'static str {
         match self {
-            Kind::Video => "视频",
-            Kind::Gif => "动图",
-            Kind::Photo => "图片",
-            Kind::Shader => "Shader",
-            Kind::Web => "网页",
+            Kind::Video => super::strings::KIND_VIDEO(),
+            Kind::Gif => super::strings::KIND_GIF(),
+            Kind::Photo => super::strings::KIND_PHOTO(),
+            Kind::Shader => super::strings::KIND_SHADER(),
+            Kind::Web => super::strings::KIND_WEB(),
         }
     }
 }
@@ -111,11 +111,12 @@ pub enum SuspendPolicy {
 }
 
 impl SuspendPolicy {
+    /// 设置页下拉选项（文案唯一出处 = strings）。
     pub fn label(self) -> &'static str {
         match self {
-            SuspendPolicy::Pause => "暂停",
-            SuspendPolicy::Downclock => "降帧至 5 fps",
-            SuspendPolicy::Ignore => "忽略",
+            SuspendPolicy::Pause => super::strings::POLICY_PAUSE(),
+            SuspendPolicy::Downclock => super::strings::POLICY_DOWNCLOCK(),
+            SuspendPolicy::Ignore => super::strings::POLICY_IGNORE(),
         }
     }
 }

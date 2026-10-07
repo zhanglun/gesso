@@ -388,7 +388,7 @@ impl LibraryView {
         let t = tokens(cx);
         let g = state(cx);
         let we_count = g.library.iter().filter(|w| w.we).count();
-        let mut count_text = format!("{} 项 · WE {}", g.library.len(), we_count);
+        let mut count_text = library_count(g.library.len(), we_count);
         if let Some(sel) = &g.selected {
             if let Some(item) = g.library.iter().find(|w| &w.id == sel) {
                 count_text = format!("{count_text}  ·  {} · {}", item.name, item.meta);
@@ -546,11 +546,11 @@ fn card_context_menu(
     }
 
     let sub = PopupMenu::build(window, cx, |m, _, _| {
-        m.item(PopupMenuItem::new("主屏").on_click({
+        m.item(PopupMenuItem::new(MENU_MAIN_DISPLAY()).on_click({
             let id = item_id.clone();
             move |_, window, cx| assign_item(&id, 0, window, cx)
         }))
-        .item(PopupMenuItem::new("副屏").on_click({
+        .item(PopupMenuItem::new(MENU_SECOND_DISPLAY()).on_click({
             let id = item_id.clone();
             move |_, window, cx| assign_item(&id, 1, window, cx)
         }))
@@ -613,10 +613,7 @@ fn assign_all(item_id: &str, window: &mut Window, cx: &mut App) {
             last_name = name;
         }
     }
-    window.push_notification(
-        Notification::success(format!("已将「{last_name}」指派到全部显示器")),
-        cx,
-    );
+    window.push_notification(Notification::success(toast_assign_all(&last_name)), cx);
 }
 
 fn remove_item(item_id: &str, window: &mut Window, cx: &mut App) {
@@ -707,7 +704,7 @@ fn empty_search(cx: &mut Context<LibraryView>) -> AnyElement {
                 .text_size(px(15.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text1)
-                .child(format!("没有匹配「{query}」的壁纸")),
+                .child(search_no_match(&query)),
         )
         .child(
             Button::new("clear-search")

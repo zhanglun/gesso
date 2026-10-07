@@ -122,10 +122,10 @@ impl GessoState {
     /// 指派（§3.6 set_wallpaper 语义）：该屏旧壁纸置为未指派；失效素材拒绝指派。
     pub fn assign(&mut self, monitor_idx: usize, item_id: &str) -> Result<String, &'static str> {
         let Some(pos) = self.library.iter().position(|w| w.id.as_ref() == item_id) else {
-            return Err("找不到该壁纸");
+            return Err(super::strings::ERR_WALLPAPER_MISSING());
         };
         if self.library[pos].broken {
-            return Err("素材失效，无法指派");
+            return Err(super::strings::ERR_ASSET_BROKEN());
         }
         for w in &mut self.library {
             if w.assigned == Some(monitor_idx) {
@@ -178,7 +178,7 @@ impl GessoState {
         self.monitors
             .get(idx)
             .map(|m| m.name.to_string())
-            .unwrap_or_else(|| "未知显示器".into())
+            .unwrap_or_else(|| super::strings::UNKNOWN_DISPLAY().into())
     }
 }
 
@@ -246,7 +246,7 @@ pub fn import_paths(
                 let name = path
                     .file_name()
                     .and_then(|s| s.to_str())
-                    .unwrap_or("未命名")
+                    .unwrap_or(super::strings::UNNAMED())
                     .to_string();
                 update(window, cx, |g| {
                     g.status_error = None;
@@ -286,12 +286,12 @@ pub fn import_with_dialog(_window: &mut Window, cx: &mut App) {
             // 故在此列明，新增扩展名时同步此处（core 一致性测试会提示类型表侧）。
             let Some(handle) = rfd::AsyncFileDialog::new()
                 .add_filter(
-                    "壁纸文件",
+                    super::strings::FILTER_WALLPAPERS(),
                     &[
                         "mp4", "webm", "gif", "webp", "jpg", "jpeg", "png", "avif", "html", "glsl",
                     ],
                 )
-                .add_filter("Wallpaper Engine 项目", &["json"])
+                .add_filter(super::strings::FILTER_WE_PROJECT(), &["json"])
                 .pick_file()
                 .await
             else {

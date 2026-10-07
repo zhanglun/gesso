@@ -101,7 +101,57 @@ pub struct Texts {
     pub btn_reset_confirm: &'static str,
     pub toast_reset: &'static str,
 
-    // 向导
+    // 内容类型（筛选段控 + 向导种类行）
+    pub kind_video: &'static str,
+    pub kind_gif: &'static str,
+    pub kind_photo: &'static str,
+    pub kind_shader: &'static str,
+    pub kind_web: &'static str,
+
+    // 设置页策略下拉（全屏/电池共用一组）
+    pub policy_pause: &'static str,
+    pub policy_downclock: &'static str,
+    pub policy_ignore: &'static str,
+
+    // 托盘（构建时取启动语言；语言切换经 UpdateSettings 检测后实时重建）
+    pub tray_pause_all: &'static str,
+    pub tray_random: &'static str,
+    pub tray_main_window: &'static str,
+    pub tray_autostart: &'static str,
+    pub tray_quit: &'static str,
+
+    // 显示器命名（引擎快照注入）
+    pub mon_main: &'static str,
+    pub mon_main_short: &'static str,
+    pub meta_builtin: &'static str,
+
+    // 顶栏
+    pub tip_replay_wizard: &'static str,
+    pub tip_toggle_theme: &'static str,
+    // Windows 标题栏按钮专用（调用点 cfg = windows），macOS 构建下未被读取
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub win_minimize: &'static str,
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub win_maximize: &'static str,
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub win_close: &'static str,
+
+    // 库页补充（右键指派子菜单 / 状态条 / 空搜索）
+    pub menu_main_display: &'static str,
+    pub menu_second_display: &'static str,
+
+    // 导入对话框过滤名 / 指派错误（app_state）
+    pub filter_wallpapers: &'static str,
+    pub filter_we_project: &'static str,
+    pub err_wallpaper_missing: &'static str,
+    pub err_asset_broken: &'static str,
+    pub unknown_display: &'static str,
+    pub unnamed: &'static str,
+
+    // 向导补充
+    pub wizard_title_suffix: &'static str,
+    pub wizard_back: &'static str,
+    pub wizard_skip_toast: &'static str,
     pub wizard_title: &'static str,
     pub wizard_subtitle: &'static str,
     pub wizard_start: &'static str,
@@ -151,6 +201,46 @@ pub const ZH: Texts = Texts {
     import_err_io: "导入失败：文件复制出错（磁盘空间或权限问题）",
 
     dz_hint: "拖到目标显示器上放手",
+
+    kind_video: "视频",
+    kind_gif: "动图",
+    kind_photo: "图片",
+    kind_shader: "Shader",
+    kind_web: "网页",
+
+    policy_pause: "暂停",
+    policy_downclock: "降帧至 5 fps",
+    policy_ignore: "忽略",
+
+    tray_pause_all: "暂停全部壁纸",
+    tray_random: "随机换一张",
+    tray_main_window: "管理窗口…",
+    tray_autostart: "开机自启",
+    tray_quit: "退出 Gesso",
+
+    mon_main: "主显示器",
+    mon_main_short: "主屏",
+    meta_builtin: "内置样例",
+
+    tip_replay_wizard: "重放首启向导",
+    tip_toggle_theme: "切换亮 / 暗主题",
+    win_minimize: "最小化",
+    win_maximize: "最大化 / 还原",
+    win_close: "关闭",
+
+    menu_main_display: "主屏",
+    menu_second_display: "副屏",
+
+    filter_wallpapers: "壁纸文件",
+    filter_we_project: "Wallpaper Engine 项目",
+    err_wallpaper_missing: "找不到该壁纸",
+    err_asset_broken: "素材失效，无法指派",
+    unknown_display: "未知显示器",
+    unnamed: "未命名",
+
+    wizard_title_suffix: "首启向导",
+    wizard_back: "上一步",
+    wizard_skip_toast: "已使用纯色桌面；随时可以从托盘开始",
 
     btn_redetect: "重新检测",
     monitor_hover_note: "悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制",
@@ -249,6 +339,46 @@ pub const EN: Texts = Texts {
 
     dz_hint: "Drop onto the target display",
 
+    kind_video: "Video",
+    kind_gif: "Animated",
+    kind_photo: "Image",
+    kind_shader: "Shader",
+    kind_web: "Web",
+
+    policy_pause: "Pause",
+    policy_downclock: "Downclock to 5 fps",
+    policy_ignore: "Ignore",
+
+    tray_pause_all: "Pause all wallpapers",
+    tray_random: "Shuffle",
+    tray_main_window: "Open manager…",
+    tray_autostart: "Launch at login",
+    tray_quit: "Quit Gesso",
+
+    mon_main: "Main display",
+    mon_main_short: "Main",
+    meta_builtin: "Built-in sample",
+
+    tip_replay_wizard: "Replay first-run wizard",
+    tip_toggle_theme: "Toggle light / dark theme",
+    win_minimize: "Minimize",
+    win_maximize: "Maximize / Restore",
+    win_close: "Close",
+
+    menu_main_display: "Main display",
+    menu_second_display: "Second display",
+
+    filter_wallpapers: "Wallpaper files",
+    filter_we_project: "Wallpaper Engine project",
+    err_wallpaper_missing: "Wallpaper not found",
+    err_asset_broken: "Asset unavailable, cannot assign",
+    unknown_display: "Unknown display",
+    unnamed: "Untitled",
+
+    wizard_title_suffix: "First-Run Wizard",
+    wizard_back: "Back",
+    wizard_skip_toast: "Plain desktop in use — start from the tray anytime",
+
     btn_redetect: "Redetect",
     monitor_hover_note: "Hovering a library card highlights its display · Click a display to select and control it below",
     st_select_wallpaper: "Choose wallpaper",
@@ -314,6 +444,12 @@ pub const EN: Texts = Texts {
 /// 当前语言：0 = 简体中文，1 = English。
 static LANG: AtomicU8 = AtomicU8::new(0);
 
+/// 当前语言序数（0=中 1=英）。供按构建时缓存文案的组件（设置页下拉）
+/// 判断「语言变了需要重建」的时机。
+pub fn lang() -> u8 {
+    LANG.load(Ordering::Relaxed)
+}
+
 /// 当前语言包。
 pub fn t() -> Texts {
     if LANG.load(Ordering::Relaxed) == 1 {
@@ -376,6 +512,21 @@ accessors! {
     import_err_unsupported => IMPORT_ERR_UNSUPPORTED, import_err_mkv => IMPORT_ERR_MKV,
     import_err_hevc => IMPORT_ERR_HEVC, import_err_io => IMPORT_ERR_IO,
     dz_hint => DZ_HINT,
+    kind_video => KIND_VIDEO, kind_gif => KIND_GIF, kind_photo => KIND_PHOTO,
+    kind_shader => KIND_SHADER, kind_web => KIND_WEB,
+    policy_pause => POLICY_PAUSE, policy_downclock => POLICY_DOWNCLOCK, policy_ignore => POLICY_IGNORE,
+    tray_pause_all => TRAY_PAUSE_ALL, tray_random => TRAY_RANDOM,
+    tray_main_window => TRAY_MAIN_WINDOW, tray_autostart => TRAY_AUTOSTART, tray_quit => TRAY_QUIT,
+    mon_main => MON_MAIN, mon_main_short => MON_MAIN_SHORT, meta_builtin => META_BUILTIN,
+    tip_replay_wizard => TIP_REPLAY_WIZARD, tip_toggle_theme => TIP_TOGGLE_THEME,
+    // win_minimize/win_maximize/win_close 只在 Windows 编译进调用点（标题栏按钮），
+    // 走 t().win_* 取文案，避免 macOS 构建下 dead_code 告警，故不列于此。
+    menu_main_display => MENU_MAIN_DISPLAY, menu_second_display => MENU_SECOND_DISPLAY,
+    filter_wallpapers => FILTER_WALLPAPERS, filter_we_project => FILTER_WE_PROJECT,
+    err_wallpaper_missing => ERR_WALLPAPER_MISSING, err_asset_broken => ERR_ASSET_BROKEN,
+    unknown_display => UNKNOWN_DISPLAY, unnamed => UNNAMED,
+    wizard_title_suffix => WIZARD_TITLE_SUFFIX, wizard_back => WIZARD_BACK,
+    wizard_skip_toast => WIZARD_SKIP_TOAST,
     btn_redetect => BTN_REDETECT, monitor_hover_note => MONITOR_HOVER_NOTE,
     st_select_wallpaper => ST_SELECT_WALLPAPER, monitors_empty_title => MONITORS_EMPTY_TITLE,
     edid_note_short => EDID_NOTE_SHORT, btn_change => BTN_CHANGE,
@@ -447,6 +598,49 @@ pub fn notice_new_monitor(name: &str) -> String {
     }
 }
 
+/// 库页状态条计数：ZH「3 项 · WE 1」/ EN「3 items · WE 1」。
+pub fn library_count(total: usize, we: usize) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("{total} items · WE {we}")
+    } else {
+        format!("{total} 项 · WE {we}")
+    }
+}
+
+pub fn toast_assign_all(name: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("Assigned \"{name}\" to all displays")
+    } else {
+        format!("已将「{name}」指派到全部显示器")
+    }
+}
+
+pub fn search_no_match(query: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("No wallpapers match \"{query}\"")
+    } else {
+        format!("没有匹配「{query}」的壁纸")
+    }
+}
+
+/// 非主显示器的全名（快照注入 + 指派 toast 目标）。
+pub fn monitor_name(index: usize) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("Display {index}")
+    } else {
+        format!("显示器 {index}")
+    }
+}
+
+/// 非主显示器的短名（卡片角标/状态行）。
+pub fn monitor_short(index: usize) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("D{index}")
+    } else {
+        format!("屏{index}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,6 +654,10 @@ mod tests {
         set_lang(Language::En);
         assert_eq!(TAB_LIBRARY(), "Library");
         assert_eq!(toast_imported("X"), "Imported \"X\"");
+        // 设置页策略下拉曾硬编码中文（data.rs），此处防回归
+        assert_eq!(POLICY_PAUSE(), "Pause");
+        assert_eq!(POLICY_IGNORE(), "Ignore");
+        assert_eq!(KIND_VIDEO(), "Video");
     }
 
     #[test]
@@ -473,6 +671,15 @@ mod tests {
             |p| p.set_language,
             |p| p.wizard_title,
             |p| p.hint_library,
+            |p| p.policy_pause,
+            |p| p.policy_downclock,
+            |p| p.policy_ignore,
+            |p| p.kind_video,
+            |p| p.kind_web,
+            |p| p.tray_pause_all,
+            |p| p.tray_quit,
+            |p| p.mon_main,
+            |p| p.win_close,
         ];
         for p in packs {
             for f in &strings {

@@ -34,6 +34,9 @@ pub struct SettingsView {
     weather_key_input: Entity<InputState>,
     /// 重置的内联二次确认（§4.5：红字，先点一次进入确认态，3s 后自动退回）。
     reset_armed: bool,
+    /// 构建下拉项时的语言序数。SelectState 持有构建时的选项字符串，
+    /// 语言切换后须按真源重建（见 render 开头的守卫）。
+    built_lang: u8,
 }
 
 const POLICY_ITEMS: [SuspendPolicy; 3] = [
@@ -201,6 +204,7 @@ impl SettingsView {
             weather,
             weather_key_input,
             reset_armed: false,
+            built_lang: super::strings::lang(),
         }
     }
 
@@ -226,10 +230,61 @@ impl SettingsView {
             )
             .into_any_element()
     }
+
+    /// 语言切换后重建带文案的下拉项，并按真源重设选中
+    /// （SelectState 持有构建时的选项字符串，不重建则旧语言残留）。
+    fn rebuild_localized_selects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let s = state(cx).settings.clone();
+        let policy_items =
+            || POLICY_ITEMS.map(policy_label).map(String::from).to_vec();
+        reset_select(
+            &self.fullscreen,
+            policy_items(),
+            POLICY_ITEMS
+                .iter()
+                .position(|p| *p == s.fullscreen)
+                .unwrap_or(0),
+            window,
+            cx,
+        );
+        reset_select(
+            &self.battery,
+            policy_items(),
+            POLICY_ITEMS
+                .iter()
+                .position(|p| *p == s.battery)
+                .unwrap_or(0),
+            window,
+            cx,
+        );
+        reset_select(
+            &self.startup,
+            vec![STARTUP_RESTORE().to_string(), STARTUP_RANDOM().to_string()],
+            if s.startup_random { 1 } else { 0 },
+            window,
+            cx,
+        );
+        reset_select(
+            &self.weather,
+            vec![
+                WEATHER_OPEN_METEO().to_string(),
+                WEATHER_CUSTOM().to_string(),
+            ],
+            if s.weather_custom_key { 1 } else { 0 },
+            window,
+            cx,
+        );
+    }
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 语言切换后重建带文案的下拉项（fps 与语言两项的选项文案与语言无关，
+        // 无需重建；语言项选项恒为原生名「简体中文 / English」）。
+        if super::strings::lang() != self.built_lang {
+            self.rebuild_localized_selects(window, cx);
+            self.built_lang = super::strings::lang();
+        }
         let t = tokens(cx);
         let s = state(cx).settings.clone();
 
@@ -454,4 +509,19 @@ fn make_select(
             cx,
         )
     })
+}
+
+/// 替换下拉项数据并按索引重设选中（语言切换时选项字符串需换语言；
+/// set_items 只换数据源，选中值须重设，否则旧语言文本残留在触发器上）。
+fn reset_select(
+    sel: &StringSelect,
+    items: Vec<String>,
+    selected: usize,
+    window: &mut Window,
+    cx: &mut Context<SettingsView>,
+) {
+    sel.update(cx, |st, cx| {
+        st.set_items(SearchableVec::new(items), window, cx);
+        st.set_selected_index(Some(IndexPath::new(selected)), window, cx);
+    });
 }
