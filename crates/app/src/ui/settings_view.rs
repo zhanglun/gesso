@@ -292,19 +292,19 @@ impl Render for SettingsView {
             set_row(
                 SET_FPS_CAP(),
                 None,
-                select_slot(Select::new(&self.fps_cap).into_any_element()),
+                select_slot(Select::new(&self.fps_cap).with_size(Size::Small).into_any_element()),
                 cx,
             ),
             set_row(
                 SET_FULLSCREEN(),
                 Some(SET_FULLSCREEN_DESC()),
-                select_slot(Select::new(&self.fullscreen).into_any_element()),
+                select_slot(Select::new(&self.fullscreen).with_size(Size::Small).into_any_element()),
                 cx,
             ),
             set_row(
                 SET_BATTERY(),
                 None,
-                select_slot(Select::new(&self.battery).into_any_element()),
+                select_slot(Select::new(&self.battery).with_size(Size::Small).into_any_element()),
                 cx,
             ),
             set_row(
@@ -339,13 +339,13 @@ impl Render for SettingsView {
             set_row(
                 SET_STARTUP_BEHAVIOR(),
                 None,
-                select_slot(Select::new(&self.startup).into_any_element()),
+                select_slot(Select::new(&self.startup).with_size(Size::Small).into_any_element()),
                 cx,
             ),
             set_row(
                 SET_LANGUAGE(),
                 None,
-                select_slot(Select::new(&self.language).into_any_element()),
+                select_slot(Select::new(&self.language).with_size(Size::Small).into_any_element()),
                 cx,
             ),
         ];
@@ -354,7 +354,7 @@ impl Render for SettingsView {
         let mut linkage = vec![set_row(
             SET_WEATHER(),
             Some(SET_WEATHER_DESC()),
-            select_slot(Select::new(&self.weather).into_any_element()),
+            select_slot(Select::new(&self.weather).with_size(Size::Small).into_any_element()),
             cx,
         )];
         if s.weather_custom_key {

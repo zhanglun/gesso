@@ -14,6 +14,13 @@ use std::path::{Component, Path, PathBuf};
 
 use raw_window_handle::HasWindowHandle;
 
+/// 协议请求日志默认静默（视频壁纸每帧 seek/缓冲都会发 Range 请求，启动即刷屏）；
+/// `GESSO_PROTOCOL_LOG=1` 打开（协议联调/播放问题排查用）。
+fn log_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("GESSO_PROTOCOL_LOG").is_ok_and(|v| v != "0"))
+}
+
 /// URI 路径百分号解码。webview 发来的 path 是编码态（空格=%20、非 ASCII=%XX），
 /// 磁盘文件是未编码的。**必须在路径穿越校验之前解码**，否则 %2e%2e 可绕过校验。
 fn decode_path(p: &str) -> String {
@@ -190,15 +197,17 @@ fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<
         return err(StatusCode::NOT_FOUND, "未知路由");
     };
 
-    eprintln!(
-        "[protocol] {} {} range={:?}",
-        request.method(),
-        uri,
-        request
-            .headers()
-            .get("range")
-            .map(|v| v.to_str().unwrap_or("?"))
-    );
+    if log_enabled() {
+        eprintln!(
+            "[protocol] {} {} range={:?}",
+            request.method(),
+            uri,
+            request
+                .headers()
+                .get("range")
+                .map(|v| v.to_str().unwrap_or("?"))
+        );
+    }
 
     // —— Range 请求：惰性切片（seek + 只读所需字节）——
     // 整读再切片会让大视频（几百 MB）的每次 Range 探查/seek 都全量过盘，
@@ -239,10 +248,12 @@ fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<
         if f.read_exact(&mut chunk).is_err() {
             return err(StatusCode::RANGE_NOT_SATISFIABLE, "读取失败");
         }
-        eprintln!(
-            "[protocol] 206 bytes {start}-{end}/{len}（惰性切片 {}KB）",
-            chunk.len() / 1024
-        );
+        if log_enabled() {
+            eprintln!(
+                "[protocol] 206 bytes {start}-{end}/{len}（惰性切片 {}KB）",
+                chunk.len() / 1024
+            );
+        }
         return lb_wry::http::Response::builder()
             .status(206)
             .header("Content-Type", mime_of(&file))

@@ -16,7 +16,9 @@ use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::IndexPath;
-use gpui_kit::component::{h_flex, v_flex, Icon, WindowExt as _};
+use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _, WindowExt as _};
+// gpui::Size（画布几何）已被导入；kit 控件档位用别名
+use gpui_kit::component::Size as KitSize;
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     canvas, div, linear_color_stop, linear_gradient, point, px, quad, relative, rgb, size,
@@ -562,7 +564,7 @@ impl MonitorsView {
                         Button::new("go-assign")
                             .label(BTN_GO_ASSIGN())
                             .text()
-                            .compact()
+                            .with_size(KitSize::Small)
                             .on_click(|_, window, cx| {
                                 super::shell::switch_tab(window, cx, super::shell::Tab::Library);
                             }),
@@ -635,10 +637,12 @@ impl MonitorsView {
         let change_ctx = m.wallpaper.clone();
         let toggle_real_id = m.real_id.clone();
         let fps_select = self.fps_selects.get(sel).map(|s| {
-            div()
-                .w(px(96.))
-                .child(Select::new(s).appearance(true))
-                .into_any_element()
+            div().w(px(96.)).child(
+                // 详情条控件统一 Small（§1.2 工艺基准；Medium 32px 在 12px 状态行旁头重脚轻）
+                Select::new(s)
+                    .with_size(KitSize::Small)
+                    .appearance(true),
+            )
         });
 
         h_flex()
@@ -710,7 +714,7 @@ impl MonitorsView {
                             Button::new("btn-change")
                                 .label(BTN_CHANGE())
                                 .secondary()
-                                .compact()
+                                .with_size(KitSize::Small)
                                 .on_click(cx.listener(move |_, _, window, cx| {
                                     update(window, cx, |g| {
                                         g.selected = change_ctx.clone();
@@ -730,7 +734,7 @@ impl MonitorsView {
                             Button::new("btn-toggle")
                                 .label(if paused { BTN_RESUME() } else { BTN_PAUSE() })
                                 .secondary()
-                                .compact()
+                                .with_size(KitSize::Small)
                                 .on_click(move |_, window, cx| {
                                     if toggle_real_id.is_empty() {
                                         // 切换 UI 投影状态
@@ -756,7 +760,7 @@ impl MonitorsView {
                         Button::new("btn-pick")
                             .label(ST_SELECT_WALLPAPER())
                             .primary()
-                            .compact()
+                            .with_size(KitSize::Small)
                             .on_click(|_, window, cx| {
                                 super::shell::switch_tab(window, cx, super::shell::Tab::Library);
                             }),
