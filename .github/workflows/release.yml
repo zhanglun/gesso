@@ -23,11 +23,17 @@ jobs:
             kind: windows
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.kind }}
+
+      # 不赌 runner 镜像的预装状态：NSIS 确定性安装（windows-2025 镜像曾漂移）
+      - name: 安装 NSIS（Windows 安装器引擎）
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: choco install nsis -y --no-progress
 
       - name: 打包 macOS（.dmg）
         if: matrix.kind == 'macos'
@@ -39,7 +45,7 @@ jobs:
         run: packaging/windows/build_portable.ps1
 
       - name: 上传构建产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: gesso-${{ matrix.kind }}
           path: |
@@ -51,7 +57,7 @@ jobs:
       # CI runner 预装 Inno Setup 6，正常必有
       - name: 上传 Windows 安装器
         if: matrix.kind == 'windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: gesso-windows-setup
           path: target/release-bundle/*.exe
@@ -65,7 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: 下载全部产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true   # 所有产物平铺到 dist/
