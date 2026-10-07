@@ -113,7 +113,10 @@ mod tests {
         m.insert(e);
         let json = serde_json::to_vec(&m).unwrap();
         let back: LibraryManifest = serde_json::from_slice(&json).unwrap();
-        assert_eq!(back.entries[0].source_url.as_deref(), Some("https://louie.co.nz/25th_hour/"));
+        assert_eq!(
+            back.entries[0].source_url.as_deref(),
+            Some("https://louie.co.nz/25th_hour/")
+        );
     }
 
     #[test]

@@ -19,7 +19,9 @@ pub fn parse_remote_url(input: &str) -> Result<String, &'static str> {
     if candidate.contains(char::is_whitespace) {
         return Err("url_import_invalid");
     }
-    let rest = candidate.strip_prefix("https://").ok_or("url_import_invalid")?;
+    let rest = candidate
+        .strip_prefix("https://")
+        .ok_or("url_import_invalid")?;
     let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
     if host.is_empty() || !host.contains('.') {
         return Err("url_import_invalid");
@@ -41,11 +43,7 @@ pub fn title_from_url(url: &str) -> String {
         .last()
         .unwrap_or_default();
     if seg.is_empty() {
-        host_and_path
-            .split('/')
-            .next()
-            .unwrap_or("web")
-            .to_string()
+        host_and_path.split('/').next().unwrap_or("web").to_string()
     } else {
         seg.to_string()
     }
@@ -240,10 +238,19 @@ mod tests {
 
     #[test]
     fn remote_url_title_and_host() {
-        assert_eq!(title_from_url("https://louie.co.nz/25th_hour/"), "25th_hour");
+        assert_eq!(
+            title_from_url("https://louie.co.nz/25th_hour/"),
+            "25th_hour"
+        );
         assert_eq!(title_from_url("https://example.com"), "example.com");
-        assert_eq!(title_from_url("https://a.io/x/page.html?utm=1"), "page.html");
-        assert_eq!(host_of_url("https://louie.co.nz/25th_hour/"), Some("louie.co.nz"));
+        assert_eq!(
+            title_from_url("https://a.io/x/page.html?utm=1"),
+            "page.html"
+        );
+        assert_eq!(
+            host_of_url("https://louie.co.nz/25th_hour/"),
+            Some("louie.co.nz")
+        );
         assert_eq!(host_of_url("gesso://library/x"), None);
     }
 

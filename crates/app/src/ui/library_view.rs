@@ -282,9 +282,7 @@ impl LibraryView {
                 let id = item.id.clone();
                 let broken = item.broken;
                 let remote = item.remote;
-                move |menu, window, cx| {
-                    card_context_menu(&id, broken, remote, menu, window, cx)
-                }
+                move |menu, window, cx| card_context_menu(&id, broken, remote, menu, window, cx)
             });
 
         let preloading = state(cx).hovered.as_ref() == Some(&item.id) && state(cx).hover_preloading;

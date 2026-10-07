@@ -32,8 +32,7 @@ impl Focusable for UrlImport {
 
 impl UrlImport {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx
-            .new(|cx| InputState::new(window, cx).placeholder(URL_IMPORT_PLACEHOLDER()));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(URL_IMPORT_PLACEHOLDER()));
         UrlImport {
             input,
             error: None,
@@ -124,9 +123,7 @@ impl Render for UrlImport {
                         Button::new("btn-ok")
                             .label(BTN_IMPORT())
                             .primary()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.confirm(window, cx)
-                            })),
+                            .on_click(cx.listener(|this, _, window, cx| this.confirm(window, cx))),
                     ),
             )
     }

@@ -607,8 +607,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             match sm.import_url_entry(&url) {
                 Ok(e) => {
                     println!("[ui] 已导入远端网页「{}」← {url}", e.title);
-                    if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct
-                    {
+                    if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
                         out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
                     }
                 }
