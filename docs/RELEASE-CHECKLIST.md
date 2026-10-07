@@ -83,7 +83,7 @@ packaging\windows\build_portable.ps1   # 打成 Gesso-<version>-x64-portable.zip
 
 打包脚本约定（两平台一致）：
 
-- [ ] **macOS `.app`**：`Contents/MacOS/gesso` + `Info.plist`（`com.zhanglun.gesso`、版本注入、
+- [ ] **macOS `.app`**：`Contents/MacOS/gesso` + `Info.plist`（`com.gesso.dev`、版本注入、
       `LSMinimumSystemVersion=12.0`、`LSUIElement=true`）+ `Gesso.icns` + `Resources/assets/{host,samples}`。
 - [ ] **Windows zip**：顶层 `Gesso/` 含 `gesso.exe`（图标内嵌 winresource）+ `assets/{host,samples}`；
       WebView2 用系统 Evergreen，不打包。
