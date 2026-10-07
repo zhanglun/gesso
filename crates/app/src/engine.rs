@@ -80,6 +80,8 @@ pub enum EngineAction {
     CycleMain,
     /// 导入文件（SessionManager::import_entry：校验/拷贝/清单落盘）。
     Import { path: String },
+    /// 导入远端网页（SessionManager::import_url_entry；§4.3 工具条 🔗）。
+    ImportUrl { url: String },
     /// 设置更新（SessionManager::update_settings，写内存 + 落盘）。
     UpdateSettings(Settings),
     /// 开机自启开关（auto-launch，随设置页/托盘勾选项）。

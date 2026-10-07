@@ -11,6 +11,7 @@
 //! - `monitors_view`显示器页（拓扑 + 投放指派）
 //! - `settings_view`设置页（分组表单，即时生效）
 //! - `first_run`    首启向导（独立小窗）
+//! - `url_import`   「从 URL 导入」小窗（远端网页条目，2026-10-07）
 //!
 //! 托盘为纯原生菜单（muda，左/右键同菜单）——2026-10-03 用户决策撤销快速面板。
 
@@ -23,4 +24,5 @@ pub mod settings_view;
 pub mod shell;
 pub mod strings;
 pub mod theme;
+pub mod url_import;
 pub mod widgets;

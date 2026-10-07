@@ -130,6 +130,14 @@ impl LibraryView {
                 super::app_state::import_with_dialog(window, cx);
             });
 
+        let import_url = Button::new("btn-import-url")
+            .ghost()
+            .icon(Icon::new(IconName::Link))
+            .tooltip(BTN_IMPORT_URL())
+            .on_click(|_, _, cx| {
+                super::url_import::UrlImport::open(cx);
+            });
+
         h_flex()
             .flex_none()
             .h(px(48.))
@@ -141,6 +149,7 @@ impl LibraryView {
             .child(seg)
             .child(search)
             .child(div().flex_1())
+            .child(import_url)
             .child(import)
             .into_any_element()
     }
@@ -272,7 +281,10 @@ impl LibraryView {
             .context_menu({
                 let id = item.id.clone();
                 let broken = item.broken;
-                move |menu, window, cx| card_context_menu(&id, broken, menu, window, cx)
+                let remote = item.remote;
+                move |menu, window, cx| {
+                    card_context_menu(&id, broken, remote, menu, window, cx)
+                }
             });
 
         let preloading = state(cx).hovered.as_ref() == Some(&item.id) && state(cx).hover_preloading;
@@ -530,6 +542,7 @@ impl Render for LibraryView {
 fn card_context_menu(
     item_id: &SharedString,
     broken: bool,
+    remote: bool,
     menu: PopupMenu,
     window: &mut Window,
     cx: &mut Context<PopupMenu>,
@@ -561,12 +574,17 @@ fn card_context_menu(
     });
     menu.item(PopupMenuItem::submenu(MENU_SET_WALLPAPER(), sub))
         .separator()
-        .item(PopupMenuItem::new(MENU_OPEN_FOLDER()).on_click({
-            let dir_path = crate::protocol::library_dir().join(item_id.as_ref());
-            move |_, _, _| {
-                let _ = std::process::Command::new("open").arg(&*dir_path).spawn();
-            }
-        }))
+        .item(if remote {
+            // 远端条目无本地目录（§4.3 2026-10-07 变更）
+            PopupMenuItem::new(MENU_OPEN_FOLDER()).disabled(true)
+        } else {
+            PopupMenuItem::new(MENU_OPEN_FOLDER()).on_click({
+                let dir_path = crate::protocol::library_dir().join(item_id.as_ref());
+                move |_, _, _| {
+                    let _ = std::process::Command::new("open").arg(&*dir_path).spawn();
+                }
+            })
+        })
         .item(PopupMenuItem::new(MENU_DETAILS()).on_click({
             let id = item_id.clone();
             move |_, window, cx| {

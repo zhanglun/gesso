@@ -41,6 +41,8 @@ impl SessionManager {
     pub fn import_entry(&mut self, path: &Path) -> Result<LibraryEntry, ImportError>;
     /// 导入类型判定（UI 预检与引擎执行共用；ImportError = Unsupported/Mkv/Hevc/Io）
     pub fn classify_import(path: &Path) -> ImportCheck;
+    /// 导入远端网页（origin="url"；仅 https，UI 预检用 encoding::parse_remote_url）
+    pub fn import_url_entry(&mut self, url: &str) -> Result<LibraryEntry, ImportError>;
 
     /// 设置更新（写内存 + 落盘；设置页全部即时生效）
     pub fn update_settings(&mut self, settings: Settings);
@@ -56,7 +58,8 @@ pub enum SessionEvent { Assign, Loaded, LoadFailed, Reselect, UserPause, UserRes
 pub fn transfer(state: SessionState, event: SessionEvent) -> SessionState;  // 纯函数，UI 不要自己算状态
 
 pub struct LibraryEntry { pub id: String, pub kind: WallpaperKind, pub title: String,
-                          pub origin: String, pub source_dir: String }
+                          pub origin: String, pub source_dir: String,
+                          pub source_url: Option<String> }  // origin="url" 的远端网页地址，其余 None
 pub enum WallpaperKind { Video, Image, Shader, Html }
 pub struct AppConfig { pub monitors: MonitorMap, pub settings: Settings }
 ```
@@ -75,7 +78,7 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 引擎把 `SessionManager` 放进 `gpui` 全局状态（`crates/app/src/engine.rs`：`cx.set_global(engine::AppState::new(sm))`）
 - 读：`main.rs::snapshot_ui(&sm)` 生成 `ui::app_state::GessoState`（UI 投影），启动注入 + 轮询回灌（保留 tab/selected/query/filter 等浏览状态）
 - 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
-  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow`（另有引擎内部的 `ThumbsDone`，UI 不入队）
+  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow`（另有引擎内部的 `ThumbsDone`，UI 不入队）
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
 
 ## 4.1 类型与命令的单一事实源

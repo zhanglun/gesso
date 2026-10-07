@@ -10,13 +10,19 @@ pub struct LibraryEntry {
     pub id: String,
     pub kind: WallpaperKind,
     pub title: String,
-    /// 来源：`local`（普通导入）/ `builtin`（内置样例）/ `wallpaper-engine`（WE 导入）。
+    /// 来源：`local`（普通导入）/ `builtin`（内置样例）/ `wallpaper-engine`（WE 导入）/
+    /// `url`（远端网页，见 source_url）。
     pub origin: String,
-    /// 素材根目录。local/builtin = 库内拷贝路径；WE 零拷贝 = Steam 工坊目录绝对路径。
+    /// 素材根目录。local/builtin = 库内拷贝路径；WE 零拷贝 = Steam 工坊目录绝对路径；
+    /// url 条目为空（缩略图落在库内 `<id>/`）。
     pub source_dir: String,
     /// WE 条目在 project.json 里声明的主文件名（video 媒体 / web 入口）；其余为 None。
     #[serde(default)]
     pub main_file: Option<String>,
+    /// 远端网页地址（仅 https，origin = "url"）；其余来源为 None。
+    /// serde default：旧清单（无此字段）反序列化为 None，零迁移。
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -71,6 +77,7 @@ mod tests {
             origin: "local".into(),
             source_dir: "/tmp/x".into(),
             main_file: None,
+            source_url: None,
         }
     }
 
@@ -93,6 +100,31 @@ mod tests {
         assert_eq!(m.remove("a1").unwrap().id, "a1");
         assert!(m.remove("nope").is_none());
         assert_eq!(m.entries.len(), 1);
+    }
+
+    #[test]
+    fn manifest_roundtrip_preserves_remote_url() {
+        let mut m = LibraryManifest::default();
+        let mut e = entry("u1");
+        e.kind = WallpaperKind::Html;
+        e.origin = "url".into();
+        e.source_dir = String::new();
+        e.source_url = Some("https://louie.co.nz/25th_hour/".into());
+        m.insert(e);
+        let json = serde_json::to_vec(&m).unwrap();
+        let back: LibraryManifest = serde_json::from_slice(&json).unwrap();
+        assert_eq!(back.entries[0].source_url.as_deref(), Some("https://louie.co.nz/25th_hour/"));
+    }
+
+    #[test]
+    fn old_manifest_without_source_url_loads() {
+        // 旧版清单（无 source_url 字段）必须零迁移可读
+        let json = r#"{"entries":[{"id":"a1b2c3d4e5f60718","kind":"html","title":"t",
+            "origin":"local","source_dir":"/tmp/x"}]}"#;
+        let m: LibraryManifest = serde_json::from_str(json).unwrap();
+        assert_eq!(m.entries.len(), 1);
+        assert_eq!(m.entries[0].source_url, None);
+        assert_eq!(m.entries[0].main_file, None);
     }
 
     #[test]

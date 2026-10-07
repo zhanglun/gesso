@@ -14,6 +14,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M5    system data bridge — fullscreen/battery auto-pause + time feed + cursor feed (iMouse) + idle downscale
 ✅ M6    Wallpaper Engine import I (video/web) + static images + content-type registry refactor
 ✅ M1    Windows pinning（实机验证：图标层下渲染 / TaskbarCreated 自愈 / PMv2 DPI）
+✅ M-URL 远端网页壁纸（origin=url 条目 + 宿主页 iframe 直装 https；2026-10-07 macOS 实机验证：louie.co.nz/25th_hour 跨域渲染 + 缩略图 16 帧）
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 

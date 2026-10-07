@@ -148,6 +148,14 @@ pub struct Texts {
     pub unknown_display: &'static str,
     pub unnamed: &'static str,
 
+    // 从 URL 导入网页（工具条 🔗 小窗）
+    pub btn_import_url: &'static str,
+    pub btn_cancel: &'static str,
+    pub url_import_title: &'static str,
+    pub url_import_desc: &'static str,
+    pub url_import_placeholder: &'static str,
+    pub url_import_invalid: &'static str,
+
     // 向导补充
     pub wizard_title_suffix: &'static str,
     pub wizard_back: &'static str,
@@ -237,6 +245,13 @@ pub const ZH: Texts = Texts {
     err_asset_broken: "素材失效，无法指派",
     unknown_display: "未知显示器",
     unnamed: "未命名",
+
+    btn_import_url: "从 URL 导入网页",
+    btn_cancel: "取消",
+    url_import_title: "从 URL 导入网页",
+    url_import_desc: "远端网页将嵌入桌面图标层之下（仅 https）；断网时该壁纸显示空白。",
+    url_import_placeholder: "https://…（网页地址）",
+    url_import_invalid: "无效的网页地址（需要 https://）",
 
     wizard_title_suffix: "首启向导",
     wizard_back: "上一步",
@@ -374,6 +389,13 @@ pub const EN: Texts = Texts {
     err_asset_broken: "Asset unavailable, cannot assign",
     unknown_display: "Unknown display",
     unnamed: "Untitled",
+
+    btn_import_url: "Import from URL",
+    btn_cancel: "Cancel",
+    url_import_title: "Import web page from URL",
+    url_import_desc: "The remote page runs embedded below your desktop icons (https only); it goes blank when offline.",
+    url_import_placeholder: "https://… (page URL)",
+    url_import_invalid: "Invalid web page URL (https:// required)",
 
     wizard_title_suffix: "First-Run Wizard",
     wizard_back: "Back",
@@ -525,6 +547,9 @@ accessors! {
     filter_wallpapers => FILTER_WALLPAPERS, filter_we_project => FILTER_WE_PROJECT,
     err_wallpaper_missing => ERR_WALLPAPER_MISSING, err_asset_broken => ERR_ASSET_BROKEN,
     unknown_display => UNKNOWN_DISPLAY, unnamed => UNNAMED,
+    btn_import_url => BTN_IMPORT_URL, url_import_title => URL_IMPORT_TITLE,
+    url_import_desc => URL_IMPORT_DESC, url_import_placeholder => URL_IMPORT_PLACEHOLDER,
+    url_import_invalid => URL_IMPORT_INVALID, btn_cancel => BTN_CANCEL,
     wizard_title_suffix => WIZARD_TITLE_SUFFIX, wizard_back => WIZARD_BACK,
     wizard_skip_toast => WIZARD_SKIP_TOAST,
     btn_redetect => BTN_REDETECT, monitor_hover_note => MONITOR_HOVER_NOTE,
@@ -587,6 +612,14 @@ pub fn toast_imported(name: &str) -> String {
         format!("Imported \"{name}\"")
     } else {
         format!("已导入「{name}」")
+    }
+}
+
+pub fn toast_url_imported(title: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("Queued web page \"{title}\" — importing")
+    } else {
+        format!("已加入「{title}」，正在导入")
     }
 }
 

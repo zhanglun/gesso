@@ -53,6 +53,8 @@ pub struct LibraryItem {
     pub kind: Kind,
     /// 来源为 Wallpaper Engine 工坊引用（只读）。
     pub we: bool,
+    /// 远端网页条目（origin=url）：无本地目录，「打开所在目录」置灰。
+    pub remote: bool,
     /// meta 行：分辨率 · 时长/帧率（tabular 数字）。
     pub meta: SharedString,
     /// 指派到的显示器下标；None = 未指派。

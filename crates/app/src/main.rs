@@ -905,6 +905,7 @@ fn main() {
                     // 缺帧兜底：统一按策略扫描——Direct（图片）帧发现本就直引源文件，
                     // 只对需"生成"且当前缺帧的 Extract/Capture 起任务。
                     // 真源 = 库目录文件系统，不依赖 UI 快照新鲜度。
+                    // 键 = 缩略图家目录（远端 URL 条目 = 库内 <id>/，source_dir 为空）
                     let targets: Vec<(String, WallpaperKind)> = cx.update(|cx| -> _ {
                         let app = cx.global::<engine::AppState>();
                         app.sm
@@ -915,10 +916,11 @@ fn main() {
                                     != gesso_core::ThumbStrategy::Direct
                             })
                             .filter(|e| {
-                                app.thumbs.should_start(&e.source_dir)
-                                    && thumb::preview_frames(&e.source_dir, e.kind).len() < 2
+                                let home = encoding::thumb_home(e);
+                                app.thumbs.should_start(&home)
+                                    && thumb::preview_frames(&home, e.kind).len() < 2
                             })
-                            .map(|e| (e.source_dir.clone(), e.kind))
+                            .map(|e| (encoding::thumb_home(e), e.kind))
                             .collect()
                     });
                     for (dir, kind) in targets {

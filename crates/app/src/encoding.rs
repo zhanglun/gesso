@@ -1,7 +1,77 @@
 //! URL/主资源发现相关纯函数：base64url、主资源文件名。无会话状态、可独立单测。
 
-use gesso_core::WallpaperKind;
+use gesso_core::{LibraryEntry, WallpaperKind};
 use std::path::Path;
+
+/// 解析/规范化用户输入的远端网页 URL（导入预检与引擎执行共用同一规则）。
+/// 缺 scheme 自动补 `https://`；仅接受 https；host 非空且不含空白。
+/// Err 值为 strings.rs 的文案键（UI 内联红字）。
+pub fn parse_remote_url(input: &str) -> Result<String, &'static str> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("url_import_invalid");
+    }
+    let candidate = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    };
+    if candidate.contains(char::is_whitespace) {
+        return Err("url_import_invalid");
+    }
+    let rest = candidate.strip_prefix("https://").ok_or("url_import_invalid")?;
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if host.is_empty() || !host.contains('.') {
+        return Err("url_import_invalid");
+    }
+    Ok(candidate)
+}
+
+/// URL 的展示标题：路径末段（视为标识符）优先，回退 host。
+/// `https://louie.co.nz/25th_hour/` → `25th_hour`；`https://example.com` → `example.com`。
+pub fn title_from_url(url: &str) -> String {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    let host_and_path = rest.split(['?', '#']).next().unwrap_or(rest);
+    let seg = host_and_path
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .last()
+        .unwrap_or_default();
+    if seg.is_empty() {
+        host_and_path
+            .split('/')
+            .next()
+            .unwrap_or("web")
+            .to_string()
+    } else {
+        seg.to_string()
+    }
+}
+
+/// URL host（快照 meta 行展示来源域名）。
+pub fn host_of_url(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let host = rest.split(['/', '?', '#']).next()?;
+    (!host.is_empty()).then_some(host)
+}
+
+/// 条目的缩略图家目录（Capture/Extract 帧写盘处 + 采集队列键，见 main.rs
+/// dispatch_thumb）。本地/WE = source_dir；远端 URL 条目无本地目录，落在
+/// 库内 `<id>/`（导入时创建，唯一可写位置）。
+pub fn thumb_home(entry: &LibraryEntry) -> String {
+    match &entry.source_url {
+        Some(_) => crate::protocol::library_dir()
+            .join(&entry.id)
+            .display()
+            .to_string(),
+        None => entry.source_dir.clone(),
+    }
+}
 
 /// base64url（无填充；shader 源码经 URL 查询参数传递，§2 踩坑 #10）。
 pub fn base64url(data: &[u8]) -> String {
@@ -146,6 +216,36 @@ pub fn entry_main_source(entry: &gesso_core::LibraryEntry) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_url_parse_normalizes_and_rejects() {
+        // 缺 scheme 补 https；空/非 https/无 host/含空白一律拒绝
+        assert_eq!(
+            parse_remote_url(" louie.co.nz/25th_hour/ ").unwrap(),
+            "https://louie.co.nz/25th_hour/"
+        );
+        assert_eq!(
+            parse_remote_url("https://louie.co.nz/25th_hour/").unwrap(),
+            "https://louie.co.nz/25th_hour/"
+        );
+        assert!(parse_remote_url("http://louie.co.nz/").is_err(), "仅 https");
+        assert!(parse_remote_url("ftp://x.com/a").is_err());
+        assert!(parse_remote_url("https://").is_err());
+        assert!(parse_remote_url("https://nohost").is_err());
+        assert!(parse_remote_url("https://a b.com/").is_err());
+        assert!(parse_remote_url("").is_err());
+        assert!(parse_remote_url("file:///etc/passwd").is_err());
+        assert!(parse_remote_url("   ").is_err());
+    }
+
+    #[test]
+    fn remote_url_title_and_host() {
+        assert_eq!(title_from_url("https://louie.co.nz/25th_hour/"), "25th_hour");
+        assert_eq!(title_from_url("https://example.com"), "example.com");
+        assert_eq!(title_from_url("https://a.io/x/page.html?utm=1"), "page.html");
+        assert_eq!(host_of_url("https://louie.co.nz/25th_hour/"), Some("louie.co.nz"));
+        assert_eq!(host_of_url("gesso://library/x"), None);
+    }
 
     #[test]
     fn base64_decode_standard_alphabet() {

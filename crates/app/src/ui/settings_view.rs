@@ -235,8 +235,7 @@ impl SettingsView {
     /// （SelectState 持有构建时的选项字符串，不重建则旧语言残留）。
     fn rebuild_localized_selects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let s = state(cx).settings.clone();
-        let policy_items =
-            || POLICY_ITEMS.map(policy_label).map(String::from).to_vec();
+        let policy_items = || POLICY_ITEMS.map(policy_label).map(String::from).to_vec();
         reset_select(
             &self.fullscreen,
             policy_items(),

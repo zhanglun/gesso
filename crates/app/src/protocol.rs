@@ -23,9 +23,11 @@ fn decode_path(p: &str) -> String {
 }
 
 /// 所有 gesso 资源同处一 scheme；CSP 按 scheme 收敛。
+/// frame-src 的 `https:` 仅服务远端网页条目（origin=url，宿主页 iframe 直装
+/// https 页面）；本地条目 iframe 仍只能指向 gesso:（sandbox 拦导航，见 host 页注）。
 #[cfg(target_os = "macos")]
 const CSP: &str = "default-src 'none'; script-src 'unsafe-inline' gesso:; \
-     style-src 'unsafe-inline' gesso:; frame-src gesso:; \
+     style-src 'unsafe-inline' gesso:; frame-src gesso: https:; \
      media-src gesso: blob:; img-src gesso: data:; connect-src gesso:";
 /// Windows（WebView2 workaround，见 pin/windows.rs）：页面实际 origin 是
 /// `http://gesso.<host段>`，CSP 源必须按 workaround 宿主枚举（`gesso:` 匹配不到它们）。
@@ -34,7 +36,7 @@ const CSP: &str = "default-src 'none'; script-src 'unsafe-inline' gesso:; \
 const CSP: &str = "default-src 'none'; \
      script-src 'unsafe-inline' http://gesso.host http://gesso.library http://gesso.steam; \
      style-src 'unsafe-inline' http://gesso.host http://gesso.library http://gesso.steam; \
-     frame-src http://gesso.host http://gesso.library http://gesso.steam; \
+     frame-src http://gesso.host http://gesso.library http://gesso.steam https:; \
      media-src http://gesso.host http://gesso.library http://gesso.steam blob:; \
      img-src http://gesso.host http://gesso.library http://gesso.steam data:; connect-src http://gesso.host http://gesso.library http://gesso.steam";
 
@@ -329,6 +331,7 @@ mod tests {
                 origin: "wallpaper-engine".into(),
                 source_dir: dir.to_string_lossy().into_owned(),
                 main_file: Some("main.html".into()),
+                source_url: None,
             }],
         };
         man.save(&ldir.join("library.json")).unwrap();

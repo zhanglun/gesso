@@ -257,7 +257,24 @@ impl SessionManager {
 
     /// ContentSpec 构建（assign / set_fps / build_session 共用同一套字段映射）。
     pub(crate) fn content_spec(entry: &LibraryEntry, fps: u8) -> ContentSpec {
-        let main_source = crate::encoding::entry_main_source(entry);
+        // 远端网页条目：source 就是 https URL 本身（宿主页 iframe 直装）；
+        // 本地/WE 条目走 entry_main_source → gesso:// 资源 URL
+        let main_source = match &entry.source_url {
+            Some(url) => {
+                return ContentSpec {
+                    kind: entry.kind,
+                    source: url.clone(),
+                    fit: gesso_core::Fit::Cover,
+                    fps_cap: fps,
+                    audio: gesso_core::AudioPolicy::Muted,
+                    meta: gesso_core::SpecMeta {
+                        title: entry.title.clone(),
+                        origin: entry.origin.clone(),
+                    },
+                };
+            }
+            None => crate::encoding::entry_main_source(entry),
+        };
         ContentSpec {
             kind: entry.kind,
             // WE 条目走 steam 直引路由，其余走 library；都是绝对 gesso URL
@@ -514,6 +531,34 @@ impl SessionManager {
             origin: "local".into(),
             source_dir: dst_dir.display().to_string(),
             main_file: None,
+            source_url: None,
+        };
+        self.library.push(entry.clone());
+        gesso_core::LibraryManifest {
+            entries: self.library.clone(),
+        }
+        .save(&crate::protocol::library_dir().join("library.json"))
+        .map_err(|_| ImportError::Io)?;
+        Ok(entry)
+    }
+
+    /// 导入远端网页（origin="url"；§4.3 工具条 🔗）。零素材目录：条目只在库内
+    /// 占一个 `<id>/`（缩略图家目录，见 encoding::thumb_home），渲染地址就是
+    /// URL 本身（content_spec 分支）。UI 预检与引擎侧共用 parse_remote_url。
+    pub fn import_url_entry(&mut self, url: &str) -> Result<LibraryEntry, ImportError> {
+        let url = crate::encoding::parse_remote_url(url).map_err(|_| ImportError::Unsupported)?;
+        let id = gesso_core::generate_id();
+        // 缩略图家目录必须存在，capture 才能写帧
+        let home = crate::protocol::library_dir().join(&id);
+        std::fs::create_dir_all(&home).map_err(|_| ImportError::Io)?;
+        let entry = LibraryEntry {
+            id: id.clone(),
+            kind: WallpaperKind::Html,
+            title: crate::encoding::title_from_url(&url),
+            origin: "url".into(),
+            source_dir: String::new(),
+            main_file: None,
+            source_url: Some(url),
         };
         self.library.push(entry.clone());
         gesso_core::LibraryManifest {
@@ -569,6 +614,7 @@ impl SessionManager {
             origin: "wallpaper-engine".into(),
             source_dir: e.dir.display().to_string(),
             main_file,
+            source_url: None,
         };
         self.library.push(entry.clone());
         gesso_core::LibraryManifest {
