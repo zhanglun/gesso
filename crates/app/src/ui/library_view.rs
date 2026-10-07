@@ -4,7 +4,9 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{
+    ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem,
+};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{h_flex, v_flex, Icon, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
@@ -122,20 +124,19 @@ impl LibraryView {
             )
             .into_any_element();
 
+        // 单一「新增内容」入口（§4.3 2026-10-07 收敛：独立 🔗 钮 + 导入钮并排
+        // 重量失衡、双入口语义重复）。点击弹锚定菜单；拖拽主路径不变。
         let import = Button::new("btn-import")
             .label(BTN_IMPORT())
             .secondary()
             .icon(Icon::new(IconName::Plus))
-            .on_click(|_, window, cx| {
-                super::app_state::import_with_dialog(window, cx);
-            });
-
-        let import_url = Button::new("btn-import-url")
-            .ghost()
-            .icon(Icon::new(IconName::Link))
-            .tooltip(BTN_IMPORT_URL())
-            .on_click(|_, _, cx| {
-                super::url_import::UrlImport::open(cx);
+            .dropdown_menu(|menu, _, _| {
+                menu.item(PopupMenuItem::new(BTN_IMPORT_FILE()).on_click(|_, window, cx| {
+                    super::app_state::import_with_dialog(window, cx);
+                }))
+                .item(PopupMenuItem::new(URL_IMPORT_TITLE()).on_click(|_, _, cx| {
+                    super::url_import::UrlImport::open(cx);
+                }))
             });
 
         h_flex()
@@ -149,7 +150,6 @@ impl LibraryView {
             .child(seg)
             .child(search)
             .child(div().flex_1())
-            .child(import_url)
             .child(import)
             .into_any_element()
     }
