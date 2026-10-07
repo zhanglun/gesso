@@ -138,8 +138,10 @@ impl Shell {
 
     fn topbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
+        // 88 = 红绿灯簇右缘（position 14,15 → 簇占 14..66）+ 22px 呼吸
+        // （对齐 Apple 自家 44px 工具条的留白节奏；76 曾只隔 10px，局促）
         let left_pad = if cfg!(target_os = "macos") {
-            px(76.)
+            px(88.)
         } else {
             px(14.)
         };

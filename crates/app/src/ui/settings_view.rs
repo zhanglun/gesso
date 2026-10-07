@@ -7,7 +7,7 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::IndexPath;
+use gpui_kit::component::{IndexPath, Sizable as _, Size};
 use gpui_kit::component::{h_flex, v_flex, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
@@ -370,22 +370,19 @@ impl Render for SettingsView {
         }
 
         // —— 高级 ——
+        // 表单行动作钮统一 Small（24px/14px 字）：默认 Medium 是 32px/16px，
+        // 在 13px 的设置行里头重脚轻（§1.2 控件 13px 工艺基准）
         let log_btn = Button::new("open-log")
             .label(BTN_OPEN())
             .secondary()
+            .with_size(Size::Small)
             .on_click(|_, _, _| {
                 let dir = crate::protocol::config_dir();
                 let _ = std::process::Command::new("open").arg(&dir).spawn();
             });
         let armed = self.reset_armed;
-        // 首启向导重放入口（§4.6 变更：顶栏无常驻钮，收进设置页高级区）
-        let wizard_btn = Button::new("replay-wizard")
-            .label(BTN_REPLAY())
-            .secondary()
-            .on_click(|_, _, cx| {
-                let _ = super::first_run::FirstRun::open(cx);
-            });
         // 红字文字按钮（kit 无 danger 文字变体；§4.5 红字 + danger-soft 悬停底）
+        // 高度对齐上方 Small 钮（24px），高级区两行控件等高
         let reset_btn = div()
             .id("reset-settings")
             .child(if armed {
@@ -394,7 +391,7 @@ impl Render for SettingsView {
                 BTN_RESET()
             })
             .px_3()
-            .h(px(28.))
+            .h(px(24.))
             .flex()
             .items_center()
             .rounded(px(6.))
@@ -431,7 +428,6 @@ impl Render for SettingsView {
             }));
         let advanced = vec![
             set_row(SET_LOG_DIR(), None, log_btn.into_any_element(), cx),
-            set_row(SET_WIZARD(), None, wizard_btn.into_any_element(), cx),
             set_row(SET_RESET(), None, reset_btn.into_any_element(), cx),
         ];
 
