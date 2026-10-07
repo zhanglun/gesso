@@ -362,6 +362,10 @@ impl LibraryView {
             return empty_library(cx);
         }
         if visible.is_empty() {
+            // §4.3 空状态三态：有搜索词 = 搜索无结果；无搜索词 = 筛选为空
+            if state(cx).query.is_empty() {
+                return empty_filter(cx);
+            }
             return empty_search(cx);
         }
         let items: Vec<LibraryItem> = {
@@ -736,6 +740,50 @@ fn empty_search(cx: &mut Context<LibraryView>) -> AnyElement {
                 }),
         )
         .into_any_element()
+}
+
+/// 筛选为空（§4.3 第三态）：库非空、无搜索词，当前筛选（类型/WE）没有条目。
+/// 动作 = 切回「全部」；WE 附导入出路描述（§7 失败文案带原因和出路）。
+fn empty_filter(cx: &mut Context<LibraryView>) -> AnyElement {
+    let t = tokens(cx);
+    let label = match state(cx).filter {
+        Filter::We => "WE".to_string(),
+        Filter::Kind(k) => k.filter_label().to_string(),
+        Filter::All => String::new(), // 不可达：全部为空走 empty_library
+    };
+    let is_we = state(cx).filter == Filter::We;
+    let mut col = v_flex()
+        .size_full()
+        .items_center()
+        .justify_center()
+        .gap_3()
+        .child(empty_art(IconName::FolderOpen, cx))
+        .child(
+            div()
+                .text_size(px(15.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(t.text1)
+                .child(filter_empty_title(&label)),
+        );
+    if is_we {
+        col = col.child(
+            div()
+                .text_size(px(12.5))
+                .text_color(t.text2)
+                .child(WE_EMPTY_DESC()),
+        );
+    }
+    col.child(
+        Button::new("view-all")
+            .label(BTN_VIEW_ALL())
+            .secondary()
+            .with_size(Size::Small)
+            .on_click(|_, window, cx| {
+                cx.update_global::<GessoState, _>(|g, _| g.filter = Filter::All);
+                window.refresh();
+            }),
+    )
+    .into_any_element()
 }
 
 /* ---------- 拖拽 ghost ---------- */

@@ -32,6 +32,9 @@ pub struct Texts {
     pub btn_import_file: &'static str,
     pub btn_browse_samples: &'static str,
     pub btn_clear_search: &'static str,
+    // 筛选为空（§4.3 空状态第三态；标题经 filter_empty_title 拼 label）
+    pub we_empty_desc: &'static str,
+    pub btn_view_all: &'static str,
 
     // 库卡片 / 右键菜单
     pub badge_we: &'static str,
@@ -175,6 +178,8 @@ pub const ZH: Texts = Texts {
     btn_import_file: "导入文件",
     btn_browse_samples: "浏览内置样例",
     btn_clear_search: "清除搜索",
+    we_empty_desc: "导入时选择 Wallpaper Engine 的 project.json，即可以零拷贝引用进库",
+    btn_view_all: "查看全部壁纸",
 
     badge_we: "WE",
     file_removed: "文件已移除",
@@ -303,6 +308,8 @@ pub const EN: Texts = Texts {
     btn_import_file: "Import file",
     btn_browse_samples: "Browse built-in samples",
     btn_clear_search: "Clear search",
+    we_empty_desc: "Pick a Wallpaper Engine project.json when importing to reference it without copying",
+    btn_view_all: "View all wallpapers",
 
     badge_we: "WE",
     file_removed: "File removed",
@@ -476,6 +483,7 @@ accessors! {
     hint_library => HINT_LIBRARY, empty_library_title => EMPTY_LIBRARY_TITLE,
     empty_library_desc => EMPTY_LIBRARY_DESC, btn_import_file => BTN_IMPORT_FILE,
     btn_browse_samples => BTN_BROWSE_SAMPLES, btn_clear_search => BTN_CLEAR_SEARCH,
+    we_empty_desc => WE_EMPTY_DESC, btn_view_all => BTN_VIEW_ALL,
     badge_we => BADGE_WE, file_removed => FILE_REMOVED,
     menu_set_wallpaper => MENU_SET_WALLPAPER, menu_all_monitors => MENU_ALL_MONITORS,
     menu_open_folder => MENU_OPEN_FOLDER, menu_details => MENU_DETAILS, menu_remove => MENU_REMOVE,
@@ -598,6 +606,15 @@ pub fn search_no_match(query: &str) -> String {
     }
 }
 
+/// 筛选为空的标题（§4.3 第三态）：label = 类型名（视频/动图/…）或 "WE"。
+pub fn filter_empty_title(label: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("No {label} wallpapers yet")
+    } else {
+        format!("还没有{label}壁纸")
+    }
+}
+
 /// 非主显示器的全名（快照注入 + 指派 toast 目标）。
 pub fn monitor_name(index: usize) -> String {
     if LANG.load(Ordering::Relaxed) == 1 {
@@ -652,6 +669,8 @@ mod tests {
             |p| p.kind_web,
             |p| p.tray_pause_all,
             |p| p.tray_quit,
+            |p| p.btn_view_all,
+            |p| p.we_empty_desc,
             |p| p.mon_main,
             |p| p.win_close,
         ];
