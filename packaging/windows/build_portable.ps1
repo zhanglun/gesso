@@ -77,3 +77,21 @@ Remove-Item $stage -Recurse -Force
 $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
 Write-Host ">> 完成：$zip"
 Write-Host "   SHA-256: $hash"
+
+# 安装器（Inno Setup 6，per-user）：找到 ISCC 就出 setup exe；本地未装则跳过
+# （CI runner 预装 Inno Setup 6）。UI 字符串英文，规避 .iss ANSI 编码问题。
+$iscc = @(
+    'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+    'C:\Program Files\Inno Setup 6\ISCC.exe'
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($iscc) {
+    Write-Host ">> Inno Setup 打包安装器：$iscc"
+    & $iscc "/DAppVersion=$version" "/DAppArch=$arch" 'packaging\windows\gesso.iss'
+    if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 打包失败' }
+    $setup = Join-Path $bundleDir "Gesso-$version-$arch-setup.exe"
+    $hashSetup = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLower()
+    Write-Host ">> 完成：$setup"
+    Write-Host "   SHA-256: $hashSetup"
+} else {
+    Write-Host '>> 未找到 Inno Setup 6（ISCC.exe），跳过安装器（仅便携 zip）'
+}

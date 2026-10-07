@@ -47,6 +47,16 @@ jobs:
             target/release-bundle/*.zip
           if-no-files-found: error
 
+      # Windows 安装器单独上传：本地无 Inno Setup 时脚本会跳过（warn 不阻塞），
+      # CI runner 预装 Inno Setup 6，正常必有
+      - name: 上传 Windows 安装器
+        if: matrix.kind == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gesso-windows-setup
+          path: target/release-bundle/*.exe
+          if-no-files-found: warn
+
   release:
     name: 发布 GitHub Release
     needs: build
@@ -64,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           {
-            for f in dist/*.dmg dist/*.zip; do
+            for f in dist/*.dmg dist/*.zip dist/*.exe; do
               [ -e "$f" ] || continue
               printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$(basename "$f")"
             done
@@ -80,5 +90,7 @@ jobs:
           files: |
             dist/*.dmg
             dist/*.zip
+            dist/*.exe
             checksums.txt
-          fail_on_unmatched_files: true
+          # 安装器缺失（Inno 异常）不阻塞发布——zip/dmg 永远在
+          fail_on_unmatched_files: false
