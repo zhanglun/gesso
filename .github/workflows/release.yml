@@ -1,0 +1,84 @@
+name: Release
+
+# 打 tag（v*）推送后：两平台 matrix 构建打包 → 汇总创建 GitHub Release。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:    # 手动干跑：只验证两平台打包，不创建 Release
+
+permissions:
+  contents: write   # 创建 GitHub Release 并上传资产
+
+jobs:
+  build:
+    name: 打包（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            kind: macos
+          - os: windows-latest
+            kind: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.kind }}
+
+      - name: 打包 macOS（.dmg）
+        if: matrix.kind == 'macos'
+        run: packaging/macos/build_dmg.sh
+
+      - name: 打包 Windows（便携 zip）
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: packaging/windows/build_portable.ps1
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: gesso-${{ matrix.kind }}
+          path: |
+            target/release-bundle/*.dmg
+            target/release-bundle/*.zip
+          if-no-files-found: error
+
+  release:
+    name: 发布 GitHub Release
+    needs: build
+    if: github.event_name == 'push'   # 手动干跑时不发布
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 下载全部产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true   # 所有产物平铺到 dist/
+
+      - name: 生成 SHA-256 校验值
+        run: |
+          set -euo pipefail
+          {
+            for f in dist/*.dmg dist/*.zip; do
+              [ -e "$f" ] || continue
+              printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$(basename "$f")"
+            done
+          } | sort -k2 > checksums.txt
+          cat checksums.txt
+
+      - name: 创建 Release 并上传资产
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: packaging/release-notes/${{ github.ref_name }}.md
+          files: |
+            dist/*.dmg
+            dist/*.zip
+            checksums.txt
+          fail_on_unmatched_files: true
