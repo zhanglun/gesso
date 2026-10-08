@@ -684,7 +684,9 @@ fn find_main_hwnd() -> Option<windows::Win32::Foundation::HWND> {
         let hit = unsafe {
             // SAFETY: 同上，GetWindowThreadProcessId/GetWindow 均为只读查询
             let _ = GetWindowThreadProcessId(hwnd, Some(&mut owner_pid));
-            let no_owner = GetWindow(hwnd, GW_OWNER).map(|h| h.is_invalid()).unwrap_or(true);
+            let no_owner = GetWindow(hwnd, GW_OWNER)
+                .map(|h| h.is_invalid())
+                .unwrap_or(true);
             owner_pid == std::process::id()
                 && len == want.len()
                 && buf[..len] == want[..]
