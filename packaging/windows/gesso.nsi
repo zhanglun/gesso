@@ -1,4 +1,4 @@
-; Gesso Windows installer (NSIS 3) — same installer form as our Tauri
+﻿; Gesso Windows installer (NSIS 3) — same installer form as our Tauri
 ; projects (lettura / pavo): per-user setup.exe, no admin, installs to
 ; %LOCALAPPDATA%\Gesso, Start-menu + desktop shortcuts, uninstaller entry
 ; in "Apps & features" (HKCU).
