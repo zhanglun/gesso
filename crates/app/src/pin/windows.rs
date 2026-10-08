@@ -260,6 +260,42 @@ pub fn rearm_remount() {
     REMOUNT_PENDING.store(true, Ordering::Relaxed);
 }
 
+/// 退出还原桌面（EngineAction::Quit）：壁纸窗口已由会话拆除（Drop → DestroyWindow），
+/// 但被盖住的原始壁纸属 explorer 绘制——子窗口消失不会自动触发父窗口重绘，
+/// 直接退进程桌面会留黑底。对 Progman / 图标层 / 壁纸 WorkerW 各无效化一遍，
+/// 谁持有壁纸谁重绘。主线程调用（teardown_all 之后）。
+pub fn restore_desktop() {
+    use windows::Win32::Graphics::Gdi::InvalidateRect;
+    unsafe {
+        let mut targets: Vec<HWND> = Vec::new();
+        if let Ok(progman) = FindWindowW(w!("Progman"), PCWSTR::null()) {
+            targets.push(progman);
+            if let Ok(defview) =
+                FindWindowExW(Some(progman), None, w!("SHELLDLL_DefView"), PCWSTR::null())
+            {
+                targets.push(defview);
+            }
+        }
+        // 不走 find_wallpaper_parent：那会向 Progman 发 0x052C 再生一个 WorkerW，
+        // 退出时不应改变桌面结构。图标层宿主后的 WorkerW 此时仍在（挂载时创建），
+        // 直接静默查找即可；找不到也不阻塞退出。
+        let mut defview_host: Option<HWND> = None;
+        let _ = EnumWindows(
+            Some(find_defview_proc),
+            LPARAM(&mut defview_host as *mut Option<HWND> as isize),
+        );
+        if let Some(host) = defview_host {
+            if let Ok(worker) = FindWindowExW(None, Some(host), w!("WorkerW"), PCWSTR::null()) {
+                targets.push(worker);
+            }
+        }
+        for h in &targets {
+            let _ = InvalidateRect(Some(*h), None, true);
+        }
+        println!("[pin] 桌面还原：{} 个 shell 窗口已无效化", targets.len());
+    }
+}
+
 /// 采集覆盖窗（M4-W，capture.rs 用）：TOPMOST + 3/255 alpha 的隐形常驻窗口。
 /// 顶层窗口不被普通应用窗口遮挡 → WebView2 全速渲染（macOS「壁纸层之上一档 +
 /// 2% 透明」的 Windows 等价机制；遮挡会让 Chromium 停摆 RAF/合成 → 快照全黑）。

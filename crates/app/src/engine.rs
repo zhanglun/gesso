@@ -94,6 +94,9 @@ pub enum EngineAction {
     FocusMainWindow,
     /// 后台抽帧任务完成（thumb 调度 → 引擎：释放在途标记 + 触发快照回灌）。
     ThumbsDone { dir: String },
+    /// 托盘「退出 Gesso」：引擎线程上拆除全部壁纸会话 → 通知 shell 重绘 → 进程退出。
+    /// 不能像旧版那样在托盘线程 process::exit——那会跳过壁纸窗口销毁，桌面留黑底。
+    Quit,
 }
 
 static ENGINE_ACTIONS: Mutex<Vec<EngineAction>> = Mutex::new(Vec::new());

@@ -119,6 +119,15 @@ impl SessionManager {
         }
     }
 
+    /// 完整退场（托盘「退出 Gesso」，EngineAction::Quit）：清空全部会话，各屏
+    /// 壁纸窗口随之 Drop → DestroyWindow。必须在引擎轮询线程调用（同创建约束）。
+    /// 配置已随每次改动落盘，退场无需再保存。
+    pub fn teardown_all(&mut self) {
+        let n = self.sessions.len();
+        self.sessions.clear();
+        println!("[session] 退出拆除：{n} 个壁纸会话已销毁");
+    }
+
     /// explorer 重启自愈（Windows M1）：TaskbarCreated 后由引擎轮询触发。
     /// explorer 死亡会连带销毁挂在其 WorkerW 下的壁纸窗口（跨进程父窗口死亡），
     /// 所以这里**整窗重建**（pin::create + load），不是对旧句柄重挂。

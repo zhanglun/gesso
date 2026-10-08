@@ -1,5 +1,9 @@
 //! gesso —— M2/M3 装配：会话管理器 + 管理窗口三页签 UI（界面与交互设计 v1.0）。
 //!
+//! release 改 GUI 子系统：不随启动弹终端黑窗（诊断已由 panic 落盘日志兜底，
+//! debug 构建保留控制台承接 stdout 日志）。
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//!
 //! UI 数据链（API.md）：读 = 引擎快照 → GessoState（main.rs 装配处单向回灌）；
 //! 写 = UI 把 EngineAction 入队（engine.rs），引擎 150ms 轮询执行——与托盘同一通道。
 //! UI 不直接触碰 pin/protocol/壁纸窗口生命周期（sync_monitors 独占）。
@@ -526,7 +530,9 @@ fn install_tray_menu_handler() {
                 AUTOSTART_HINT.store(now, std::sync::atomic::Ordering::SeqCst);
                 engine::enqueue(EngineAction::SetAutostart(now));
             }
-            "quit" => std::process::exit(0),
+            // 退出必须走引擎动作（不能在此 process::exit）：要在引擎线程上先拆
+            // 壁纸会话并通知 shell 重绘，直接退进程会让桌面留黑底
+            "quit" => engine::enqueue(EngineAction::Quit),
             _ => {}
         }
     }));
@@ -640,8 +646,127 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             // 后台抽帧完成：释放在途标记（重试计数随之累加）；快照回灌由主循环触发
             app.thumbs.mark_finished(&dir);
         }
+        // 退出：引擎轮询线程正是壁纸窗口创建/销毁约束的主线程（pin Drop 注），
+        // 拆会话 → 通知 shell 重绘露出原壁纸 → 退进程（此前托盘线程直接
+        // process::exit，Drop 全跳过，桌面留黑底）。
+        engine::EngineAction::Quit => {
+            app.sm.teardown_all();
+            #[cfg(target_os = "windows")]
+            pin::windows::restore_desktop();
+            std::process::exit(0);
+        }
     }
     out
+}
+
+/// 找主管理窗口 HWND：本进程 + 标题 Gesso + 无属主（壁纸 overlay 与托盘监听窗
+/// 无标题，标题条件即排除）。EnumWindows 对隐藏窗口同样枚举，隐藏态找得到。
+#[cfg(target_os = "windows")]
+fn find_main_hwnd() -> Option<windows::Win32::Foundation::HWND> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindow, GetWindowTextW, GetWindowThreadProcessId, GW_OWNER,
+    };
+
+    // 找到即写入槽位并停枚举（与 pin::windows find_defview_proc 同款通道）
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let slot = &mut *(lparam.0 as *mut Option<HWND>);
+        if slot.is_some() {
+            return BOOL(0);
+        }
+        let mut owner_pid = 0u32;
+        let mut buf = [0u16; 32];
+        let want: Vec<u16> = "Gesso".encode_utf16().collect();
+        let len =
+            // SAFETY: hwnd 由系统枚举给出；buf 为调用方栈上缓冲，只读查询
+            unsafe { GetWindowTextW(hwnd, &mut buf) } as usize;
+        let hit = unsafe {
+            // SAFETY: 同上，GetWindowThreadProcessId/GetWindow 均为只读查询
+            let _ = GetWindowThreadProcessId(hwnd, Some(&mut owner_pid));
+            let no_owner = GetWindow(hwnd, GW_OWNER).map(|h| h.is_invalid()).unwrap_or(true);
+            owner_pid == std::process::id()
+                && len == want.len()
+                && buf[..len] == want[..]
+                && no_owner
+        };
+        if hit {
+            *slot = Some(hwnd);
+            return BOOL(0); // 找到即停
+        }
+        BOOL(1)
+    }
+
+    let mut found: Option<HWND> = None;
+    // SAFETY: 回调经槽位指针写局部变量，枚举同步完成；失败时 found 保持 None
+    unsafe {
+        let _ = EnumWindows(
+            Some(enum_proc),
+            LPARAM(&mut found as *mut Option<HWND> as isize),
+        );
+    }
+    found
+}
+
+/// 托盘/自绘 ✕ 共用的「关闭=隐藏」（设计规格：管理窗口 关闭=隐藏）。
+/// 进程退出只经托盘「退出 Gesso」→ EngineAction::Quit（先拆壁纸会话再退）。
+#[cfg(target_os = "windows")]
+pub(crate) fn hide_main_window() {
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    if let Some(h) = find_main_hwnd() {
+        // SAFETY: hwnd 属本进程主窗口
+        unsafe {
+            let _ = ShowWindow(h, SW_HIDE);
+        }
+        println!("[ui] 主窗口已隐藏（托盘常驻）");
+    }
+}
+
+/// 托盘「管理窗口…」重显隐藏态主窗口（SW_HIDE 后 activate_window 无效，先 SW_SHOW）。
+#[cfg(target_os = "windows")]
+fn show_main_window() {
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOW};
+    if let Some(h) = find_main_hwnd() {
+        // SAFETY: hwnd 属本进程主窗口
+        unsafe {
+            let _ = ShowWindow(h, SW_SHOW);
+        }
+    }
+}
+
+/// 首实例侧：守着激活事件，第二实例一出现就把管理窗口带回前台。
+/// enqueue 是 Mutex 队列，后台线程安全；真正上屏由引擎轮询在主线程完成。
+#[cfg(target_os = "windows")]
+fn watch_first_instance_activate(suffix: String) {
+    use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE};
+    let name = windows::core::HSTRING::from(format!(r"Local\gesso-activate{suffix}"));
+    // SAFETY: 命名事件为本应用私有（同名约定）；CreateEventW 对已存在事件等同打开
+    let h = unsafe { CreateEventW(None, false, false, &name) };
+    let Ok(h) = h else {
+        return;
+    };
+    loop {
+        // SAFETY: h 为本线程持有的事件句柄，无限等待；WAIT_OBJECT_0 = 0
+        if unsafe { WaitForSingleObject(h, INFINITE) }.0 == 0 {
+            println!("[boot] 第二实例请求上屏主窗口");
+            engine::enqueue(engine::EngineAction::FocusMainWindow);
+        }
+    }
+}
+
+/// 第二实例侧：置位激活事件后立刻退出（本进程）。
+#[cfg(target_os = "windows")]
+fn signal_first_instance(suffix: &str) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{CreateEventW, SetEvent};
+    let name = windows::core::HSTRING::from(format!(r"Local\gesso-activate{suffix}"));
+    // SAFETY: 同名事件，打开（不存在则创建）→ 置位 → 关句柄
+    unsafe {
+        if let Ok(h) = CreateEventW(None, false, false, &name) {
+            let _ = SetEvent(h);
+            let _ = CloseHandle(h);
+        }
+    }
 }
 
 /// 激活/重建主管理窗口（FocusMainWindow 副作用的兑现）。
@@ -649,6 +774,9 @@ fn focus_or_reopen_main(cx: &mut gpui_kit::gpui::App) {
     let existing = MAIN_WINDOW.lock().ok().and_then(|g| g.clone());
     let mut activated = false;
     if let Some(h) = existing {
+        // 关闭=隐藏的窗口先 SW_SHOW，否则 activate_window 对隐藏窗口无效
+        #[cfg(target_os = "windows")]
+        show_main_window();
         activated = h
             .update(
                 cx,
@@ -715,6 +843,15 @@ fn open_main_window(cx: &mut gpui_kit::gpui::App) {
                     ui::theme::sync_on_appearance_change(window, cx);
                 })
                 .detach();
+            // 关闭=隐藏（设计规格「管理窗口…关闭=隐藏」）：Alt+F4/任务栏关闭拦下
+            // 藏回托盘；自绘 ✕ 走同一 hide 路径（ui/shell.rs）。不拦的话 Windows 上
+            // 最后一个窗口关闭 = gpui 事件循环退出 = 整个进程退出。macOS 红绿灯
+            // 关窗后应用本就存活，维持默认。返回 false = 否决关闭。
+            #[cfg(target_os = "windows")]
+            window.on_window_should_close(cx, |_, _| {
+                hide_main_window();
+                false
+            });
             use gpui_kit::AppContext as _;
             cx.new(|cx| ui::shell::Shell::new(window, cx))
         },
@@ -798,10 +935,22 @@ fn main() {
     {
         let si = single_instance::SingleInstance::new(&lock_name).unwrap();
         if !si.is_single() {
-            eprintln!("[boot] 已有实例运行，退出");
+            // 关闭=隐藏后主窗口常驻托盘：再次双击图标/开始菜单启动 = 第二实例，
+            // 唤醒首实例把管理窗口带回前台（否则关进托盘后没有回头路）
+            #[cfg(target_os = "windows")]
+            signal_first_instance(&lock_suffix);
+            eprintln!("[boot] 已有实例运行，已请求其上屏主窗口，本实例退出");
             return;
         }
         std::mem::forget(si);
+    }
+
+    // Windows：监听后续第二实例的激活信号（自动重置事件，快速连点也不丢信号：
+    // 无等待者时 SetEvent 会记忆信号态）
+    #[cfg(target_os = "windows")]
+    {
+        let suffix = lock_suffix.clone();
+        std::thread::spawn(move || watch_first_instance_activate(suffix));
     }
 
     gpui_kit::application()

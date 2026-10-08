@@ -178,7 +178,10 @@ impl Shell {
                     "btn-win-close",
                     IconName::X,
                     super::strings::t().win_close,
-                    |_, window, _| window.remove_window(),
+                    // 关闭=隐藏（设计规格）：托盘常驻，进程退出只走托盘「退出 Gesso」
+                    // （EngineAction::Quit，先拆壁纸会话还原桌面）。remove_window 会
+                    // 销毁最后一个 gpui 窗口 → 事件循环退出 → 整个进程退出。
+                    |_, _window, _| crate::hide_main_window(),
                 )),
         );
         #[cfg(not(target_os = "windows"))]
