@@ -592,6 +592,11 @@ impl WallpaperWindow for WinWallpaperWindow {
         self.mount.set(kind);
     }
 
+    fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64)) {
+        // WorkerW 挂载层级由 mount() 保证，重配后重走一次挂载即重申
+        self.set_frame(frame);
+    }
+
     /// 挂载是否落位（BottomMost = explorer 未就绪，调用方重试）。
     fn mount_ok(&self) -> bool {
         self.mount.get() != MountKind::BottomMost

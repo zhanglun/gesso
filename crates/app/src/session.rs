@@ -230,6 +230,26 @@ impl SessionManager {
             println!("[session] 显示器 {id} 已断开，会话拆除（配置保留）");
         }
 
+        // 几何重申（合盖 clamshell / 主屏切换 / 分辨率变更）：ID 存活但 frame 变了
+        // = 显示器重配。AppKit 全局坐标以主屏为原点，主屏切换会平移所有屏的
+        // frame——壁纸窗口必须跟随，否则比例/位置错；WindowServer 还可能在重配后
+        // 重置窗口层级（壁纸浮成普通窗口），顺带重申贴壁属性。
+        for m in &monitors {
+            let Some(s) = self.sessions.get_mut(&m.id) else {
+                continue;
+            };
+            if s.monitor.frame != m.frame || s.monitor.is_main != m.is_main {
+                if let Some(w) = s.window.as_mut() {
+                    w.reassert_pinning(m.frame);
+                }
+                println!(
+                    "[session] {} 几何变化 → 重申贴壁（{:.0},{:.0},{:.0}×{:.0}）",
+                    m.id, m.frame.0, m.frame.1, m.frame.2, m.frame.3
+                );
+                s.monitor = m.clone();
+            }
+        }
+
         // 新建/补齐已配置的显示器
         for m in monitors {
             let Some(entry_id) = self.config.monitors.get(&m.id).cloned() else {

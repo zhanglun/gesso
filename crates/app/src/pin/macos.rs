@@ -206,6 +206,19 @@ impl WallpaperWindow for MacWallpaperWindow {
             position: lb_wry::dpi::Position::Logical(lb_wry::dpi::LogicalPosition::new(0., 0.)),
         });
     }
+
+    fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64)) {
+        // WindowServer 在显示器重配后可能重置层级/空间行为（实测：合盖再开盖，
+        // 壁纸窗口从图标层之下浮成普通窗口）——与 create() 保持同一组贴壁参数
+        self._window.setLevel(PIN_LEVEL);
+        self._window.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::Stationary
+                | NSWindowCollectionBehavior::FullScreenAuxiliary
+                | NSWindowCollectionBehavior::IgnoresCycle,
+        );
+        self.set_frame(frame);
+    }
 }
 
 /// 枚举显示器（稳定 ID = CGDirectDisplayID）。

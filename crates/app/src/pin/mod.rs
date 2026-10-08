@@ -37,6 +37,10 @@ pub trait WallpaperWindow {
     fn set_visible(&mut self, visible: bool);
     /// 窗口几何跟随显示器（显示器热插拔/分辨率变化）。
     fn set_frame(&mut self, frame: (f64, f64, f64, f64));
+    /// 显示器重配后的贴壁重申（合盖 clamshell / 主屏切换 / 分辨率变更）：
+    /// 重申平台贴壁属性（macOS = level + collectionBehavior——WindowServer 可能
+    /// 在重配后重置层级，表现为壁纸变普通浮动窗口）并按新几何对齐窗口。
+    fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64));
     /// 挂载是否落位（Windows：WorkerW/Progman = ok；BottomMost = explorer 未就绪，
     /// 调用方应重试。macOS 恒 ok）。
     fn mount_ok(&self) -> bool {
