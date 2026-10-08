@@ -16,11 +16,13 @@
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
   video, img { width: 100%; height: 100%; object-fit: cover; display: block; }
   #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: none; }
+  #freeze { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
   #frame { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: none; background: #000; }
   #msg { position: fixed; left: 8px; bottom: 6px; font: 11px monospace; color: #f66; }
 </style>
 </head>
 <body>
+<canvas id="freeze"></canvas>
 <video id="media" autoplay muted loop playsinline></video>
 <img id="imgmedia" alt="" style="display:none">
 <canvas id="gl"></canvas>
@@ -42,13 +44,6 @@
   let spec = null;
   try { spec = JSON.parse(q.get("spec") || "null"); } catch (e) {}
   if (!spec) { msg.textContent = "Gesso: 缺少内容规格"; return; }
-
-  // —— 诊断状态色（video 调试期）——
-  // 红=媒体错误  绿=播放中  蓝=已加载但暂停  品红=调用过 pause  黄=调用过 resume
-  function state(c) { document.body.style.background = c; }
-  v.addEventListener("error", function () { state("#FF0000"); });
-  v.addEventListener("playing", function () { state("#00AA00"); });
-  v.addEventListener("loadeddata", function () { state(v.paused ? "#0000FF" : "#00AA00"); });
 
   // ============ shader 渲染器（WebGL2 · Shadertoy 子集）============
   // uniform 契约：iTime / iResolution / iMouse / iTimeDelta / iFrame + iChannel0..3。
@@ -101,7 +96,6 @@
     if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
       const log = gl.getShaderInfoLog(sh) || "unknown";
       msg.textContent = "Gesso: shader 编译失败 " + log.slice(0, 260);
-      state("#FF0000");
       return null;
     }
     return sh;
@@ -174,7 +168,7 @@
       // preserveDrawingBuffer：缩略图采集跨任务 toDataURL 依赖——WebGL 默认
       // 帧缓冲在合成后即被清空，不开此标志采集侧只能读到黑帧（工程笔记 #41）
       gl = cvs.getContext("webgl2", { antialias: false, alpha: false, preserveDrawingBuffer: true });
-      if (!gl) { msg.textContent = "Gesso: WebGL2 不可用"; state("#FF0000"); return; }
+      if (!gl) { msg.textContent = "Gesso: WebGL2 不可用"; return; }
 
       const vs = compile(gl.VERTEX_SHADER, VS_SRC);
       const fs = compile(gl.FRAGMENT_SHADER, fragSource(src));
@@ -185,7 +179,6 @@
       gl.linkProgram(prog);
       if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
         msg.textContent = "Gesso: shader 链接失败 " + (gl.getProgramInfoLog(prog) || "");
-        state("#FF0000");
         return;
       }
       gl.useProgram(prog);
@@ -222,7 +215,6 @@
       };
     } catch (e) {
       msg.textContent = "Gesso: shader 初始化失败 " + e;
-      state("#FF0000");
     }
   }
 
@@ -257,11 +249,26 @@
   // ============ 分派 ============
   if (spec.kind === "video") {
     v.src = spec.source; v.play().catch(function () {});
+    // F11/调度桌面切换期间 AVPlayerLayer 会短暂退出合成，露页面底色（曾因此
+    // 露调试绿底）。在视频下垫一块低频刷新的冻结帧画布：合成层掉线时看到的
+    // 是壁纸最后一帧而非黑底。画布随视频原生宽高（长边封顶 1920 省内存），
+    // 覆盖几何交给 object-fit: cover。
+    const fz = document.getElementById("freeze");
+    const fx = fz.getContext("2d");
+    v.addEventListener("loadedmetadata", function () {
+      const s = Math.min(1, 1920 / Math.max(v.videoWidth || 1, v.videoHeight || 1));
+      fz.width = Math.max(1, Math.round((v.videoWidth || 16) * s));
+      fz.height = Math.max(1, Math.round((v.videoHeight || 9) * s));
+      fz.style.display = "block";
+    });
+    setInterval(function () {
+      if (!v.paused && v.readyState >= 2) fx.drawImage(v, 0, 0, fz.width, fz.height);
+    }, 400);
   } else if (spec.kind === "image") {
     v.style.display = "none"; img.style.display = "block"; img.src = spec.source;
   } else if (spec.kind === "shader") {
     const code = q.get("code");
-    if (!code) { msg.textContent = "Gesso: shader 源码缺失（code 参数）"; state("#FF0000"); }
+    if (!code) { msg.textContent = "Gesso: shader 源码缺失（code 参数）"; }
     else { initShader(code); }
   } else if (spec.kind === "html") {
     initHtml(spec.source);

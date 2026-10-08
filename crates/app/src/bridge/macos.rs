@@ -4,9 +4,8 @@
 //! - 纯 C API 手写 extern（CF 的 +1/CFRelease 对称即可），不裸碰 ObjC 引用计数；
 //!   IOPSCopyPowerSourcesInfo 返回 +1（要 Release），GetPowerSourceList 与
 //!   Description 都是借用（随 info 释放，不得重复 Release）。
-//! - 全屏判定用启发式：layer 0 窗口覆盖整块显示器 frame ≈ 全屏应用
-//!   （菜单栏 layer 24 / Dock layer 20 天然被过滤；壁纸窗口是
-//!   layer -2147483604 也被过滤）。
+//! - 全屏判定只接受前台应用的 layer 0 窗口；仅凭覆盖几何会把 F11/桌面切换
+//!   的系统过渡窗口误判为全屏应用，导致壁纸 pause/resume。
 
 use std::collections::BTreeSet;
 use std::os::raw::{c_char, c_double, c_void};
@@ -114,15 +113,22 @@ fn dict_f64(dict: *const c_void, key: &str) -> Option<f64> {
 
 /// 正被全屏应用覆盖的显示器 ID（`cg-<id>`，与 MonitorInfo.id 同源）。
 ///
-/// 判定：屏幕上 layer 0 的窗口 bounds 与某显示器 frame 完全重合（±3pt 容差）。
+/// 判定：前台应用的 layer 0 窗口 bounds 与某显示器 frame 完全重合（±3pt 容差）。
 /// CG 坐标是全局"顶左原点"，MonitorInfo.frame 是 AppKit"底左原点"——
-/// y 轴经主显示器高度翻转后比较。
+/// y 轴经主显示器高度翻转后比较。只按几何判定会把 F11 桌面切换过渡窗口
+/// 误判为全屏应用，进而触发壁纸 pause/resume。
 pub fn fullscreen_displays() -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let monitors = pin::macos::enumerate_monitors();
     if monitors.is_empty() {
         return out;
     }
+    let Some(frontmost_pid) = objc2_app_kit::NSWorkspace::sharedWorkspace()
+        .frontmostApplication()
+        .map(|app| app.processIdentifier() as f64)
+    else {
+        return out;
+    };
     // 主显示器 = 全局坐标系翻转基准（AppKit 原点在其底左）
     let primary_h = monitors
         .iter()
@@ -143,9 +149,11 @@ pub fn fullscreen_displays() -> BTreeSet<String> {
             if d.is_null() {
                 continue;
             }
-            // 只看普通层窗口（壁纸 -2147483604 / Dock 20 / 菜单栏 24 天然排除）
+            // 只接受前台应用的普通层窗口；Dock/Finder/WindowServer/桌面过渡层
+            // 不再可能把 F11 误判成全屏应用。
             let layer = dict_f64(d, "kCGWindowLayer").unwrap_or(f64::NAN);
-            if layer != 0.0 {
+            let owner_pid = dict_f64(d, "kCGWindowOwnerPID").unwrap_or(f64::NAN);
+            if layer != 0.0 || owner_pid != frontmost_pid {
                 continue;
             }
             let mut rect = CGRect::default();
