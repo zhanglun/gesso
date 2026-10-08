@@ -778,15 +778,25 @@ fn main() {
     }
 
     // 单实例（§4.1 对策 5）。GESSO_LOCK 供开发期多实例并存（UI 验收 vs 会话调试）。
-    // 锁文件必须用绝对路径：Finder/open 启动的 GUI 进程 cwd=/（只读），
-    // 相对路径 create 会 EPERM → unwrap panic → 静默退出（双击没反应的根因）。
     let lock_suffix = std::env::var("GESSO_LOCK").unwrap_or_default();
-    let lock_path = protocol::config_dir().join(format!("gesso-app-lock{lock_suffix}"));
+    // 锁名按平台给：Windows 的 single-instance 0.3 把名字原样传 CreateMutexW——
+    // 那是内核对象名，`\` 会被当命名空间分隔符且中间组件必须已存在，
+    // 文件路径形态（无论 "." 还是 %USERPROFILE%）一律 ERROR_PATH_NOT_FOUND(3)
+    // → unwrap panic → 双击秒退（issue #2 闪退根因）。给扁平会话局部名；
+    // 非 Windows 走文件锁，仍须绝对路径：Finder/open 启动 cwd=/（只读），
+    // 相对路径 create 会 EPERM（macOS 双击没反应的旧坑）。
+    #[cfg(windows)]
+    let lock_name = format!(r"Local\gesso-app-lock{lock_suffix}");
+    #[cfg(not(windows))]
+    let lock_name = protocol::config_dir()
+        .join(format!("gesso-app-lock{lock_suffix}"))
+        .display()
+        .to_string();
     // 真新装时 config 目录尚不存在（bootstrap 在锁之后才落 config）：
-    // 不先建目录 SingleInstance 会 NotFound → unwrap 恐慌 → 首启秒退
+    // 不先建目录文件锁会 NotFound → unwrap 恐慌 → 首启秒退
     std::fs::create_dir_all(protocol::config_dir()).ok();
     {
-        let si = single_instance::SingleInstance::new(&lock_path.display().to_string()).unwrap();
+        let si = single_instance::SingleInstance::new(&lock_name).unwrap();
         if !si.is_single() {
             eprintln!("[boot] 已有实例运行，退出");
             return;
