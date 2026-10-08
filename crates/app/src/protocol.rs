@@ -81,9 +81,16 @@ pub fn assets_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("assets"))
 }
 
-/// 配置目录：~/Library/Application Support/Gesso（win: ~/.gesso）
+/// 配置目录：~/Library/Application Support/Gesso（win: %USERPROFILE%\.gesso）
 pub fn config_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    // Windows 没有跨进程一致的 HOME（Git Bash 等才有）；此前读 HOME 兜底 "."，
+    // 配置目录会跟着 cwd 跑（不同位置启动配置分裂，见 issue #2 排查）。
+    // 顺序：Windows 用 USERPROFILE，其余平台 HOME，末位才 "."。
+    let home = if cfg!(windows) {
+        std::env::var("USERPROFILE").unwrap_or_else(|_| ".".into())
+    } else {
+        std::env::var("HOME").unwrap_or_else(|_| ".".into())
+    };
     #[cfg(target_os = "macos")]
     let base = format!("{home}/Library/Application Support/Gesso");
     #[cfg(not(target_os = "macos"))]

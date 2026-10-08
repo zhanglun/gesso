@@ -727,7 +727,38 @@ fn open_main_window(cx: &mut gpui_kit::gpui::App) {
     .ok();
 }
 
+/// panic 落盘：GUI 双击闪退（尤其 Windows console 子系统黑窗一闪而过）
+/// 无任何痕迹，无法远程诊断（issue #2）。把 panic 追加写进配置目录 gesso.log，
+/// 带版本与时间戳；stderr 照田输出。
+fn install_panic_logger() {
+    std::panic::set_hook(Box::new(|info| {
+        let bt = std::backtrace::Backtrace::force_capture();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let entry = format!(
+            "gesso {} @ unix {ts}\n[panic] {info}\n{bt}\n---\n",
+            env!("CARGO_PKG_VERSION")
+        );
+        eprintln!("{entry}");
+        let log = protocol::config_dir().join("gesso.log");
+        if let Some(dir) = log.parent() {
+            std::fs::create_dir_all(dir).ok();
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log)
+        {
+            use std::io::Write as _;
+            let _ = f.write_all(entry.as_bytes());
+        }
+    }));
+}
+
 fn main() {
+    install_panic_logger();
     // Windows 平台面（M1，技术方案 §4.1）：进程必须先于任何窗口创建声明 PerMonitorV2，
     // 否则显示器枚举/窗口定位拿到的是虚拟化坐标，与 DPI-aware 的 explorer/WorkerW
     // 无法像素对齐。GPUI 与 wry 均不设置（实测 0.3.7 快照），此处运行时调用等效于
