@@ -33,6 +33,10 @@ impl Focusable for UrlImport {
 impl UrlImport {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder(URL_IMPORT_PLACEHOLDER()));
+        // 打开即聚焦输入框：弹窗出现后可直接粘贴地址，免一次点击
+        // （与库页搜索框 focus_search 同款 API）
+        let handle = input.read(cx).focus_handle(cx).clone();
+        window.focus(&handle, cx);
         UrlImport {
             input,
             error: None,

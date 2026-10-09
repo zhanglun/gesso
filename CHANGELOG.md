@@ -17,6 +17,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Fixed
 
+- 「从 URL 导入」弹窗打开即聚焦地址输入框：出现后可直接粘贴链接，免一次点击。
 - **Windows 启动闪退（#2，v0.1.0 安装版 100% 复现）**：单实例锁的文件路径字符串被 `single-instance 0.3` 原样传给 `CreateMutexW` 当内核对象名——`\` 是对象命名空间分隔符，`.\gesso-app-lock`（HOME 缺失兜底）与 `%USERPROFILE%\.gesso\…`（USERPROFILE 修复后）全都 `ERROR_PATH_NOT_FOUND(3)` → `unwrap` panic → 黑窗一闪而过。Windows 锁名改扁平 `Local\gesso-app-lock{GESSO_LOCK后缀}`，非 Windows 仍走绝对路径文件锁。此前 794a254 已落的两项排查沉淀（panic 落盘 `%USERPROFILE%\.gesso\gesso.log`、Windows `config_dir` 改读 `USERPROFILE`）随本修复一并生效。
 - 托盘「退出 Gesso」不再 `process::exit` 硬退：改走 `EngineAction::Quit`，在引擎主线程拆除全部壁纸会话（逐窗 `DestroyWindow`）并无效化 Progman/图标层/WorkerW 让 explorer 重绘，退出后恢复用户原壁纸而非黑底。
 - NSIS 脚本 `gesso.nsi` 补 UTF-8 BOM：无 BOM 在中文 Windows（ACP 936）下 `Bad text encoding` 编不过安装包；英文 CI 仅注释乱码不报错，故一直未暴露。
