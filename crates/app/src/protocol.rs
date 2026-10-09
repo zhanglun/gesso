@@ -14,6 +14,9 @@ use std::path::{Component, Path, PathBuf};
 
 use raw_window_handle::HasWindowHandle;
 
+#[cfg(target_os = "windows")]
+use lb_wry::WebViewBuilderExtWindows as _;
+
 /// 协议请求日志默认静默（视频壁纸每帧 seek/缓冲都会发 Range 请求，启动即刷屏）；
 /// `GESSO_PROTOCOL_LOG=1` 打开（协议联调/播放问题排查用）。
 fn log_enabled() -> bool {
@@ -354,15 +357,28 @@ pub fn host_url() -> &'static str {
 }
 
 /// 创建挂到给定原生视图的壁纸 webview（注册 gesso:// 协议）。
+///
+/// 壁纸默认静音（ContentSpec.audio = muted，技术方案 §5.2）：关掉免手势自动播放——
+/// WebView2 默认允许**有声**自动播放（`with_autoplay(false)` 只是不加放行旗标，须显式
+/// 传 `--autoplay-policy=user-gesture-required`）；WKWebView 落回默认「音频需手势」。
+/// muted 视频壁纸不受影响（Chromium/WKWebView 对静音媒体始终放行）；壁纸窗口永远
+/// 得不到用户手势，html/网页类的声音由此实质关闭。
 pub fn create_webview<H: HasWindowHandle + 'static>(
     handle: H,
     url: &str,
 ) -> Result<lb_wry::WebView, String> {
-    lb_wry::WebViewBuilder::new()
+    let builder = lb_wry::WebViewBuilder::new()
+        .with_autoplay(false)
         .with_custom_protocol("gesso".into(), move |_id, req| route(req))
-        .with_url(url)
-        .build_as_child(&handle)
-        .map_err(|e| format!("{e}"))
+        .with_url(url);
+    // additional_browser_args 会整体替换 wry 默认旗标串——防白闪的
+    // --disable-features 必须自己带上（proxy 本项目未用，略）。
+    #[cfg(target_os = "windows")]
+    let builder = builder.with_additional_browser_args(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+         --autoplay-policy=user-gesture-required",
+    );
+    builder.build_as_child(&handle).map_err(|e| format!("{e}"))
 }
 
 /// gesso:// 三路由 → 本地文件路径。协议回调与回环媒体服务共用同一套解析

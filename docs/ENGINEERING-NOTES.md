@@ -75,6 +75,7 @@
 | GPUI `img` 固有宽高比撑高被裁（contain 失效根因，2026-10-10） | `img` 元素在 `request_layout` 里会把**图片固有宽高比**写进 `style.aspect_ratio`（竖图=0.56），覆盖 `size_full()` 的高度 → 元素被撑高、再被父级 `overflow_hidden` 裁掉上下 = 看起来像 cover 裁切；`ObjectFit::Contain` 计算本身是对的，但输入 bounds 已错。修法：img 显式 `.aspect_ratio(16./9.)`（与父容器一致）压制固有比例，Contain 才真正信箱化。判别：竖图在 16:9 框里应呈窄列 + 左右黑边，若满幅就是固有比例没被压制 |
 | 清单解析失败静默覆写用户库（探针事故，2026-10-10） | 启动 `library.json` 解析失败（损坏/手工编辑错）时 `unwrap_or_default()` 以空库继续 → 下方播种把清单覆写成只剩预置条目，用户导入条目全丢（目录还在、清单没了）。修法：`load` 失败且文件存在 → `eprintln` + `exit(78)` 保文件交用户修复；仅"文件不存在"（真首启）才视为空库。教训：任何"解析失败 → 默认值 → 回写"的链路都是数据丢失放大器 |
 | 锁屏检测（macOS，2026-10-10） | 锁屏是系统级安全上下文（loginwindow 渲染），壁纸窗口（图标层下）不参与——第三方壁纸无法在锁屏显示，只可"锁屏暂停省电"。检测：`CGSessionCopyCurrentDictionary`（+1，CFRelease）查 `"CGSSessionScreenIsLocked"` 键存在即锁定；无 GUI 会话返回 NULL 按未锁处理。轮询式（随 bridge::sample ~2s 一拍）即可，无需通知监听基础设施 |
+| WebView2 默认允许**有声**自动播放，`with_autoplay(false)` 在 Windows 是空操作（2026-10-09 实测：网页壁纸出声） | wry 的 `autoplay=false` 只是不加 `--autoplay-policy=no-user-gesture-required` 放行旗标，而 WebView2 缺省策略本来就放行有声自动播放 → html/网页壁纸的声音直通系统混音器（ContentSpec 契约 `audio: muted` 形同虚设）。必须经 `with_additional_browser_args` 显式传 `--autoplay-policy=user-gesture-required`；**该参数一旦设置会整体替换 wry 默认旗标串**，`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection` 防白闪旗标要自己带上。muted 媒体不受手势策略限制（视频壁纸、采集抽帧照常）；macOS 侧 `with_autoplay(false)` 有效（落回 WKWebView 默认「音频需手势」）。双平台统一收口在 `protocol::create_webview` |
 
 ## 3. 关键路径（调试用）
 
