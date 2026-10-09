@@ -35,8 +35,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use windows::core::{w, BOOL, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateSolidBrush, EnumDisplayMonitors, GetMonitorInfoW, HBRUSH, HDC, HMONITOR, MONITORINFO,
-    MONITORINFOEXW,
+    CreateSolidBrush, EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, DISPLAY_DEVICEW,
+    HBRUSH, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::GetDpiForSystem;
@@ -103,47 +103,113 @@ fn monitor_id_from_device(device: &str) -> String {
     format!("win-{}", device.trim_start_matches(r"\\.\"))
 }
 
+/// 显示器硬件身份：该屏挂的 monitor PnP ID（EDID 派生，如 `dela0bc`），
+/// 跨重启/驱动重装稳定——DISPLAYn 枚举序号则不是（v1 已知缺陷）。取不到回落。
+fn monitor_pnp_id(device: &str) -> Option<String> {
+    let mut dd = DISPLAY_DEVICEW::default();
+    dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+    let device_w: Vec<u16> = device.encode_utf16().chain(std::iter::once(0)).collect();
+    // SAFETY: dd 为本栈帧局部，cbSize 按 API 约定填写；device_w 含 NUL 终止
+    if unsafe { EnumDisplayDevicesW(PCWSTR(device_w.as_ptr()), 0, &mut dd, 0) }.as_bool() {
+        let device_id = String::from_utf16_lossy(&dd.DeviceID)
+            .trim_end_matches('\0')
+            .to_string();
+        // DeviceID 形如 MONITOR\DELA0BC\<instance>：第二段即 EDID 派生 PnP ID
+        let seg = device_id
+            .split('\\')
+            .nth(1)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        (!seg.is_empty()).then_some(seg)
+    } else {
+        None
+    }
+}
+
+/// 身份 → 稳定 ID：`edid-<pnp>`；同 PnP 多屏（同型号多显示器）追加设备名消歧；
+/// 无身份回落 `win-DISPLAYN`（v1 行为）。
+fn assign_monitor_ids(rows: &[(String, Option<String>)]) -> Vec<String> {
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for (_, pnp) in rows {
+        if let Some(p) = pnp {
+            *counts.entry(p.clone()).or_insert(0) += 1;
+        }
+    }
+    rows.iter()
+        .map(|(device, pnp)| match pnp {
+            Some(p) if counts[p] > 1 => {
+                format!("edid-{p}-{}", device.trim_start_matches(r"\\.\"))
+            }
+            Some(p) => format!("edid-{p}"),
+            None => monitor_id_from_device(device),
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // 显示器枚举
 // ---------------------------------------------------------------------------
 
+/// 枚举回调的中间行：device 名 + PnP 身份 + 几何（id 在 enumerate 末尾统一生成，
+/// 同型号消歧需要全量视图）。
+struct EnumRow {
+    device: String,
+    pnp: Option<String>,
+    frame: (f64, f64, f64, f64),
+    is_main: bool,
+}
+
 /// 枚举显示器（虚拟桌面物理像素，top-left 原点）。顺序稳定：主屏优先，余按 (x, y)。
 pub fn enumerate_monitors() -> Vec<MonitorInfo> {
-    let mut out: Vec<MonitorInfo> = Vec::new();
+    let mut rows: Vec<EnumRow> = Vec::new();
     unsafe {
-        let lparam = LPARAM(&mut out as *mut Vec<MonitorInfo> as isize);
+        let lparam = LPARAM(&mut rows as *mut Vec<EnumRow> as isize);
         let _ = EnumDisplayMonitors(None, None, Some(enum_monitor_proc), lparam);
     }
-    out.sort_by(|a, b| {
+    rows.sort_by(|a, b| {
         b.is_main
             .cmp(&a.is_main)
             .then(a.frame.0.total_cmp(&b.frame.0))
             .then(a.frame.1.total_cmp(&b.frame.1))
     });
-    out
+    let ids = assign_monitor_ids(
+        &rows
+            .iter()
+            .map(|r| (r.device.clone(), r.pnp.clone()))
+            .collect::<Vec<_>>(),
+    );
+    rows.into_iter()
+        .zip(ids)
+        .enumerate()
+        .map(|(i, (r, id))| MonitorInfo {
+            id,
+            name: format!("显示器 {}", i + 1),
+            frame: r.frame,
+            is_main: r.is_main,
+        })
+        .collect()
 }
 
 unsafe extern "system" fn enum_monitor_proc(
-    hmon: HMONITOR,
+    _hmon: HMONITOR,
     _hdc: HDC,
     _rect: *mut RECT,
     lparam: LPARAM,
 ) -> BOOL {
-    let out = &mut *(lparam.0 as *mut Vec<MonitorInfo>);
+    let rows = &mut *(lparam.0 as *mut Vec<EnumRow>);
     let mut info = MONITORINFOEXW::default();
     info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
     // SAFETY: info 为本栈帧局部，GetMonitorInfoW 按 cbSize 写入
-    if !GetMonitorInfoW(hmon, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool() {
+    if !GetMonitorInfoW(_hmon, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool() {
         return BOOL(1); // 单个显示器失败不中断枚举
     }
     let r = info.monitorInfo.rcMonitor;
     let device = String::from_utf16_lossy(&info.szDevice)
         .trim_end_matches('\0')
         .to_string();
-    let idx = out.len() + 1;
-    out.push(MonitorInfo {
-        id: monitor_id_from_device(&device),
-        name: format!("显示器 {idx}"),
+    rows.push(EnumRow {
+        pnp: monitor_pnp_id(&device),
+        device,
         frame: (
             r.left as f64,
             r.top as f64,
@@ -640,6 +706,33 @@ impl Drop for WinWallpaperWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assign_monitor_ids_edid_fallback_and_dedup() {
+        let device1 = r"\\.\DISPLAY1".to_string();
+        let device2 = r"\\.\DISPLAY2".to_string();
+        // 唯一 PnP → edid- 前缀
+        assert_eq!(
+            assign_monitor_ids(&[(device1.clone(), Some("dela0bc".into()))]),
+            vec!["edid-dela0bc".to_string()]
+        );
+        // 同型号多屏 → 追加设备名消歧
+        assert_eq!(
+            assign_monitor_ids(&[
+                (device1.clone(), Some("dela0bc".into())),
+                (device2.clone(), Some("dela0bc".into())),
+            ]),
+            vec![
+                "edid-dela0bc-DISPLAY1".to_string(),
+                "edid-dela0bc-DISPLAY2".to_string(),
+            ]
+        );
+        // 无身份（虚拟屏等）→ 回落 win-DISPLAYN
+        assert_eq!(
+            assign_monitor_ids(&[(device1, None)]),
+            vec!["win-DISPLAY1".to_string()]
+        );
+    }
 
     #[test]
     fn workaround_url_translates_only_prefix() {
