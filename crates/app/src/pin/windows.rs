@@ -114,16 +114,23 @@ fn monitor_pnp_id(device: &str) -> Option<String> {
         let device_id = String::from_utf16_lossy(&dd.DeviceID)
             .trim_end_matches('\0')
             .to_string();
-        // DeviceID 形如 MONITOR\DELA0BC\<instance>：第二段即 EDID 派生 PnP ID
-        let seg = device_id
-            .split('\\')
-            .nth(1)
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        (!seg.is_empty()).then_some(seg)
+        monitor_pnp_id_parse(&device_id)
     } else {
         None
     }
+}
+
+/// DeviceID → PnP 身份段（纯函数，可测）。两种驱动形态，身份都是 EDID 派生段：
+///   注册表形态  MONITOR\DELA0BC\<instance>
+///   接口形态    \\?\DISPLAY#DELA0BC#<instance>#{guid}
+/// 按分隔符切段后取第一个非空、非 MONITOR/DISPLAY 的段。
+fn monitor_pnp_id_parse(device_id: &str) -> Option<String> {
+    let seg = device_id
+        .split(['\\', '#'])
+        .find(|s| !s.is_empty() && *s != "MONITOR" && *s != "DISPLAY")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    (!seg.is_empty()).then_some(seg)
 }
 
 /// 身份 → 稳定 ID：`edid-<pnp>`；同 PnP 多屏（同型号多显示器）追加设备名消歧；
@@ -732,6 +739,25 @@ mod tests {
             assign_monitor_ids(&[(device1, None)]),
             vec!["win-DISPLAY1".to_string()]
         );
+    }
+
+    #[test]
+    fn monitor_pnp_id_parses_both_deviceid_forms() {
+        // 注册表形态 MONITOR\<pnp>\<instance>
+        assert_eq!(
+            monitor_pnp_id_parse("MONITOR\\DELA0BC\\5&2f3acdbc&0&UID8194"),
+            Some("dela0bc".to_string())
+        );
+        // 接口形态 \\?\DISPLAY#<pnp>#<instance>#{guid}
+        assert_eq!(
+            monitor_pnp_id_parse(
+                r"\\?\DISPLAY#DELA0BC#5&2f3acdbc&0&UID8194#{e6f07b5f-97c8-4631-a4cf-07749b5c6c5b}"
+            ),
+            Some("dela0bc".to_string())
+        );
+        // 空/异常输入 → None
+        assert_eq!(monitor_pnp_id_parse(""), None);
+        assert_eq!(monitor_pnp_id_parse("MONITOR\\"), None);
     }
 
     #[test]
