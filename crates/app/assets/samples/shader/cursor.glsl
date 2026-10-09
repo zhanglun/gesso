@@ -1,11 +1,13 @@
 // Cursor Glow —— 光标跟随（Gesso 预置壁纸）。
-// iMouse.xy 为当前光标位置（CSS 像素，顶左原点，M5 光标桥喂入）。
+// iMouse.xy 为当前光标位置（物理像素、左下原点，M5 光标桥喂入；
+// 画布按 devicePixelRatio 渲染后与 fragCoord 同为物理像素）。
 // 一团柔光始终聚在光标周围；无点击交互，z/w 不用。
+// 光晕半径随画布高度自适应：不同分辨率下视觉大小一致。
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
-
     float d = distance(fragCoord, iMouse.xy);
-    float glow = exp(-d * d / (2.0 * 90.0 * 90.0));
+    float r = iResolution.y / 1440.0 * 90.0;
+    float glow = exp(-d * d / (2.0 * r * r));
 
     vec3 base = mix(vec3(0.040, 0.045, 0.070), vec3(0.090, 0.110, 0.180), uv.y);
     // 缓慢漂移的底纹，纯静态背景太死板

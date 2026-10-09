@@ -10,7 +10,9 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Changed
 
-- **预置壁纸文案去 demo 化**：条目标题去掉「（内置 Shader）/（内置）/测试图源」等措辞——Spectrum（原「测试图源」）、Plasma、Aurora、Noise Flow、Cursor Glow、Clock；播种时对已入库预置条目做标题刷新，老用户升级自动换新文案；资源缺失不再静默跳过（留日志）；界面文案「内置样例」→「预置壁纸」。
+- **shader 画布按 devicePixelRatio 渲染**：此前 WebGL 画布取 CSS 尺寸，125%+ 缩放屏上被拉伸上屏（真机 2560×1440@125% 实际渲染 2048×1152），星点/粒子类内容发糊——Starfield/Ember 重写为像素级粒子（1-2px 硬核 + 小范围微光），Cursor Glow 光晕半径随分辨率自适应，iMouse 上传同步换算（光标桥与 html/WE 的 CSS 像素契约不变）。
+- **预置壁纸内容随包升级**：播种时对已入库预置条目重拷资源——此前样例只在首次播种时落盘，改版内容（修 shader/换标题）永远到不了老用户（真机复现）。
+- **预置壁纸文案去 demo 化**：条目标题去掉「（内置 Shader）/（内置）/测试图源」等措辞——Spectrum（原「测试图源」）、Plasma、Aurora、Noise Flow、Cursor Glow、Clock；标题表为唯一事实源；资源缺失不再静默跳过（留日志）；界面文案「内置样例」→「预置壁纸」。
 - `config.json` / `library.json` 加载剥离 UTF-8 BOM：用户用记事本编辑配置（Win10 默认存 BOM）后曾解析失败 → 静默回退默认配置 → 显示器指派被重置（真机复现）。
 
 ### Fixed

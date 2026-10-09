@@ -229,15 +229,6 @@ fn bootstrap() -> (session::SessionManager, bool) {
         ),
     ];
     for (id, kind, asset, title) in builtin_samples {
-        // 已入库的预置条目：标题由本表刷新（预置条目用户不可改名，无覆盖风险），
-        // 升级换文案不残留旧标题
-        if let Some(e) = library.iter_mut().find(|e| e.id == *id) {
-            if e.origin == "builtin" && e.title != *title {
-                e.title = (*title).into();
-                println!("[boot] 预置壁纸标题更新：{id} → {title}");
-            }
-            continue;
-        }
         let src = protocol::assets_dir().join(asset);
         if !src.exists() {
             // 资源缺失（安装包不完整/开发目录异常）——静默跳过会让「可用壁纸变少」
@@ -245,8 +236,6 @@ fn bootstrap() -> (session::SessionManager, bool) {
             println!("[boot] 预置壁纸资源缺失，跳过入库：{asset}");
             continue;
         }
-        let dst = protocol::library_dir().join(id);
-        std::fs::create_dir_all(&dst).ok();
         // Html 条目的用户页面固定落为 wallpaper.html（index.html 留给宿主页，
         // ensure_entry_host 启动时覆盖写入）；其余类型保持 index.<ext>
         let asset_name = if *kind == WallpaperKind::Html {
@@ -255,6 +244,22 @@ fn bootstrap() -> (session::SessionManager, bool) {
             let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("bin");
             format!("index.{ext}")
         };
+        // 已入库的预置条目：刷新标题 + 重拷资源——预置内容随包升级（预置条目
+        // 用户不可改名/改内容，无覆盖风险；不重拷的话改版内容永远到不了老用户）
+        if let Some(e) = library.iter_mut().find(|e| e.id == *id) {
+            if e.origin == "builtin" {
+                if e.title != *title {
+                    e.title = (*title).into();
+                    println!("[boot] 预置壁纸标题更新：{id} → {title}");
+                }
+                let dst = protocol::library_dir().join(id);
+                std::fs::create_dir_all(&dst).ok();
+                std::fs::copy(&src, dst.join(asset_name)).ok();
+            }
+            continue;
+        }
+        let dst = protocol::library_dir().join(id);
+        std::fs::create_dir_all(&dst).ok();
         std::fs::copy(&src, dst.join(asset_name)).ok();
         library.push(LibraryEntry {
             id: (*id).into(),
@@ -265,7 +270,7 @@ fn bootstrap() -> (session::SessionManager, bool) {
             main_file: None,
             source_url: None,
         });
-        println!("[boot] 内置样例已入库：{id}");
+        println!("[boot] 预置壁纸已入库：{id}");
     }
     {
         let p = protocol::library_dir().join("library.json");

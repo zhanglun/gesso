@@ -601,7 +601,7 @@ fn card_context_menu(
         }))
         .separator()
         .item(
-            PopupMenuItem::element(move |_, _| danger_item(MENU_REMOVE())).on_click({
+            PopupMenuItem::element(move |_, cx| danger_item(MENU_REMOVE(), cx)).on_click({
                 let id = item_id.clone();
                 move |_, window, cx| remove_item(&id, window, cx)
             }),
@@ -652,12 +652,11 @@ fn remove_item(item_id: &str, window: &mut Window, cx: &mut App) {
     window.push_notification(Notification::info(toast_removed(&name)), cx);
 }
 
-fn danger_item(label: &'static str) -> AnyElement {
+/// 破坏项红字（§4.3）：行内边距/字号跟随菜单标准项（kit 行自带 px(8) + text_sm），只改色。
+fn danger_item(label: &'static str, cx: &App) -> AnyElement {
     div()
-        .px_2()
-        .py_1()
-        .text_size(px(13.))
-        .text_color(gpui_kit::gpui::rgb(0xD33A3A))
+        .text_sm()
+        .text_color(tokens(cx).danger)
         .child(label)
         .into_any_element()
 }
