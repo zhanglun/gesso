@@ -60,9 +60,10 @@ AVFoundation（含其 objc2 崩溃面）。
 
 - ✅ 宿主页：WebGL 上下文加 `preserveDrawingBuffer: true`（工程笔记 #41 认可方案；
       否则 toDataURL 跨任务读到清空后的黑帧）
-- ✅ Windows 采集窗口：常驻隐形窗口（TOPMOST + 1.2% alpha + TOOLWINDOW + NOACTIVATE，
-      物理像素 800×450），顶层窗口恒不被遮挡、不受 explorer 重启影响——比 macOS
-      的「壁纸层之上一档」更稳（那里靠层级逼近同一效果）
+- ✅ Windows 采集窗口：近隐形窗口（TOPMOST + 1.2% alpha + TOOLWINDOW + NOACTIVATE +
+      `WS_EX_TRANSPARENT` 跨进程点击穿透，物理像素 800×450），采集期显身、空闲期隐藏
+      （隐藏窗不参与命中测试与合成，屏幕无常驻隐形层），顶层窗口恒不被遮挡、不受
+      explorer 重启影响——比 macOS 的「壁纸层之上一档」更稳（那里靠层级逼近同一效果）
 - ✅ 视频抽帧：采集 JS 用影子 `<video crossorigin=anonymous>`（协议响应已带
       `Access-Control-Allow-Origin: *`，规避 canvas 跨源污染），seek → cover-fit 绘制
       → toDataURL；采样时刻表复用 `frame_times`（8fps × 2s = 16 帧契约不变）

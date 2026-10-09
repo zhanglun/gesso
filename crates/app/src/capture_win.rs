@@ -10,8 +10,11 @@
 //!   WebGL 默认帧缓冲合成后即清空，跨任务读取是黑帧——工程笔记 #41）
 //!
 //! 线程与生命周期纪律（同 capture.rs 模块头）：主线程（GPUI 前台执行器）、
-//! 进程级串行（CAPTURE_QUEUE）、采集窗口常驻永不 close。窗口为顶层 TOPMOST，
-//! 不受 explorer 重启影响，无需重钉。
+//! 进程级串行（CAPTURE_QUEUE）。采集窗口进程级复用（重建 webview 昂贵）：
+//! **采集期显身、空闲期隐藏**——隐藏窗口不参与命中测试、不被 DWM 合成，
+//! 屏幕上不再有常驻的近隐形顶层层；显身后 Chromium 恢复渲染，首帧延迟由
+//! 现有就绪轮询（READY_TIMEOUT / FRAME_SETTLE）吸收。永不 close（快照/求值
+//! 悬挂期绝不能销毁窗口）。窗口为顶层 TOPMOST，不受 explorer 重启影响，无需重钉。
 
 use std::cell::RefCell;
 use std::path::Path;
@@ -24,7 +27,9 @@ use windows::Win32::Graphics::Gdi::{
     ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, SRCCOPY,
 };
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, PW_RENDERFULLCONTENT};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetWindowRect, ShowWindow, PW_RENDERFULLCONTENT, SW_HIDE, SW_SHOWNA,
+};
 
 use gesso_core::WallpaperKind;
 
@@ -88,6 +93,11 @@ impl raw_window_handle::HasWindowHandle for HwndWrap {
 fn take_window() -> CaptureWindow {
     CAP_WINDOW.with(|c| {
         if let Some(w) = c.borrow_mut().take() {
+            // 空闲期窗口被隐藏（put_window），采集前重新显身（不抢焦点）
+            // SAFETY: 同主线程创建的窗口
+            unsafe {
+                let _ = ShowWindow(w.hwnd, SW_SHOWNA);
+            }
             return w;
         }
         let hwnd = crate::pin::windows::create_overlay_window((CAP_W as i32, CAP_H as i32))
@@ -114,6 +124,11 @@ fn take_window() -> CaptureWindow {
 }
 
 fn put_window(w: CaptureWindow) {
+    // 空闲即隐藏：屏幕上不常驻近隐形顶层窗（隐藏窗不参与命中测试与合成）。
+    // SAFETY: 同主线程创建的窗口；webview 保留，下次采集显身即复用
+    unsafe {
+        let _ = ShowWindow(w.hwnd, SW_HIDE);
+    }
     CAP_WINDOW.with(|c| *c.borrow_mut() = Some(w));
 }
 
