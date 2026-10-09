@@ -73,6 +73,9 @@ static PIN_ENV: std::sync::Once = std::sync::Once::new();
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 /// TaskbarCreated 已到（explorer 重启）→ 引擎轮询取走并触发各会话 remount。
 static REMOUNT_PENDING: AtomicBool = AtomicBool::new(false);
+/// 存活的贴壁窗口句柄（仅 create() 的壁纸窗口，不含采集 overlay）。
+/// panic 钩子的 emergency_teardown 按此清单尽力销毁。
+static LIVE_WALLPAPER_HWNDs: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
 
 // ---------------------------------------------------------------------------
 // 纯逻辑（单测覆盖）：URL 翻译与子窗口定位换算
@@ -367,8 +370,33 @@ pub fn restore_desktop() {
         for h in &targets {
             let _ = InvalidateRect(Some(*h), None, true);
         }
-        println!("[pin] 桌面还原：{} 个 shell 窗口已无效化", targets.len());
+        // 兜底重锤：整个屏幕失效。定向失效可能不够——壁纸窗口销毁后暴露的
+        // 区域若被 WorkerW 以黑底擦除，只有逼全部窗口重绘才能让原壁纸回来
+        //（退出瞬间的一次全屏重绘，换桌面恢复正常）。
+        let _ = InvalidateRect(None, None, true);
+        println!(
+            "[pin] 桌面还原：{} 个 shell 窗口已无效化 + 全屏失效",
+            targets.len()
+        );
     }
+}
+
+/// 异常退出（panic 钩子调用）的尽力清场：销毁全部存活的贴壁窗口并触发桌面
+/// 重绘。DestroyWindow 仅在创建线程合法——panic 发生在其他线程时失败，
+/// 静默忽略（进程随后死亡，OS 兜底销毁窗口）。任何路径都不 panic。
+pub fn emergency_teardown() {
+    let live = LIVE_WALLPAPER_HWNDs
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .drain(..)
+        .collect::<Vec<isize>>();
+    for h in live {
+        // SAFETY: 句柄来自本模块登记；跨线程时 DestroyWindow 返回失败，忽略
+        unsafe {
+            let _ = DestroyWindow(HWND(h as *mut core::ffi::c_void));
+        }
+    }
+    restore_desktop();
 }
 
 /// 采集覆盖窗（M4-W，capture.rs 用）：TOPMOST + 3/255 alpha 的近隐形窗口，
@@ -604,6 +632,11 @@ pub fn create(monitor: &MonitorInfo) -> Result<WinWallpaperWindow> {
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOWNA);
     }
+    // 登记：panic 钩子的 emergency_teardown 按此清单尽力销毁
+    LIVE_WALLPAPER_HWNDs
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(hwnd.0 as isize);
     println!(
         "[pin] 壁纸窗口 {mx},{my} {mw}×{mh} → {kind:?}（{}）",
         monitor.id
@@ -711,6 +744,10 @@ impl Drop for WinWallpaperWindow {
                 eprintln!("[pin] DestroyWindow 失败：{e}");
             }
         }
+        LIVE_WALLPAPER_HWNDs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|h| *h != self.hwnd.0 as isize);
         println!("[pin] 壁纸窗口已销毁（{:x}）", self.hwnd.0 as isize);
     }
 }

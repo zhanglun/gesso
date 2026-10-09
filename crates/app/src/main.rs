@@ -933,6 +933,10 @@ fn install_panic_logger() {
             use std::io::Write as _;
             let _ = f.write_all(entry.as_bytes());
         }
+        // 异常退出尽力清场（Windows）：销毁存活的壁纸窗口 + 触发桌面重绘，
+        // 让用户壁纸回来而非黑屏。任何失败静默——进程随后即死。
+        #[cfg(target_os = "windows")]
+        pin::windows::emergency_teardown();
     }));
 }
 
@@ -1033,6 +1037,26 @@ fn main() {
                     cx.background_executor()
                         .timer(Duration::from_millis(150))
                         .await;
+                    // debug 专用模拟钩子：无头验证退出/异常退出路径（托盘退出
+                    // 走同一 EngineAction::Quit；panic 走同一 panic 钩子）。
+                    // release 构建不存在，无环境变量时零开销。
+                    #[cfg(debug_assertions)]
+                    {
+                        static SIM_T0: std::sync::OnceLock<std::time::Instant> =
+                            std::sync::OnceLock::new();
+                        let elapsed = SIM_T0
+                            .get_or_init(std::time::Instant::now)
+                            .elapsed()
+                            .as_secs();
+                        let env_secs =
+                            |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<u64>().ok());
+                        if env_secs("GESSO_QUIT_AFTER_SECS").is_some_and(|n| elapsed >= n) {
+                            engine::enqueue(engine::EngineAction::Quit);
+                        }
+                        if env_secs("GESSO_PANIC_AFTER_SECS").is_some_and(|n| elapsed >= n) {
+                            panic!("GESSO_PANIC_AFTER_SECS 模拟异常退出（壁纸播放中 panic）");
+                        }
+                    }
                     // UI/托盘写动作入队（API.md §4）——引擎轮询统一执行
                     let engine_actions = engine::drain();
                     let mut refresh_ui = !engine_actions.is_empty();

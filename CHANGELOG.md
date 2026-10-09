@@ -17,6 +17,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Fixed
 
+- **退出/异常退出后桌面黑屏**：panic 钩子补上尽力清场（销毁存活的贴壁窗口 + 全屏失效逼 explorer 重绘）——此前 panic 只记日志，桌面必然黑屏；托盘退出的桌面还原追加全屏失效兜底（定向失效 WorkerW 可能不够）。真机验证三路径：托盘退出（EngineAction::Quit）、panic（GESSO_PANIC_AFTER_SECS 模拟）、强杀，桌面均恢复原壁纸。debug 构建新增 `GESSO_QUIT_AFTER_SECS` / `GESSO_PANIC_AFTER_SECS` 模拟钩子供无头验证。
 - 「从 URL 导入」弹窗打开即聚焦地址输入框：出现后可直接粘贴链接，免一次点击。
 - **Windows 启动闪退（#2，v0.1.0 安装版 100% 复现）**：单实例锁的文件路径字符串被 `single-instance 0.3` 原样传给 `CreateMutexW` 当内核对象名——`\` 是对象命名空间分隔符，`.\gesso-app-lock`（HOME 缺失兜底）与 `%USERPROFILE%\.gesso\…`（USERPROFILE 修复后）全都 `ERROR_PATH_NOT_FOUND(3)` → `unwrap` panic → 黑窗一闪而过。Windows 锁名改扁平 `Local\gesso-app-lock{GESSO_LOCK后缀}`，非 Windows 仍走绝对路径文件锁。此前 794a254 已落的两项排查沉淀（panic 落盘 `%USERPROFILE%\.gesso\gesso.log`、Windows `config_dir` 改读 `USERPROFILE`）随本修复一并生效。
 - 托盘「退出 Gesso」不再 `process::exit` 硬退：改走 `EngineAction::Quit`，在引擎主线程拆除全部壁纸会话（逐窗 `DestroyWindow`）并无效化 Progman/图标层/WorkerW 让 explorer 重绘，退出后恢复用户原壁纸而非黑底。
