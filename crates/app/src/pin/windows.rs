@@ -371,11 +371,14 @@ pub fn restore_desktop() {
     }
 }
 
-/// 采集覆盖窗（M4-W，capture.rs 用）：TOPMOST + 3/255 alpha 的隐形常驻窗口。
+/// 采集覆盖窗（M4-W，capture.rs 用）：TOPMOST + 3/255 alpha 的近隐形窗口，
+/// 采集期显身、空闲期由 capture_win 隐藏（隐藏窗不参与命中测试与合成）。
 /// 顶层窗口不被普通应用窗口遮挡 → WebView2 全速渲染（macOS「壁纸层之上一档 +
 /// 2% 透明」的 Windows 等价机制；遮挡会让 Chromium 停摆 RAF/合成 → 快照全黑）。
-/// TOOLWINDOW 不进任务栏/Alt-Tab，NOACTIVATE + SW_SHOWNA 不抢焦点，
-/// GessoWallpaper 类过程 HTTRANSPARENT 点击穿透。explorer 重启不影响顶层窗口。
+/// TOOLWINDOW 不进任务栏/Alt-Tab，NOACTIVATE + SW_SHOWNA 不抢焦点。
+/// 点击穿透必须走 `WS_EX_TRANSPARENT`（文档保证的跨进程路径）：类过程
+/// HTTRANSPARENT 按文档仅对同线程下方窗口生效，低 alpha 的命中行为无文档
+/// 保证且实测不稳——两者都不足为凭。explorer 重启不影响顶层窗口。
 /// 必须主线程调用（采集任务跑 GPUI 前台执行器）。
 pub(crate) fn create_overlay_window(logical: (i32, i32)) -> Result<HWND> {
     ensure_pin_env();
@@ -388,7 +391,7 @@ pub(crate) fn create_overlay_window(logical: (i32, i32)) -> Result<HWND> {
             .map(|m| HINSTANCE(m.0))
             .map_err(|e| GessoError::UnsupportedPlatform(format!("GetModuleHandleW: {e}")))?;
         CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
             WALLPAPER_CLASS,
             PCWSTR::null(),
             WS_POPUP,
