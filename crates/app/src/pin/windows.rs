@@ -123,11 +123,13 @@ fn monitor_pnp_id(device: &str) -> Option<String> {
 /// DeviceID → PnP 身份段（纯函数，可测）。两种驱动形态，身份都是 EDID 派生段：
 ///   注册表形态  MONITOR\DELA0BC\<instance>
 ///   接口形态    \\?\DISPLAY#DELA0BC#<instance>#{guid}
-/// 按分隔符切段后取第一个非空、非 MONITOR/DISPLAY 的段。
+/// 按分隔符切段后取第一个非空、非 MONITOR/DISPLAY/`?`（接口形态 \\?\ 前缀的
+/// 段，真 Windows 实测曾解析成 Some("?")——CI 的 Windows job 不跑 app 测试
+/// 所以漏网）的段。
 fn monitor_pnp_id_parse(device_id: &str) -> Option<String> {
     let seg = device_id
         .split(['\\', '#'])
-        .find(|s| !s.is_empty() && *s != "MONITOR" && *s != "DISPLAY")
+        .find(|s| !s.is_empty() && *s != "MONITOR" && *s != "DISPLAY" && *s != "?")
         .unwrap_or_default()
         .to_ascii_lowercase();
     (!seg.is_empty()).then_some(seg)
