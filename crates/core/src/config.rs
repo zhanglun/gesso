@@ -109,7 +109,8 @@ pub fn diff_monitors(old: &MonitorMap, new: &MonitorMap) -> MonitorDiff {
 
 impl AppConfig {
     pub fn load(path: &std::path::Path) -> Result<Self> {
-        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+        let bytes = std::fs::read(path)?;
+        Ok(serde_json::from_slice(&strip_bom(bytes))?)
     }
 
     pub fn save(&self, path: &std::path::Path) -> Result<()> {
@@ -123,6 +124,47 @@ impl AppConfig {
 // WallpaperKind 此处仅用于未来按类型筛选的 API 预留，避免未使用告警。
 #[allow(dead_code)]
 fn _kind_hint(_: WallpaperKind) {}
+
+/// 剥掉 UTF-8 BOM（EF BB BF）。serde_json 不认 BOM——用户用记事本编辑
+/// config.json（Win10 记事本默认存 UTF-8 BOM）后解析失败 → 静默回退默认
+/// 配置 → 显示器指派被重置（2026-10-09 真机复现）。config 与 library 共用。
+pub(crate) fn strip_bom(bytes: Vec<u8>) -> Vec<u8> {
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        bytes[3..].to_vec()
+    } else {
+        bytes
+    }
+}
+
+#[cfg(test)]
+mod strip_bom_tests {
+    use super::*;
+
+    #[test]
+    fn strips_utf8_bom_prefix() {
+        let with_bom: Vec<u8> = [0xEF, 0xBB, 0xBF]
+            .iter()
+            .chain(b"{\"a\":1}")
+            .copied()
+            .collect();
+        assert_eq!(strip_bom(with_bom), b"{\"a\":1}");
+        assert_eq!(strip_bom(b"{\"a\":1}".to_vec()), b"{\"a\":1}");
+        assert_eq!(strip_bom(Vec::new()), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn load_accepts_bom_config() {
+        let dir = std::env::temp_dir().join(format!("gesso-bom-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let mut body = vec![0xEF, 0xBB, 0xBF];
+        body.extend_from_slice(b"{\"initialized\":true}");
+        std::fs::write(&path, body).unwrap();
+        let cfg = AppConfig::load(&path).expect("BOM 配置必须可解析");
+        assert!(cfg.initialized);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
 
 #[cfg(test)]
 mod tests {

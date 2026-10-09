@@ -1,4 +1,4 @@
-// Gesso 内置样例 2/3 · Aurora
+// Gesso 预置壁纸 · Aurora
 // 缓动光带；无纹理依赖。
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;

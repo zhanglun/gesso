@@ -4,6 +4,15 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **预置壁纸扩充 6 → 10**：新增 4 款 shader——Tide（深海潮汐，iChannel0 fbm 海面）、Starfield（星野，闪烁星点 + 星云）、Silk（流光绸缎，域扭曲暮色绸面）、Ember（余烬，底部上升的暗火微光）。真机逐个渲染验证（PrintWindow 抓帧，无红屏）。
+
+### Changed
+
+- **预置壁纸文案去 demo 化**：条目标题去掉「（内置 Shader）/（内置）/测试图源」等措辞——Spectrum（原「测试图源」）、Plasma、Aurora、Noise Flow、Cursor Glow、Clock；播种时对已入库预置条目做标题刷新，老用户升级自动换新文案；资源缺失不再静默跳过（留日志）；界面文案「内置样例」→「预置壁纸」。
+- `config.json` / `library.json` 加载剥离 UTF-8 BOM：用户用记事本编辑配置（Win10 默认存 BOM）后曾解析失败 → 静默回退默认配置 → 显示器指派被重置（真机复现）。
+
 ### Fixed
 
 - **Windows 启动闪退（#2，v0.1.0 安装版 100% 复现）**：单实例锁的文件路径字符串被 `single-instance 0.3` 原样传给 `CreateMutexW` 当内核对象名——`\` 是对象命名空间分隔符，`.\gesso-app-lock`（HOME 缺失兜底）与 `%USERPROFILE%\.gesso\…`（USERPROFILE 修复后）全都 `ERROR_PATH_NOT_FOUND(3)` → `unwrap` panic → 黑窗一闪而过。Windows 锁名改扁平 `Local\gesso-app-lock{GESSO_LOCK后缀}`，非 Windows 仍走绝对路径文件锁。此前 794a254 已落的两项排查沉淀（panic 落盘 `%USERPROFILE%\.gesso\gesso.log`、Windows `config_dir` 改读 `USERPROFILE`）随本修复一并生效。

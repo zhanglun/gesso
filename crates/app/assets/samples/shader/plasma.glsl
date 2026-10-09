@@ -1,4 +1,4 @@
-// Gesso 内置样例 1/3 · Plasma
+// Gesso 预置壁纸 · Plasma
 // Shadertoy mainImage 子集风格；无纹理依赖，纯时域色场。
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;

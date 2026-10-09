@@ -175,7 +175,7 @@ pub const ZH: Texts = Texts {
     empty_library_title: "桌面还没动起来",
     empty_library_desc: "把第一张壁纸拖进来",
     btn_import_file: "导入文件",
-    btn_browse_samples: "浏览内置样例",
+    btn_browse_samples: "浏览预置壁纸",
     btn_clear_search: "清除搜索",
     we_empty_desc: "导入时选择 Wallpaper Engine 的 project.json，即可以零拷贝引用进库",
     btn_view_all: "查看全部壁纸",
@@ -214,7 +214,7 @@ pub const ZH: Texts = Texts {
 
     mon_main: "主显示器",
     mon_main_short: "主屏",
-    meta_builtin: "内置样例",
+    meta_builtin: "预置壁纸",
 
     tip_toggle_theme: "切换亮 / 暗主题",
     win_minimize: "最小化",
@@ -303,7 +303,7 @@ pub const EN: Texts = Texts {
     empty_library_title: "Your desktop is still static",
     empty_library_desc: "Drop in your first wallpaper",
     btn_import_file: "Import file",
-    btn_browse_samples: "Browse built-in samples",
+    btn_browse_samples: "Browse preset wallpapers",
     btn_clear_search: "Clear search",
     we_empty_desc: "Pick a Wallpaper Engine project.json when importing to reference it without copying",
     btn_view_all: "View all wallpapers",
@@ -341,7 +341,7 @@ pub const EN: Texts = Texts {
 
     mon_main: "Main display",
     mon_main_short: "Main",
-    meta_builtin: "Built-in sample",
+    meta_builtin: "Preset wallpaper",
 
     tip_toggle_theme: "Toggle light / dark theme",
     win_minimize: "Minimize",

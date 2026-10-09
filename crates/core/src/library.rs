@@ -32,7 +32,8 @@ pub struct LibraryManifest {
 
 impl LibraryManifest {
     pub fn load(path: &std::path::Path) -> Result<Self> {
-        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+        let bytes = std::fs::read(path)?;
+        Ok(serde_json::from_slice(&crate::config::strip_bom(bytes))?)
     }
 
     pub fn save(&self, path: &std::path::Path) -> Result<()> {

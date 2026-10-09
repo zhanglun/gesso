@@ -162,52 +162,87 @@ fn bootstrap() -> (session::SessionManager, bool) {
             .unwrap_or_default()
             .entries
     };
-    // 内置样例：视频 1 + shader 4 + html 1（M4 DoD：shader 三样例渲染，noiseflow 含 iChannel 纹理；
-    // html 样例演示沙箱契约与 postMessage 暂停配合）
+    // 预置壁纸：视频 1 + shader 8 + html 1（M4 DoD：shader 渲染，noiseflow 含 iChannel
+    // 纹理，cursor 含 iMouse 光标桥；html 演示沙箱契约与 postMessage 暂停配合）。
+    // 标题即产品文案：不带「内置/样例/测试」措辞；本表是预置条目标题的唯一事实源
+    //（播种时对已存在条目做标题刷新，升级改名不残留旧文案）。
     let builtin_samples: &[(&str, WallpaperKind, &str, &str)] = &[
         (
             "builtin-testsrc",
             WallpaperKind::Video,
             "samples/testsrc.mp4",
-            "测试图源（内置）",
+            "Spectrum",
         ),
         (
             "builtin-shader-plasma",
             WallpaperKind::Shader,
             "samples/shader/plasma.glsl",
-            "Plasma（内置 Shader）",
+            "Plasma",
         ),
         (
             "builtin-shader-aurora",
             WallpaperKind::Shader,
             "samples/shader/aurora.glsl",
-            "Aurora（内置 Shader）",
+            "Aurora",
         ),
         (
             "builtin-shader-noiseflow",
             WallpaperKind::Shader,
             "samples/shader/noiseflow.glsl",
-            "Noise Flow（内置 Shader · iChannel0）",
+            "Noise Flow",
         ),
         (
             "builtin-shader-cursor",
             WallpaperKind::Shader,
             "samples/shader/cursor.glsl",
-            "Cursor Glow（内置 Shader · 光标跟随）",
+            "Cursor Glow",
+        ),
+        (
+            "builtin-shader-tide",
+            WallpaperKind::Shader,
+            "samples/shader/tide.glsl",
+            "Tide",
+        ),
+        (
+            "builtin-shader-starfield",
+            WallpaperKind::Shader,
+            "samples/shader/starfield.glsl",
+            "Starfield",
+        ),
+        (
+            "builtin-shader-silk",
+            WallpaperKind::Shader,
+            "samples/shader/silk.glsl",
+            "Silk",
+        ),
+        (
+            "builtin-shader-ember",
+            WallpaperKind::Shader,
+            "samples/shader/ember.glsl",
+            "Ember",
         ),
         (
             "builtin-html-clock",
             WallpaperKind::Html,
             "samples/html/clock.html",
-            "Clock（内置 HTML）",
+            "Clock",
         ),
     ];
     for (id, kind, asset, title) in builtin_samples {
-        if library.iter().any(|e| e.id == *id) {
+        // 已入库的预置条目：标题由本表刷新（预置条目用户不可改名，无覆盖风险），
+        // 升级换文案不残留旧标题
+        if let Some(e) = library.iter_mut().find(|e| e.id == *id) {
+            if e.origin == "builtin" && e.title != *title {
+                e.title = (*title).into();
+                println!("[boot] 预置壁纸标题更新：{id} → {title}");
+            }
             continue;
         }
         let src = protocol::assets_dir().join(asset);
         if !src.exists() {
+            // 资源缺失（安装包不完整/开发目录异常）——静默跳过会让「可用壁纸变少」
+            // 且无处可查，至少留一行日志
+            println!("[boot] 预置壁纸资源缺失，跳过入库：{asset}");
             continue;
         }
         let dst = protocol::library_dir().join(id);

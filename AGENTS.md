@@ -52,7 +52,7 @@ crates/app      应用：
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
   ├─ ui/          管理窗口 UI（gpui-kit；we_view.rs 工坊窗）
-  └─ assets/      宿主页（host/index.html）/ 内置样例（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）
+  └─ assets/      宿主页（host/index.html）/ 预置壁纸（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）
 docs/           工程文档 + design/（设计归档）
 ```
 
@@ -61,7 +61,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ macOS 视频壁纸钉桌面全链路（贴壁/穿透/多空间/菜单栏带覆盖/暂停恢复/持久化）
 - ✅ 导入（对话框 + 拖入）、托盘（右键菜单）、设置持久化、开机自启（首启向导已于 2026-10-07 撤销，首启=自动指派样例）
 - ✅ 管理窗口三页签（真数据桥接）+ 缩略图悬停预览 + 显示器页「桌面沙盘 + 详情条」改版
-- ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（macOS WKWebView 快照；Windows webview 抽帧 + PrintWindow，`capture_win.rs`，帧契约同构）+ 内置样例 ×5
+- ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（macOS WKWebView 快照；Windows webview 抽帧 + PrintWindow，`capture_win.rs`，帧契约同构）+ 预置壁纸 ×10（视频 1 · shader 8 · html 1）
 - ✅ 协议 Range 惰性切片 + 开放范围 512KB 部分响应（大视频 seek 不再全量过盘）
 - ✅ M1 Windows 贴壁（2026-10-05 实机验证：WorkerW 挂载 + 图标层下渲染 + explorer 重启自愈 + PMv2 DPI；多屏实机/M5 桥接待接）
 - ✅ M5 系统数据桥完整（双平台）：全屏/电池自动暂停·降帧 + 时间脉冲 + 光标 feed（iMouse 跟随，纯轮询无需授权）+ 空闲降帧；Windows 桥见 `bridge/windows.rs`，左下契约翻转在 poll_mouse 边界

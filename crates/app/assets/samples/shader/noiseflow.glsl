@@ -1,6 +1,6 @@
-// Gesso 内置样例 3/3 · Noise Flow
+// Gesso 预置壁纸 · Noise Flow
 // 依赖 iChannel0 预设噪声纹理（Gesso 宿主页内置 256x256 RGBA 噪声，REPEAT 包装）：
-// 白噪声 → fbm → 域扭曲流场。对应 M4 DoD「shader 样例须含 iChannel 纹理」。
+// 白噪声 → fbm → 域扭曲流场。预置 shader 需含 iChannel 纹理的契约示例。
 float noise(vec2 p) {
     return texture(iChannel0, p / 256.0).r;
 }
