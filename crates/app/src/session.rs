@@ -169,8 +169,10 @@ impl SessionManager {
     pub fn sync_monitors(&mut self) {
         let monitors = pin::enumerate_monitors();
 
-        // v1 已知限制：CGDirectDisplayID 不跨重启/重连稳定（技术方案 §4.3 的 EDID 哈希是正解）。
-        // 当配置里的 key 全部失配（如系统重编了 cg-id）时，把映射迁移到当前主屏，避免静默丢壁纸。
+        // v2 稳定 ID：macOS 用 EDID 身份三元组（vendor/model/serial，跨合盖/重连/重启
+        // 不变）；Windows 仍用设备名。全失配迁移保留作兜底：虚拟屏无 EDID 回落 cg-id，
+        // 重编后仍可能失配——此时把映射迁到当前主屏，避免静默丢壁纸（只保留第一条，
+        // 多屏指派需用户重设；升级到全平台 EDID 后此路径只剩兜底意义）。
         let known: std::collections::BTreeSet<String> =
             monitors.iter().map(|m| m.id.clone()).collect();
         if !self.config.monitors.is_empty()

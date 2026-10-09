@@ -221,21 +221,91 @@ impl WallpaperWindow for MacWallpaperWindow {
     }
 }
 
-/// 枚举显示器（稳定 ID = CGDirectDisplayID）。
+// CGDisplay 身份三元组（EDID 的 vendor/product/serial）。合盖/重连/唤醒会重编
+// CGDirectDisplayID（v1 用它当 ID 的已知缺陷，见 session.rs），但硬件身份不变——
+// 它就是跨重配的稳定 ID 来源。
+//
+// 可用性（2026-10-09 实测）：macOS 26 把这三个符号从 CoreGraphics 的 SDK 接口
+// **和运行时 dylib** 里都删除了（dlsym 探测 MISSING）——26+ 上 identity_fns()
+// 返回 None，自动回落 cg-id（v1 行为）。macOS 13–15 运行时符号仍在，dlsym 有效；
+// 26+ 的完整 EDID 身份需走 IOKit IODisplayConnect（后续工作，MonitorControl 同路）。
+type CgIdentityFn = unsafe extern "C" fn(u32) -> u32;
+
+fn identity_fns() -> Option<[CgIdentityFn; 3]> {
+    static FNS: std::sync::OnceLock<Option<[CgIdentityFn; 3]>> = std::sync::OnceLock::new();
+    *FNS.get_or_init(|| {
+        unsafe extern "C" {
+            fn dlsym(
+                handle: *mut std::ffi::c_void,
+                symbol: *const std::ffi::c_char,
+            ) -> *mut std::ffi::c_void;
+        }
+        // SAFETY: RTLD_DEFAULT = (void*)-2，在默认全局句柄中按名字查符号；
+        // 三个符号查齐才算可用（缺任何一个都无法构成稳定身份）
+        let resolve = |name: &str| -> Option<CgIdentityFn> {
+            let c = std::ffi::CString::new(name).ok()?;
+            let p = unsafe { dlsym(-2isize as *mut std::ffi::c_void, c.as_ptr()) };
+            if p.is_null() {
+                None
+            } else {
+                // SAFETY: 符号即 C 函数地址，签名按 CoreGraphics 文档
+                Some(unsafe { std::mem::transmute::<*mut std::ffi::c_void, CgIdentityFn>(p) })
+            }
+        };
+        Some([
+            resolve("CGDisplayGetVendorNumber")?,
+            resolve("CGDisplayGetModelNumber")?,
+            resolve("CGDisplayGetSerialNumber")?,
+        ])
+    })
+}
+
+// SAFETY: 纯查询函数，无全局状态与线程约束
+fn display_edid_identity(cgid: u32) -> Option<[u32; 3]> {
+    let fns = identity_fns()?;
+    let v = unsafe { (fns[0])(cgid) };
+    let m = unsafe { (fns[1])(cgid) };
+    let s = unsafe { (fns[2])(cgid) };
+    // vendor/product 全零 = 无 EDID 身份（AirPlay/虚拟屏）→ 回落 cg-id
+    (v != 0 || m != 0).then_some([v, m, s])
+}
+
+/// 由 (EDID 身份?, CGDirectDisplayID) 序列生成稳定 ID 列表：
+/// - 有身份：`edid-{vendor:04x}{model:04x}{serial:08x}`——跨合盖/重连/重启稳定
+/// - 无身份：`cg-{cgid}`（虚拟屏回落，行为同 v1）
+/// - 身份重复（同型号多屏且 serial 全零）：追加 `-{cgid}` 消歧，连着时稳定
+fn identity_ids(entries: &[(Option<[u32; 3]>, u32)]) -> Vec<String> {
+    let mut counts: std::collections::BTreeMap<[u32; 3], usize> = std::collections::BTreeMap::new();
+    for (idty, _) in entries {
+        if let Some(t) = idty {
+            *counts.entry(*t).or_insert(0) += 1;
+        }
+    }
+    entries
+        .iter()
+        .map(|(idty, cgid)| match idty {
+            None => format!("cg-{cgid}"),
+            Some(t) if counts[t] > 1 => format!("edid-{:04x}{:04x}{:08x}-{cgid}", t[0], t[1], t[2]),
+            Some(t) => format!("edid-{:04x}{:04x}{:08x}", t[0], t[1], t[2]),
+        })
+        .collect()
+}
+
+/// 枚举显示器（稳定 ID = EDID 身份三元组；无身份回落 CGDirectDisplayID）。
 pub fn enumerate_monitors() -> Vec<MonitorInfo> {
     let mtm = match MainThreadMarker::new() {
         Some(m) => m,
         None => return vec![],
     };
-    let mut out = Vec::new();
+    let mut screens: Vec<(objc2_foundation::NSRect, u32)> = Vec::new();
     // SAFETY: 主线程标记保证
     for screen in NSScreen::screens(mtm).iter() {
         // SAFETY: NSArray<NSScreen> 元素类型保证，指针级 cast 绕过 NSObject 外观
         let screen: &NSScreen = unsafe { &*(std::ptr::from_ref(&**screen) as *const NSScreen) };
         let frame = screen.frame();
-        // 设备描述里的 NSScreenNumber 即 CGDirectDisplayID（v1 稳定 ID）
+        // 设备描述里的 NSScreenNumber 即 CGDirectDisplayID
         let key = objc2_foundation::NSString::from_str("NSScreenNumber");
-        let id = screen
+        let cgid = screen
             .deviceDescription()
             .objectForKey(&key)
             .and_then(|v| unsafe {
@@ -244,11 +314,24 @@ pub fn enumerate_monitors() -> Vec<MonitorInfo> {
                     &*(std::ptr::from_ref(&*v) as *const objc2_foundation::NSNumber);
                 Some(nsnumber.unsignedIntValue())
             })
-            .map(|n| format!("cg-{n}"))
-            .unwrap_or_else(|| format!("anon-{:?}", (frame.origin.x, frame.size.width)));
-        out.push(MonitorInfo {
+            .unwrap_or(0);
+        screens.push((frame, cgid));
+    }
+
+    let identities: Vec<(Option<[u32; 3]>, u32)> = screens
+        .iter()
+        .map(|(_, cgid)| (*cgid, display_edid_identity(*cgid)))
+        .map(|(cgid, idty)| (idty, cgid))
+        .collect();
+    let ids = identity_ids(&identities);
+
+    screens
+        .iter()
+        .zip(ids)
+        .enumerate()
+        .map(|(i, ((frame, _), id))| MonitorInfo {
             id,
-            name: format!("显示器 {}", out.len() + 1),
+            name: format!("显示器 {}", i + 1),
             frame: (
                 frame.origin.x,
                 frame.origin.y,
@@ -256,7 +339,33 @@ pub fn enumerate_monitors() -> Vec<MonitorInfo> {
                 frame.size.height,
             ),
             is_main: frame.origin.x == 0.0 && frame.origin.y == 0.0,
-        });
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_ids_edid_fallback_and_dedup() {
+        let a = Some([0x0610, 0x9cd2, 0]);
+        let b = Some([0x0610, 0x9cd2, 0]); // 同型号多屏、serial 全零 → 消歧
+        let c = Some([0x1e6d, 0x5763, 0x0101_0202]);
+        // 唯一身份 → edid- 前缀
+        assert_eq!(
+            identity_ids(&[(c, 777)]),
+            vec!["edid-1e6d576301010202".to_string()]
+        );
+        // 无 EDID（虚拟屏）→ 回落 cg-
+        assert_eq!(identity_ids(&[(None, 42)]), vec!["cg-42".to_string()]);
+        // 同身份两屏 → 追加 cgid 消歧
+        assert_eq!(
+            identity_ids(&[(a, 500), (b, 501)]),
+            vec![
+                "edid-06109cd200000000-500".to_string(),
+                "edid-06109cd200000000-501".to_string(),
+            ]
+        );
     }
-    out
 }
