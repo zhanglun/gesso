@@ -7,6 +7,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 ### Added
 
 - **预置壁纸扩充 6 → 10**：新增 4 款 shader——Tide（深海潮汐，iChannel0 fbm 海面）、Starfield（星野，闪烁星点 + 星云）、Silk（流光绸缎，域扭曲暮色绸面）、Ember（余烬，底部上升的暗火微光）。真机逐个渲染验证（PrintWindow 抓帧，无红屏）。
+- **锁屏自动暂停省电**：锁屏是 macOS 系统级安全上下文、壁纸窗口不参与渲染，锁屏时暂停所有壁纸渲染省资源、解锁自动恢复。`bridge::is_locked` 轮询 `CGSessionCopyCurrentDictionary` 的 `CGSSessionScreenIsLocked` 键；策略解析锁屏最高优先级（无条件暂停，不走用户策略）。Windows 暂存根返回 false（WTSRegisterSessionNotification 待接）。
 
 ### Changed
 
@@ -15,6 +16,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - **预置壁纸文案去 demo 化**：条目标题去掉「（内置 Shader）/（内置）/测试图源」等措辞——Spectrum（原「测试图源」）、Plasma、Aurora、Noise Flow、Cursor Glow、Clock；标题表为唯一事实源；资源缺失不再静默跳过（留日志）；界面文案「内置样例」→「预置壁纸」。
 - `config.json` / `library.json` 加载剥离 UTF-8 BOM：用户用记事本编辑配置（Win10 默认存 BOM）后曾解析失败 → 静默回退默认配置 → 显示器指派被重置（真机复现）。
 - **视频壁纸内存直供（循环重读不再触盘）**：循环视频每圈重读整个文件（AVPlayerLooper 逐圈复制 item / WebView 对自定义 scheme 无媒体缓存），磁盘安静与否完全押在可被逐出的 OS 页缓存上——内存压力机器上 20MB 壁纸每圈从盘读 20MB（用户实测"一直在读磁盘"；本机 31GB swap 下复现同症状）。media-http 回环加 RAM 直供：≤256MB 条目首读整进内存、Range 全从内存切片（超限维持磁盘流送不硬吃内存）；macOS 原生视频窗 file:// → http:// 回环，服务不可用自动回落。实测连拉 3 遍整文件物理读增量 0.00MB。
+- **缩略图启动即生成 + 生成中 spinner**：缩略图扫描由「启动 30s 后」改为「启动立即执行」，之后 30s 一轮兜底；卡片生成中显示 kit `Spinner`（替换静态 RefreshCw 假 loading），重试耗尽退回类型图标不假装在加载（`ThumbScheduler::pending` 投影）。
+- **移除冗余「查看详情」菜单项**：原「查看详情」仅以 toast 显示「名称·类型·来源」——三条信息卡片上均已展示，零增量价值，删除。
 
 ### Fixed
 
@@ -26,6 +29,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - **Windows 启动闪退（#2，v0.1.0 安装版 100% 复现）**：单实例锁的文件路径字符串被 `single-instance 0.3` 原样传给 `CreateMutexW` 当内核对象名——`\` 是对象命名空间分隔符，`.\gesso-app-lock`（HOME 缺失兜底）与 `%USERPROFILE%\.gesso\…`（USERPROFILE 修复后）全都 `ERROR_PATH_NOT_FOUND(3)` → `unwrap` panic → 黑窗一闪而过。Windows 锁名改扁平 `Local\gesso-app-lock{GESSO_LOCK后缀}`，非 Windows 仍走绝对路径文件锁。此前 794a254 已落的两项排查沉淀（panic 落盘 `%USERPROFILE%\.gesso\gesso.log`、Windows `config_dir` 改读 `USERPROFILE`）随本修复一并生效。
 - 托盘「退出 Gesso」不再 `process::exit` 硬退：改走 `EngineAction::Quit`，在引擎主线程拆除全部壁纸会话（逐窗 `DestroyWindow`）并无效化 Progman/图标层/WorkerW 让 explorer 重绘，退出后恢复用户原壁纸而非黑底。
 - NSIS 脚本 `gesso.nsi` 补 UTF-8 BOM：无 BOM 在中文 Windows（ACP 936）下 `Bad text encoding` 编不过安装包；英文 CI 仅注释乱码不报错，故一直未暴露。
+- **竖版/超宽素材被 cover 裁切成中间切片**：根因是 gpui 的 `img` 元素会被图片固有宽高比撑开（覆盖 `size_full` 高度），再被 `overflow_hidden` 裁成 cover 错觉——`ObjectFit::Contain` 本身正确但从未真正生效。修法：img 显式 `.aspect_ratio(...)` 压制固有宽高比；库卡片/宿主页/显示器小样 object-fit → contain；macOS 原生视频 `AVLayerVideoGravityResizeAspectFill` → `ResizeAspect`。
+- **清单解析失败静默覆写用户库**：启动时 `library.json` 解析失败会以空库继续启动 → 播种覆写清单、用户条目全部丢失（目录还在、清单没了）。修法：解析失败且文件存在时 `exit(78)` 保文件供修复，仅真首启（无清单）才视为空库。
 
 ### Changed
 

@@ -72,6 +72,9 @@
 | webview 摇视频的最后一公里：远端层树上屏无锁相（2026-10-10 实测） | 消除数据/合成层噪声后仍卡：rVFC 探针（host 页 __vfc/__rafV + 引擎 GESSO_VIDEO_DIAG 每 5s 读取）实测 60fps 片上屏 53~56/s 波动而页面节拍稳 60Hz——WKWebView 把视频帧经跨进程层树搬运，与显示链路无锁相，~8% 撞帧 = 肉眼卡顿。修传输/合成层都无效，正解是架构分叉：**视频条目在 macOS 走原生 AVPlayerLayer（pin::MacVideoWindow，AVQueuePlayer+AVPlayerLooper 直挂 contentView），webview 只管 shader/html/图片**——与 Lively/WE 等同类产品同构。教训：验证webview 能播 ≠ 验证它播得匀；帧节奏要用探针量化，不要肉眼猜 |
 | 视频走自定义 scheme 的媒体管线（b98b4e1 回归，双屏 4K 实测） | WKWebView/WebView2 对自定义 scheme 的媒体装载不流式：AVPlayer 经 WebContent 中转，以 2-4KB 碎片 Range 逐段拉取（实测双屏 ~92 req/s，每条三跳 IPC 往返），解码器喂不饱即卡顿——206/seek 功能验证 ≠ 吞吐验证。正确做法：视频 src 走回环 HTTP（`protocol::start_media_server` + `media_url`，AVPlayer 原生 socket 管线，一条连接流完整个文件）；页面/图片/子资源一次性加载仍走 gesso:// 无此病；CSP media-src 由 `csp()` 随机端口动态拼入。旁支教训：宿主页视频下的冻结帧兑底画布 drawImage(video) 是同步跨进程帧回读，高频 setInterval 会周期性卡顿（400ms→3s） |
 | NSIS 脚本编码按系统 ANSI（中文 Windows 实测） | 无 BOM 的 UTF-8 `.nsi` 在 ACP=936 的机器上 `Bad text encoding` 直接编不过（英文 CI 是 1252 只乱码注释不报错，所以 CI 永远发现不了）。Unicode 脚本一律存 **UTF-8 with BOM**（NSIS 官方要求） |
+| GPUI `img` 固有宽高比撑高被裁（contain 失效根因，2026-10-10） | `img` 元素在 `request_layout` 里会把**图片固有宽高比**写进 `style.aspect_ratio`（竖图=0.56），覆盖 `size_full()` 的高度 → 元素被撑高、再被父级 `overflow_hidden` 裁掉上下 = 看起来像 cover 裁切；`ObjectFit::Contain` 计算本身是对的，但输入 bounds 已错。修法：img 显式 `.aspect_ratio(16./9.)`（与父容器一致）压制固有比例，Contain 才真正信箱化。判别：竖图在 16:9 框里应呈窄列 + 左右黑边，若满幅就是固有比例没被压制 |
+| 清单解析失败静默覆写用户库（探针事故，2026-10-10） | 启动 `library.json` 解析失败（损坏/手工编辑错）时 `unwrap_or_default()` 以空库继续 → 下方播种把清单覆写成只剩预置条目，用户导入条目全丢（目录还在、清单没了）。修法：`load` 失败且文件存在 → `eprintln` + `exit(78)` 保文件交用户修复；仅"文件不存在"（真首启）才视为空库。教训：任何"解析失败 → 默认值 → 回写"的链路都是数据丢失放大器 |
+| 锁屏检测（macOS，2026-10-10） | 锁屏是系统级安全上下文（loginwindow 渲染），壁纸窗口（图标层下）不参与——第三方壁纸无法在锁屏显示，只可"锁屏暂停省电"。检测：`CGSessionCopyCurrentDictionary`（+1，CFRelease）查 `"CGSSessionScreenIsLocked"` 键存在即锁定；无 GUI 会话返回 NULL 按未锁处理。轮询式（随 bridge::sample ~2s 一拍）即可，无需通知监听基础设施 |
 
 ## 3. 关键路径（调试用）
 

@@ -71,6 +71,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ 英文 i18n（中/英双文案包 + Auto，设置页即时切换）+ 远端网页壁纸（🔗 从 https URL 导入，iframe 直装，零本地拷贝）
 - ✅ V-PERF 视频卡顿排障闭环（2026-10-10）：视频字节流不走自定义 scheme（回环 HTTP 媒体服务，AVPlayer 原生管线）；**macOS 视频壁纸 = 原生 AVPlayerLayer（`pin::MacVideoWindow`），webview 只管 shader/html/图片**；帧率探针 `GESSO_VIDEO_DIAG=1`（rVFC/rAF 每 5s 采样）
 - ✅ 0.1.x 反馈修复（2026-10-10）：视频窗 2pt 外扩与媒体 ≤256MB 内存直供均为刻意行为（勿当 bug/泄漏清除），唤醒后显示器 ID 重编按几何平移（sync_monitors 内置守卫）；细节见工程笔记 §2 与 CHANGELOG
+- ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（根因：gpui img 固有宽高比撑高被裁，显式 `.aspect_ratio` 压制）；缩略图启动即生成 + spinner；清单解析失败 exit 78 保文件；锁屏自动暂停省电；移除冗余「查看详情」菜单项
 - ✅ **0.1.0 已发布**（2026-10-07）：GitHub Actions 自动打包发布（macOS dmg / Windows 便携 zip / checksums）；ad-hoc 签名未公证；发布流程见 `docs/RELEASE-CHECKLIST.md`，打包脚本在 `packaging/`
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
