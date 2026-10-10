@@ -50,6 +50,9 @@ pub trait WallpaperWindow {
     fn current_url(&self) -> String;
     /// 透传 JS（M5 数据桥通道：时间 tick / 降帧 setFps；暂停仍走 set_paused）。
     fn evaluate(&mut self, _js: &str) {}
+
+    /// 带回调的 JS 求值（诊断探针用；默认 no-op，平台按需实现）。
+    fn evaluate_with_callback(&mut self, _js: &str, _cb: Box<dyn Fn(String) + Send>) {}
     /// 发送一条类型化宿主命令（默认走 evaluate；平台可覆写）。
     fn send(&mut self, cmd: crate::host_cmd::HostCommand) {
         self.evaluate(&cmd.to_js());
@@ -71,16 +74,29 @@ pub fn enumerate_monitors() -> Vec<MonitorInfo> {
 /// 平台分派（Linux 按非目标返回 Unsupported）。
 pub fn create_wallpaper_window(
     monitor: &MonitorInfo,
+    entry: &gesso_core::LibraryEntry,
 ) -> gesso_core::Result<Box<dyn WallpaperWindow>> {
+    // macOS 视频：原生 AVPlayer 窗（webview 远端层树对视频上屏节奏不均，
+    // 60fps 实测 rVFC 53~56/s 波动 = 卡顿；原生管线有显示锁相）。其余照旧 webview。
+    #[cfg(target_os = "macos")]
+    if entry.kind == gesso_core::WallpaperKind::Video {
+        let rel = crate::encoding::entry_main_source(entry);
+        let path = std::path::Path::new(&entry.source_dir).join(rel);
+        return macos::create_video_window(monitor, &path.display().to_string())
+            .map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
+    }
     #[cfg(target_os = "macos")]
     return macos::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
     #[cfg(target_os = "windows")]
-    return windows::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
+    {
+        let _ = entry;
+        return windows::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = monitor;
+        let _ = (monitor, entry);
         Err(gesso_core::GessoError::UnsupportedPlatform(
-            std::env::consts::OS.into(),
+            "不支持的平台".into(),
         ))
     }
 }

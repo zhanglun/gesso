@@ -150,7 +150,7 @@ impl SessionManager {
                 continue;
             };
             s.window = None; // 旧窗口多半已被 explorer 连带销毁；Drop 容忍 DestroyWindow 失败
-            match Self::build_window_only(&monitor) {
+            match Self::build_window_only(&monitor, &entry) {
                 Ok(mut w) => {
                     w.load(&Self::entry_host_url(&entry, fps));
                     all_ok &= w.mount_ok();
@@ -308,8 +308,13 @@ impl SessionManager {
         };
         ContentSpec {
             kind: entry.kind,
-            // WE 条目走 steam 直引路由，其余走 library；都是绝对 gesso URL
-            source: crate::protocol::entry_url(entry, &main_source),
+            // 视频走回环 HTTP（AVPlayer 原生管线；自定义 scheme 的碎片
+            // Range 拉流是卡顿根因），其余类型仍走 gesso:// 绝对 URL
+            source: if entry.kind == WallpaperKind::Video {
+                crate::protocol::media_url(entry, &main_source)
+            } else {
+                crate::protocol::entry_url(entry, &main_source)
+            },
             fit: gesso_core::Fit::Cover,
             fps_cap: fps,
             audio: gesso_core::AudioPolicy::Muted,
@@ -356,7 +361,7 @@ impl SessionManager {
         entry: LibraryEntry,
         fps: u8,
     ) -> gesso_core::Result<Session> {
-        let mut window = pin::create_wallpaper_window(&monitor)?;
+        let mut window = Self::build_window_only(&monitor, &entry)?;
         let url = Self::entry_host_url(&entry, fps);
         window.load(&url);
         println!("[session] 宿主页 URL = {}", url);
@@ -440,7 +445,7 @@ impl SessionManager {
             s.state = transfer(s.state, SessionEvent::Assign);
             if let Some(entry) = entry {
                 s.entry_id = entry_id.into();
-                if let Ok(mut w) = Self::build_window_only(&s.monitor) {
+                if let Ok(mut w) = Self::build_window_only(&s.monitor, &entry) {
                     w.load(&Self::entry_host_url(&entry, fps));
                     s.window = Some(w);
                     s.state = transfer(s.state, SessionEvent::Loaded);
@@ -454,8 +459,11 @@ impl SessionManager {
         }
     }
 
-    fn build_window_only(monitor: &MonitorInfo) -> gesso_core::Result<Box<dyn WallpaperWindow>> {
-        pin::create_wallpaper_window(monitor)
+    fn build_window_only(
+        monitor: &MonitorInfo,
+        entry: &LibraryEntry,
+    ) -> gesso_core::Result<Box<dyn WallpaperWindow>> {
+        pin::create_wallpaper_window(monitor, entry)
     }
 
     /// 设置更新（设置页全部即时生效：写内存 + 落盘，§4.5）
@@ -792,6 +800,32 @@ impl SessionManager {
     /// M5 时间脉冲：Rust 每秒驱动一次宿主页时钟（时钟类壁纸 DoD——
     /// 挂钟时间由引擎事件推进，壁纸不必自起高频轮询）。
     pub fn broadcast_time_tick(&mut self) {
+        static TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // 视频诊断（GESSO_VIDEO_DIAG=1）：每 5s 读宿主页探针（rVFC/rAF/
+        // dropped/currentTime）——上屏节奏的突发/停滞/丢帧一眼可见。
+        if n % 5 == 0 && video_diag_enabled() {
+            const PROBE: &str = "(function(){var v=document.getElementById('media');var q=(v&&v.getVideoPlaybackQuality)?v.getVideoPlaybackQuality():null;return JSON.stringify({vfc:window.__vfc|0,raf:window.__rafV|0,ct:v?v.currentTime:-1,drop:q?q.droppedVideoFrames:-1,tot:q?q.totalVideoFrames:-1,now:Math.round(performance.now())})})()";
+            for (id, s) in self.sessions.iter_mut() {
+                if s.entry_id.is_empty() {
+                    continue;
+                }
+                let Some(entry) = self.library.iter().find(|e| e.id == s.entry_id) else {
+                    continue;
+                };
+                if entry.kind != WallpaperKind::Video {
+                    continue;
+                }
+                let Some(w) = s.window.as_mut() else {
+                    continue;
+                };
+                let id = id.clone();
+                w.evaluate_with_callback(
+                    PROBE,
+                    Box::new(move |v| println!("[video-diag {id}] {v}")),
+                );
+            }
+        }
         for s in self.sessions.values_mut() {
             if let Some(w) = s.window.as_mut() {
                 w.send(crate::host_cmd::HostCommand::Tick);
@@ -925,6 +959,12 @@ impl SessionManager {
             })
             .collect()
     }
+}
+
+/// 视频诊断开关：GESSO_VIDEO_DIAG=1 时每 5s 打印宿主页帧率探针。
+fn video_diag_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("GESSO_VIDEO_DIAG").is_ok_and(|v| v != "0"))
 }
 
 #[cfg(test)]
@@ -1170,7 +1210,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// 光标归一化量化（poll_mouse 内联逻辑的纯函数镜像，防坐标系改坏）
+/// 光标归一化量化（poll_mouse 内联逻辑的纯函数镜像，防坐标系改坏）
     fn quantize(v: f64) -> u16 {
         (v.clamp(0.0, 1.0) * 10_000.0).round() as u16
     }

@@ -78,10 +78,8 @@ pub struct MacWallpaperWindow {
     webview: lb_wry::WebView,
 }
 
-pub fn create(monitor: &MonitorInfo) -> Result<MacWallpaperWindow> {
-    let mtm = MainThreadMarker::new()
-        .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
-
+/// 贴壁窗口本体（webview / 原生视频两种内容共用同一组几何/层级/行为配置）。
+fn make_pin_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
     let window = unsafe { NSWindow::new(mtm) };
     window.setStyleMask(NSWindowStyleMask::Borderless);
     window.setLevel(PIN_LEVEL);
@@ -92,9 +90,18 @@ pub fn create(monitor: &MonitorInfo) -> Result<MacWallpaperWindow> {
             | NSWindowCollectionBehavior::IgnoresCycle,
     );
     window.setIgnoresMouseEvents(true);
-    window.setOpaque(false);
-    let clear = NSColor::clearColor();
-    window.setBackgroundColor(Some(&clear));
+    // 不透明：壁纸窗整屏被内容盖满，透明毫无收益，却让 WindowServer
+    // 每帧对下层系统壁纸做全屏 alpha 混合（5K60 视频稳态实测 CPU 翻倍）。
+    window.setOpaque(true);
+    window.setBackgroundColor(Some(&NSColor::blackColor()));
+    window
+}
+
+pub fn create(monitor: &MonitorInfo) -> Result<MacWallpaperWindow> {
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
+
+    let window = make_pin_window(mtm);
 
     let (x, y, w, h) = monitor.frame;
     window.setFrame_display(
@@ -182,8 +189,20 @@ impl WallpaperWindow for MacWallpaperWindow {
         let _ = self.webview.evaluate_script(js);
     }
 
+    fn evaluate_with_callback(&mut self, js: &str, cb: Box<dyn Fn(String) + Send>) {
+        let _ = self
+            .webview
+            .evaluate_script_with_callback(js, move |v: String| cb(v));
+    }
+
     fn set_visible(&mut self, visible: bool) {
-        let _ = self.webview.set_visible(visible);
+        // 窗口级隐藏：窗口已不透明，藏 webview 只会露黑底；藏窗才露出
+        // 系统桌面（与 MacVideoWindow 一致的回退静态壁纸语义）
+        if visible {
+            self._window.orderFrontRegardless();
+        } else {
+            self._window.orderOut(None);
+        }
     }
 
     fn current_url(&self) -> String {
@@ -218,6 +237,113 @@ impl WallpaperWindow for MacWallpaperWindow {
                 | NSWindowCollectionBehavior::IgnoresCycle,
         );
         self.set_frame(frame);
+    }
+}
+
+/// 原生视频壁纸窗：AVPlayerLayer 直挂 contentView，不经 webview。
+/// 原因（2026-10-10 实测）：webview 的远端层树对视频上屏节奏不均——60fps
+/// 片 rVFC 实测 53~56/s 波动（页面节拍却稳 60Hz），肉眼卡顿；原生 AVPlayer
+/// 管线有显示锁相，且直接 file:// 读盘，媒体回环 HTTP/gesso:// 均不参与。
+pub struct MacVideoWindow {
+    _window: Retained<NSWindow>,
+    _looper: Retained<objc2_av_foundation::AVPlayerLooper>,
+    player: Retained<objc2_av_foundation::AVQueuePlayer>,
+}
+
+pub fn create_video_window(
+    monitor: &MonitorInfo,
+    path: &str,
+) -> gesso_core::Result<MacVideoWindow> {
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
+    let window = make_pin_window(mtm);
+    let (x, y, w, h) = monitor.frame;
+    window.setFrame_display(
+        objc2_foundation::NSRect::new(
+            objc2_foundation::NSPoint::new(x, y),
+            objc2_foundation::NSSize::new(w, h),
+        ),
+        true,
+    );
+
+    let content = window.contentView().expect("contentView 缺失");
+    // SAFETY: 主线程；AVFoundation 家族方法按文档语义调用
+    let (player, looper) = unsafe {
+        use objc2_av_foundation::{AVPlayerItem, AVPlayerLayer, AVPlayerLooper, AVQueuePlayer};
+        use objc2_foundation::{NSArray, NSURL};
+        let player = AVQueuePlayer::queuePlayerWithItems(&NSArray::new(), mtm);
+        let layer = AVPlayerLayer::playerLayerWithPlayer(Some(&player));
+        // cover 语义：与宿主页 object-fit:cover 一致（常量底层就是这三个字符串）
+        layer.setVideoGravity(&objc2_foundation::NSString::from_str(
+            "AVLayerVideoGravityResizeAspectFill",
+        ));
+        content.setWantsLayer(true);
+        content.setLayer(Some(&layer));
+        let item = AVPlayerItem::playerItemWithURL(
+            &NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(path)),
+            mtm,
+        );
+        let looper = AVPlayerLooper::playerLooperWithPlayer_templateItem(&player, &item);
+        player.setMuted(true); // AudioPolicy::Muted（技术方案 §5.1）
+        player.play();
+        (player, looper)
+    };
+    window.orderFrontRegardless();
+    println!("[session] 原生视频窗 file://{path}");
+    Ok(MacVideoWindow {
+        _window: window,
+        _looper: looper,
+        player,
+    })
+}
+
+impl WallpaperWindow for MacVideoWindow {
+    /// 内容在创建时定死（file 路径）；换壁纸 = 整窗重建（assign 同路径）。
+    /// set_fps 热重载传进来的宿主页 URL 在此静默忽略（视频无帧率杠杆）。
+    fn load(&mut self, _url: &str) {}
+
+    fn set_paused(&mut self, paused: bool) {
+        // SAFETY: 主线程（会话层在主循环调用）；play/pause 幂等
+        unsafe {
+            if paused {
+                self.player.pause();
+            } else {
+                self.player.play();
+            }
+        }
+    }
+
+    fn set_visible(&mut self, visible: bool) {
+        if visible {
+            self._window.orderFrontRegardless();
+        } else {
+            self._window.orderOut(None);
+        }
+    }
+
+    fn set_frame(&mut self, (x, y, w, h): (f64, f64, f64, f64)) {
+        self._window.setFrame_display(
+            objc2_foundation::NSRect::new(
+                objc2_foundation::NSPoint::new(x, y),
+                objc2_foundation::NSSize::new(w, h),
+            ),
+            true,
+        );
+    }
+
+    fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64)) {
+        self._window.setLevel(PIN_LEVEL);
+        self._window.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::Stationary
+                | NSWindowCollectionBehavior::FullScreenAuxiliary
+                | NSWindowCollectionBehavior::IgnoresCycle,
+        );
+        self.set_frame(frame);
+    }
+
+    fn current_url(&self) -> String {
+        "avplayer://native-video".into()
     }
 }
 

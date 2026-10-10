@@ -54,17 +54,23 @@ windows = { version = "0.62", features = [
 objc2 = "0.6"
 # thumb.rs write_png：CGImage → PNG 落盘（Apple 专属，Windows 构建必须门控）
 objc2-core-graphics = "0.3"
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSWindow", "NSWorkspace", "NSRunningApplication", "NSScreen", "NSColor", "NSResponder", "NSEvent", "libc"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSWindow", "NSView", "NSWorkspace", "NSRunningApplication", "NSScreen", "NSColor", "NSResponder", "NSEvent", "libc"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSDictionary", "NSString"] }
-# 缩略图抽帧（thumb.rs）：AVFoundation 走 objc2 生成绑定——所有权（init/copy 家族 →
+# 缩略图抽帧（thumb.rs）+ 原生视频壁纸窗（pin/macos.rs）：AVFoundation 走 objc2 生成绑定——所有权（init/copy 家族 →
 # Retained<T>、autorelease 语义）由类型承载，杜绝 v1 裸 msg_send 的人肉引用计数。
 # 最小 feature 集（非默认全量 158 个），AVAsset 含 AVURLAsset 子类声明。
 objc2-av-foundation = { version = "0.3", default-features = false, features = [
   "std",
   "AVAsset",
   "AVAssetImageGenerator",
+  "AVAnimation",
+  "AVPlayer",
+  "AVPlayerItem",
+  "AVPlayerLayer",
+  "AVPlayerLooper",
   "objc2-core-graphics",
   "objc2-core-media",
+  "objc2-quartz-core",
 ] }
 # CMTime（CMTime::new / with_seconds / seconds）+ 自链接 CoreMedia 框架
 objc2-core-media = "0.3"
