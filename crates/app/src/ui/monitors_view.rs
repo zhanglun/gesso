@@ -172,8 +172,13 @@ impl MonitorsView {
             .into_any_element()
     }
 
-    /// 屏幕小像内的壁纸面层（cover 铺满；失效=灰底问号；加载中=渐变+指示）。
-    fn screen_surface(item: Option<&super::data::LibraryItem>, cx: &Context<Self>) -> AnyElement {
+    /// 屏幕小像内的壁纸面层（contain 适配：竖版/超宽完整可见、与真实桌面一致；
+    /// 失效=灰底问号；加载中=渐变+指示）。
+    fn screen_surface(
+        item: Option<&super::data::LibraryItem>,
+        ratio: f32,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         let t = tokens(cx);
         let Some(item) = item else {
             return div().into_any_element();
@@ -198,7 +203,9 @@ impl MonitorsView {
                 ));
                 return gpui_kit::gpui::img(source)
                     .size_full()
-                    .object_fit(ObjectFit::Cover)
+                    // 与容器同比例，压制固有宽高比（否则竖图会被撑高裁切）
+                    .aspect_ratio(ratio)
+                    .object_fit(ObjectFit::Contain)
                     .rounded(px(MINI_INNER_R))
                     .into_any_element();
             }
@@ -414,7 +421,7 @@ impl MonitorsView {
                     .inset_0()
                     .rounded(px(MINI_INNER_R))
                     .overflow_hidden()
-                    .child(Self::screen_surface(item.as_ref(), cx)),
+                    .child(Self::screen_surface(item.as_ref(), ratio, cx)),
             )
             .when(assigned, |d| {
                 d.child(Self::status_chip(st_icon, st_label, dimmed))

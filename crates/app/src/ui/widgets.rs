@@ -116,7 +116,13 @@ pub fn preview(
                         gpui_kit::gpui::img(source)
                             .id(gpui_kit::gpui::SharedString::from("hover-frame"))
                             .size_full()
-                            .object_fit(gpui_kit::gpui::ObjectFit::Cover)
+                            // 显式比例压制固有宽高比（竖图固有 0.56 会把 img
+                            // 撑高、被 overflow_hidden 裁成 cover 错觉）；
+                            // 与父容器一致后，Contain 才真正信箱化
+                            .aspect_ratio(16. / 9.)
+                            // Contain：非 16:9 素材（竖版/超宽）完整可见，
+                            // 信箱底色 = preview_bg；16:9 素材两种 fit 渲染一致
+                            .object_fit(gpui_kit::gpui::ObjectFit::Contain)
                             .rounded_t(px(11.))
                             .with_loading(move || {
                                 let bg_img = prev_path.clone().map(|p| {
@@ -127,7 +133,8 @@ pub fn preview(
                                         )),
                                     ))
                                     .size_full()
-                                    .object_fit(gpui_kit::gpui::ObjectFit::Cover)
+                                    .aspect_ratio(16. / 9.)
+                                    .object_fit(gpui_kit::gpui::ObjectFit::Contain)
                                     .rounded_t(px(11.))
                                 });
                                 div()

@@ -267,9 +267,11 @@ pub fn create_video_window(
         use objc2_foundation::{NSArray, NSString};
         let player = AVQueuePlayer::queuePlayerWithItems(&NSArray::new(), mtm);
         let layer = AVPlayerLayer::playerLayerWithPlayer(Some(&player));
-        // cover 语义：与宿主页 object-fit:cover 一致（常量底层就是这三个字符串）
+        // 适配（contain）语义：与宿主页 object-fit:contain 一致。比例吻合的素材
+        // 两种模式渲染相同（满屏）；不吻合的信箱显示——壁纸窗纯黑底，黑边隐形，
+        // 竖版/超宽素材不再被裁切成中间切片
         layer.setVideoGravity(&objc2_foundation::NSString::from_str(
-            "AVLayerVideoGravityResizeAspectFill",
+            "AVLayerVideoGravityResizeAspect",
         ));
         content.setWantsLayer(true);
         content.setLayer(Some(&layer));
