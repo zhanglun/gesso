@@ -257,6 +257,13 @@
   // ============ 分派 ============
   if (spec.kind === "video") {
     v.src = spec.source; v.play().catch(function () {});
+    // 诊断探针（引擎 GESSO_VIDEO_DIAG=1 时每 5s 读取）：vfc=已合成视频帧计数
+    // （rVFC 每上屏一帧回调一次），rafV=页面渲染节拍（被系统判遮挡/节流时停滞）。
+    window.__vfc = 0; window.__rafV = 0;
+    if (v.requestVideoFrameCallback) {
+      (function p() { window.__vfc++; v.requestVideoFrameCallback(p); })();
+    }
+    (function r() { window.__rafV++; requestAnimationFrame(r); })();
     // F11/调度桌面切换期间 AVPlayerLayer 会短暂退出合成，露页面底色（曾因此
     // 露调试绿底）。在视频下垫一块低频刷新的冻结帧画布：合成层掉线时看到的
     // 是壁纸最后一帧而非黑底。画布随视频原生宽高（长边封顶 1920 省内存），
@@ -269,9 +276,11 @@
       fz.height = Math.max(1, Math.round((v.videoHeight || 9) * s));
       fz.style.display = "block";
     });
+    // 3s 一帧：drawImage(video) 是同步跨进程帧回读，高频打点会周期性卡顿播放
+    // （双屏实测）；兑底帧陈旧 3s 在循环视频上无感。shortcut: 换 requestVideoFrameCallback 可更省
     setInterval(function () {
       if (!v.paused && v.readyState >= 2) fx.drawImage(v, 0, 0, fz.width, fz.height);
-    }, 400);
+    }, 3000);
   } else if (spec.kind === "image") {
     v.style.display = "none"; img.style.display = "block"; img.src = spec.source;
   } else if (spec.kind === "shader") {

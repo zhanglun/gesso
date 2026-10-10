@@ -193,6 +193,9 @@ pub(crate) async fn capture_entry(
     };
     let mut cap = take_window(mtm);
     let written = capture_with(&mut cap, &bg, url, &dir, kind).await;
+    // 回中立页：宿主页 shader 的 RAF/WebGL 循环不会自停，不导航走就等于隐形窗
+    // 常驻 60fps 白渲染（GPU process + WindowServer 持续买单，壁纸播放被拖累）
+    let _ = cap.webview.load_url("about:blank");
     put_window(cap);
     written
 }
