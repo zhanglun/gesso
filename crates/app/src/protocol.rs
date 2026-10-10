@@ -73,6 +73,29 @@ fn csp() -> String {
 /// 0 = 未启动（绑定失败时 media_url 回退 gesso:// 直连，行为同旧版）。
 static MEDIA_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
 
+/// 视频内存直供上限：循环壁纸每圈重读（AVPlayerLooper 逐圈复制 item、
+/// 不持有整文件缓冲），磁盘安静与否完全押在可被逐出的 OS 页缓存上——
+/// 24/7 常驻进程不可接受。≤上限的条目首读整进 RAM，之后所有 Range
+/// 请求从内存切片；超限维持磁盘流送（不硬吃内存）。
+/// ponytail: 无淘汰——库内条目个位数时代常驻即可，库变大再上 LRU。
+const MEDIA_RAM_CAP: u64 = 256 * 1024 * 1024;
+
+static MEDIA_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<Vec<u8>>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// 取条目媒体字节：首次读盘缓存，命中后零盘读。并发未命中各自读盘、
+/// 后写覆盖——条目级个位数请求，不值得上双检锁。
+fn cached_media_bytes(file: &std::path::Path) -> Option<std::sync::Arc<Vec<u8>>> {
+    let key = file.display().to_string();
+    if let Some(hit) = MEDIA_CACHE.lock().ok()?.get(&key) {
+        return Some(hit.clone());
+    }
+    let bytes = std::sync::Arc::new(std::fs::read(file).ok()?);
+    MEDIA_CACHE.lock().ok()?.insert(key, bytes.clone());
+    Some(bytes)
+}
+
 /// 进程启动早期调用（会话构建前，端口需先进 OnceLock）。
 pub fn start_media_server() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0");
@@ -198,7 +221,22 @@ fn handle_media_conn(mut stream: std::net::TcpStream) {
         if method == "HEAD" {
             continue;
         }
-        // —— 正文流送：客户端（AVPlayer）常缓冲够了就断，写失败属正常 ——
+        // —— 正文：≤上限的整块驻内存直供（循环重读零盘读），否则磁盘流送。
+        // 客户端（AVPlayer）常缓冲够了就断，写失败属正常 ——
+        if len as u64 <= MEDIA_RAM_CAP {
+            if let Some(bytes) = cached_media_bytes(&file) {
+                let mut pos = start;
+                let end_at = end + 1;
+                while pos < end_at {
+                    let to = (pos + 256 * 1024).min(end_at);
+                    if stream.write_all(&bytes[pos..to]).is_err() {
+                        return;
+                    }
+                    pos = to;
+                }
+                continue;
+            }
+        }
         let Ok(mut f) = std::fs::File::open(&file) else {
             return;
         };

@@ -252,7 +252,7 @@ pub struct MacVideoWindow {
 
 pub fn create_video_window(
     monitor: &MonitorInfo,
-    path: &str,
+    url: &str,
 ) -> gesso_core::Result<MacVideoWindow> {
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
@@ -264,7 +264,7 @@ pub fn create_video_window(
     // SAFETY: 主线程；AVFoundation 家族方法按文档语义调用
     let (player, looper) = unsafe {
         use objc2_av_foundation::{AVPlayerItem, AVPlayerLayer, AVPlayerLooper, AVQueuePlayer};
-        use objc2_foundation::{NSArray, NSURL};
+        use objc2_foundation::{NSArray, NSString};
         let player = AVQueuePlayer::queuePlayerWithItems(&NSArray::new(), mtm);
         let layer = AVPlayerLayer::playerLayerWithPlayer(Some(&player));
         // cover 语义：与宿主页 object-fit:cover 一致（常量底层就是这三个字符串）
@@ -273,17 +273,17 @@ pub fn create_video_window(
         ));
         content.setWantsLayer(true);
         content.setLayer(Some(&layer));
-        let item = AVPlayerItem::playerItemWithURL(
-            &NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(path)),
-            mtm,
-        );
+        // 媒体 URL：http:// 回环（内存直供）或 file:// 回落，均为完整 URL 形态
+        let nsurl = objc2_foundation::NSURL::URLWithString(&NSString::from_str(url))
+            .ok_or_else(|| GessoError::UnsupportedPlatform(format!("媒体 URL 非法：{url}")))?;
+        let item = AVPlayerItem::playerItemWithURL(&nsurl, mtm);
         let looper = AVPlayerLooper::playerLooperWithPlayer_templateItem(&player, &item);
         player.setMuted(true); // AudioPolicy::Muted（技术方案 §5.1）
         player.play();
         (player, looper)
     };
     window.orderFrontRegardless();
-    println!("[session] 原生视频窗 file://{path}");
+    println!("[session] 原生视频窗 {url}");
     Ok(MacVideoWindow {
         _window: window,
         _looper: looper,

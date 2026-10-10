@@ -81,8 +81,17 @@ pub fn create_wallpaper_window(
     #[cfg(target_os = "macos")]
     if entry.kind == gesso_core::WallpaperKind::Video {
         let rel = crate::encoding::entry_main_source(entry);
-        let path = std::path::Path::new(&entry.source_dir).join(rel);
-        return macos::create_video_window(monitor, &path.display().to_string())
+        // 资源纪律（24/7 常驻）：循环视频每圈重读，磁盘安静不能押在可逐出的
+        // OS 页缓存上——优先走内存直供的 media-http 回环（Range 全从 RAM 切片），
+        // 服务不可用回落 file:// 直读。
+        let url = match crate::protocol::media_url(entry, &rel) {
+            u if u.starts_with("http://") => u,
+            _ => {
+                let path = std::path::Path::new(&entry.source_dir).join(&rel);
+                format!("file://{}", path.display())
+            }
+        };
+        return macos::create_video_window(monitor, &url)
             .map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
     }
     #[cfg(target_os = "macos")]
