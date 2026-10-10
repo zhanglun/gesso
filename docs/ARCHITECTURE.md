@@ -34,10 +34,12 @@ On macOS the wallpaper window is a plain `NSWindow` created with:
 | level | `-2147483604` — strictly between the desktop picture and the icon layer (verified; values within the band behave identically, the desktop-picture level itself has non-deterministic ordering) |
 | collection behavior | `CanJoinAllSpaces \| Stationary \| FullScreenAuxiliary \| IgnoresCycle` |
 | mouse | `ignoresMouseEvents = true` (click-through to icons) |
-| background | non-opaque + clear color → hiding the webview reveals the system desktop (this is how "fall back to the system wallpaper" works) |
+| background | opaque + black — the window is always fully covered by content; transparency bought nothing and cost a full-screen alpha blend per frame in WindowServer. "Fall back to the system desktop" = hiding the whole window (`set_visible(false)` → `orderOut`), not the webview |
 | geometry | full screen frame including the menu-bar band |
 
 The webview (`lb-wry`, the gpui-kit ecosystem fork of wry) is attached as a child of the window's content view and sized by us (no layout system involved).
+
+**Video wallpapers on macOS do not use the webview at all.** `pin::MacVideoWindow` mounts an `AVQueuePlayer` + `AVPlayerLooper` + `AVPlayerLayer` (aspect-fill) directly on the content view and reads the file via `file://` — the same presentation pipeline as QuickTime. Reason (measured 2026-10-10): WKWebView ships video frames through its remote layer tree with no display phase-lock; a 60 fps clip presented at a wavering 53–56 fps while the page ticked at a steady 60 Hz — visible judder no transport/compositor fix could cure. The webview path remains for shader/html/image; Windows video still goes through WebView2 + the loopback media server (see §3) until measured otherwise on real hardware.
 
 **Why not GPUI windows?** GPUI's window coordinator resets desktop-level full-screen geometry (it pushed `origin.y` to `-menuBarHeight` on every notification cycle), and its layout insets content by safe areas. Fighting it from outside loses — verified by a dedicated spike (`SPIKE-REPORT.md`, M1.5). Windows mirrors this (M1, real-machine verified): our own Win32 window (`WS_POPUP`, toolwindow/no-activate, click-through via `WM_NCHITTEST → HTTRANSPARENT`) + WebView2 child, `SetParent` onto the spawned `WorkerW` (Progman `0x052C` ladder, Progman fallback when desktop icons are hidden, HWND_BOTTOM until explorer is ready). **Creation order is load-bearing: mount first, create the WebView2 second** — the DComp visual tree binds to the host hierarchy at controller creation, and the reverse order renders nothing (window tree looks healthy; verified by detaching the window mid-run, which instantly restores rendering). Explorer restarts destroy cross-process children, so `TaskbarCreated` (received by a hidden listener window) triggers a full window rebuild per session, not a re-parent. The process declares `PerMonitorV2` itself in `main()` (neither GPUI nor wry sets it) — physical pixels all the way.
 
@@ -47,10 +49,16 @@ GPUI owns the manager window and the tray. Both run in the same process/event lo
 
 ```
 LibraryEntry (library/<random-id>/index.<ext>)
-   → ContentSpec { kind, source, fit, fps_cap, audio, meta }
-   → host page URL  gesso://host/index.html?spec=<urlencoded JSON>
-   → wallpaper webview   (source → gesso://library/<id>/<asset>)
+   → macOS video: pin::MacVideoWindow + AVPlayerLayer (file:// direct read, no host page)
+   → everything else:
+     ContentSpec { kind, source, fit, fps_cap, audio, meta }
+     → host page URL  gesso://host/index.html?spec=<urlencoded JSON>
+     → wallpaper webview
+        video src → http://127.0.0.1:<port>/… (loopback media server, AVPlayer native pipeline)
+        other assets → gesso://library/<id>/<asset>
 ```
+
+- **Video bytes never stream through the custom scheme on any platform.** WKWebView/WebView2 load media over custom schemes via small fragmented Range requests relayed through the WebContent process (measured: ~92 req/s of 2–4 KB chunks on dual screens) — `protocol::start_media_server` serves `library`/`steam` routes over a loopback-only HTTP socket so AVPlayer uses its native streaming path (one socket, whole-file reads; ~6 requests total). Path resolution and traversal guards are shared with the scheme handler (`resolve()`); CSP is generated per-boot with the random port (`csp()`).
 
 - Each local library entry is **self-contained** on disk; the host page is a single shared copy served from `gesso://host/index.html` (no per-entry duplication) and entry media is referenced relatively.
 - **Remote web entries** (`origin="url"`): the `https://` URL itself is stored in `LibraryEntry.source_url` (no local copy); the host page loads it directly in the sandboxed iframe. Thumbnails use the live-capture path (same as html).
@@ -83,8 +91,9 @@ Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from
 
 ## 7. Performance notes
 
-- Pause really stops work (JS loop + decoding). Fullscreen/battery triggers drive the state machine's `Autopause` state (M5, verified), with a per-display fullscreen-downscale policy (5 fps target via `__gesso.setFps`).
+- Pause really stops work (JS loop + decoding; native video: `player.pause()`). Fullscreen/battery triggers drive the state machine's `Autopause` state (M5, verified), with a per-display fullscreen-downscale policy (5 fps target via `__gesso.setFps`).
 - Multi-monitor: one wallpaper window per display; webview content processes are shared by the platform, decoders are not (accepted).
+- Frame pacing is measurable, not guessed: the host page counts presented video frames (`requestVideoFrameCallback`) and page ticks (rAF); `GESSO_VIDEO_DIAG=1` makes the engine sample every 5 s and print per-session rates. Use it before touching anything playback-related — the 2026-10 stutter hunt went data-supply (92 req/s fragmented ranges → loopback HTTP) → decode (hardware, fine) → compositor (window opacity) → presentation (webview no phase-lock → native player), each step decided by numbers.
 - Frame-rate control: the engine pushes the per-display fps cap to the host page (`__gesso.setFps`, live without reload) — shader frames are RAF-gated; for html it is an advisory value since the iframe owns its own RAF; video has no frame-rate lever. Cursor feed: the engine routes the global mouse location to the display it is on and pushes it at 30 Hz (`__gesso.mouse`); the host stores only the latest target and smooths per-frame into `iMouse` (read on the main thread — background reads of `NSEvent.mouseLocation` are stale during fast movement). Idle 5 min → 5 fps.
 
 ## 8. Where the deeper history lives

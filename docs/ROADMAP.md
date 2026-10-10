@@ -16,6 +16,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M1    Windows pinning（实机验证：图标层下渲染 / TaskbarCreated 自愈 / PMv2 DPI）
 ✅ M-URL 远端网页壁纸（origin=url 条目 + 宿主页 iframe 直装 https；2026-10-07 macOS 实机验证：louie.co.nz/25th_hour 跨域渲染 + 缩略图 16 帧）
 ✅ 0.1.0 发布（2026-10-07，GitHub Actions 自动打包发布：macOS dmg + Windows 便携 zip + checksums；ad-hoc 签名、未公证）
+✅ V-PERF 视频卡顿排障与分叉（2026-10-10 macOS 实机验证）：webview 减负（采集窗熄火/冻结帧降频/壁纸窗不透明）+ 视频媒体回环 HTTP 服务（自定义 scheme 碎片拉流 92 req/s → 原生管线一条流）+ macOS 视频壁纸原生 AVPlayerLayer 管线（webview 远端层树上屏无锁相，60fps 实测 53~56 波动 → 原生后顺滑）；帧率探针 GESSO_VIDEO_DIAG 入库
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 
@@ -23,7 +24,8 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 
 1. **发布后反馈消化**：安装/首启问题归集进 issue，质量修补随 0.1.x 小版本滚动（发布全自动化在 `.github/workflows/release.yml`，打 tag 即出产物）。
 2. **Windows 多显示器实机验证**（实现已就位，等环境）。
-3. **M7 Wallpaper Engine import II (scene)**（长期）。
+3. **Windows 视频帧节奏实测**：实机跑 `GESSO_VIDEO_DIAG=1`（需先给 Windows pin 层补 `evaluate_with_callback`）看 WebView2 的 rVFC 曲线——有撞帧再立项原生视频管线（Media Foundation + DComp，macOS `MacVideoWindow` 是现成设计模板）；回环媒体服务已跨平台生效。
+4. **M7 Wallpaper Engine import II (scene)**（长期）。
 
 ### M5 — system data bridge（✅ 已完成）
 - ✅ fullscreen detection: `CGWindowList` layer-0 window covering a display frame（±3pt 容差，y 轴按主显示器高度翻转）→ 按全屏策略执行：暂停 / 降帧到 5 fps / 忽略。
