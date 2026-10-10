@@ -991,6 +991,9 @@ fn main() {
         std::mem::forget(si);
     }
 
+    // 视频媒体回环服务：会话构建（ContentSpec → media_url）前必须就绪
+    protocol::start_media_server();
+
     // Windows：监听后续第二实例的激活信号（自动重置事件，快速连点也不丢信号：
     // 无等待者时 SetEvent 会记忆信号态）
     #[cfg(target_os = "windows")]

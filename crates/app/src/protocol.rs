@@ -32,20 +32,196 @@ fn decode_path(p: &str) -> String {
 /// 所有 gesso 资源同处一 scheme；CSP 按 scheme 收敛。
 /// frame-src 的 `https:` 仅服务远端网页条目（origin=url，宿主页 iframe 直装
 /// https 页面）；本地条目 iframe 仍只能指向 gesso:（sandbox 拦导航，见 host 页注）。
-#[cfg(target_os = "macos")]
-const CSP: &str = "default-src 'none'; script-src 'unsafe-inline' gesso:; \
-     style-src 'unsafe-inline' gesso:; frame-src gesso: https:; \
-     media-src gesso: blob:; img-src gesso: data:; connect-src gesso:";
 /// Windows（WebView2 workaround，见 pin/windows.rs）：页面实际 origin 是
 /// `http://gesso.<host段>`，CSP 源必须按 workaround 宿主枚举（`gesso:` 匹配不到它们）。
 /// 协议回调收到的是还原后的 gesso:// URI，路由不分平台。
-#[cfg(not(target_os = "macos"))]
-const CSP: &str = "default-src 'none'; \
-     script-src 'unsafe-inline' http://gesso.host http://gesso.library http://gesso.steam; \
-     style-src 'unsafe-inline' http://gesso.host http://gesso.library http://gesso.steam; \
-     frame-src http://gesso.host http://gesso.library http://gesso.steam https:; \
-     media-src http://gesso.host http://gesso.library http://gesso.steam blob:; \
-     img-src http://gesso.host http://gesso.library http://gesso.steam data:; connect-src http://gesso.host http://gesso.library http://gesso.steam";
+///
+/// CSP 是函数而非常量：视频走回环媒体服务（见下）时 media-src 要放行该源，
+/// 端口每次启动随机，运行时拼入。
+fn csp() -> String {
+    let media = match MEDIA_PORT.get() {
+        Some(&p) if p != 0 => format!(" http://127.0.0.1:{p}"),
+        _ => String::new(),
+    };
+    if cfg!(target_os = "macos") {
+        format!(
+            "default-src 'none'; script-src 'unsafe-inline' gesso:; \
+             style-src 'unsafe-inline' gesso:; frame-src gesso: https:; \
+             media-src gesso: blob:{media}; img-src gesso: data:; connect-src gesso:"
+        )
+    } else {
+        let h = "http://gesso.host http://gesso.library http://gesso.steam";
+        format!(
+            "default-src 'none'; \
+             script-src 'unsafe-inline' {h}; \
+             style-src 'unsafe-inline' {h}; \
+             frame-src {h} https:; \
+             media-src {h} blob:{media}; img-src {h} data:; connect-src {h}"
+        )
+    }
+}
+
+// ================= 视频媒体回环 HTTP 服务 =================
+// WKWebView/WebView2 对自定义 scheme 的媒体装载不流式：AVPlayer 经 WebContent
+// 中转，以 2-4KB 碎片 Range 逐段拉取（实测双屏 ~92 req/s，每条三跳 IPC 往返），
+// 解码器喂不饱即卡顿——b98b4e1 引入 gesso:// 时只验证了功能未验证吞吐节奏。
+// AVPlayer 的原生 HTTP 管线（持久 socket + 大块读 + 内核缓冲）才是正路，故视频
+// src 单独走本回环服务；页面/图片/子资源是一次性加载，仍走 gesso:// 无此病。
+// 信任模型与 gesso:// 相同：仅绑 127.0.0.1，不可猜 entry id 即凭据，路径解析
+// 复用 resolve() 的穿越防护。
+
+/// 0 = 未启动（绑定失败时 media_url 回退 gesso:// 直连，行为同旧版）。
+static MEDIA_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+/// 进程启动早期调用（会话构建前，端口需先进 OnceLock）。
+pub fn start_media_server() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0");
+    let port = match &listener {
+        Ok(l) => l.local_addr().map(|a| a.port()).unwrap_or(0),
+        Err(_) => 0,
+    };
+    let _ = MEDIA_PORT.set(port);
+    if port == 0 {
+        eprintln!("[media-http] 回环端口绑定失败，视频回退 gesso:// 协议路径");
+        return;
+    }
+    println!("[media-http] 视频媒体服务 127.0.0.1:{port}");
+    if let Ok(l) = listener {
+        std::thread::spawn(move || {
+            for stream in l.incoming().flatten() {
+                std::thread::spawn(move || handle_media_conn(stream));
+            }
+        });
+    }
+}
+
+/// 视频 src 的页面可见 URL（AVPlayer 原生 HTTP 管线）。服务未启动时回退
+/// entry_url（gesso:// 形态）。
+pub fn media_url(entry: &gesso_core::LibraryEntry, rel: &str) -> String {
+    match MEDIA_PORT.get() {
+        Some(&p) if p != 0 => {
+            let route = if entry.origin == "wallpaper-engine" {
+                "steam"
+            } else {
+                "library"
+            };
+            format!("http://127.0.0.1:{p}/{route}/{}/{rel}", entry.id)
+        }
+        _ => entry_url(entry, rel),
+    }
+}
+
+/// 一条回环连接：keep-alive 串行请求。shortcut: 未处理 HTTP 管道化（客户端
+/// 携带未读完的下一请求字节），CFNetwork 的媒体 Range 请求是串行等待响应的，
+/// 现实中不会触发；若未来换客户端再补。
+fn handle_media_conn(mut stream: std::net::TcpStream) {
+    use std::io::{Read, Seek as _, SeekFrom, Write};
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut tmp = [0u8; 8192];
+    loop {
+        // —— 读一个请求头 ——
+        buf.clear();
+        let head_end = loop {
+            if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break p;
+            }
+            match stream.read(&mut tmp) {
+                Ok(0) => return,
+                Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                Err(_) => return, // 超时/连接复位：断连，播放器自行重连
+            }
+            if buf.len() > 16 * 1024 {
+                return; // 头部异常膨胀，直接断
+            }
+        };
+        let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
+        let mut parts = head.lines().next().unwrap_or("").split(' ');
+        let method = parts.next().unwrap_or("").to_uppercase();
+        let raw_path = parts.next().unwrap_or("").to_string();
+        let range = head.lines().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.eq_ignore_ascii_case("range")
+                .then(|| parse_byte_range(v.trim()))
+                .flatten()
+        });
+        if method != "GET" && method != "HEAD" {
+            let _ = stream.write_all(
+                b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+            return;
+        }
+        // 路径 → 三路由解析（与 gesso:// 同规则同防护）
+        let path = raw_path.split('?').next().unwrap_or("");
+        let decoded = decode_path(path.trim_start_matches('/'));
+        let (host_seg, rest) = decoded.split_once('/').unwrap_or(("", ""));
+        let not_found = |stream: &mut std::net::TcpStream| {
+            let _ = stream.write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        };
+        let file = match resolve(host_seg, rest) {
+            Ok(f) => f,
+            Err(_) => return not_found(&mut stream),
+        };
+        match std::fs::metadata(&file) {
+            Ok(m) if m.is_file() && m.len() > 0 => {}
+            _ => return not_found(&mut stream),
+        }
+        let len = std::fs::metadata(&file).unwrap().len() as usize;
+        let (start, end, status) = match range {
+            Some((s, _)) if s >= len => {
+                let _ = stream.write_all(
+                    b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+                return;
+            }
+            Some((s, e)) => (s, e.min(len - 1), "206 Partial Content"),
+            None => (0, len - 1, "200 OK"),
+        };
+        let n = end - start + 1;
+        let mut resp = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {n}\r\nConnection: keep-alive\r\n",
+            mime_of(&file)
+        );
+        if status.starts_with("206") {
+            resp.push_str(&format!("Content-Range: bytes {start}-{end}/{len}\r\n"));
+        }
+        resp.push_str("\r\n");
+        if stream.write_all(resp.as_bytes()).is_err() {
+            return;
+        }
+        if log_enabled() {
+            eprintln!("[media-http] {method} {path} → {status} {start}-{end}/{len}");
+        }
+        if method == "HEAD" {
+            continue;
+        }
+        // —— 正文流送：客户端（AVPlayer）常缓冲够了就断，写失败属正常 ——
+        let Ok(mut f) = std::fs::File::open(&file) else {
+            return;
+        };
+        if f.seek(SeekFrom::Start(start as u64)).is_err() {
+            return;
+        }
+        let mut remain = n;
+        let mut chunk = vec![0u8; 256 * 1024];
+        while remain > 0 {
+            let want = remain.min(chunk.len());
+            match f.read(&mut chunk[..want]) {
+                Ok(0) => break,
+                Ok(got) => {
+                    if stream.write_all(&chunk[..got]).is_err() {
+                        return;
+                    }
+                    remain -= got;
+                }
+                Err(_) => return,
+            }
+        }
+    }
+}
 
 /// 宿主页/样例资源根（开发态 = crate assets；发布态 = exe 旁 assets）
 pub fn assets_dir() -> PathBuf {
@@ -151,6 +327,52 @@ pub fn create_webview<H: HasWindowHandle + 'static>(
         .map_err(|e| format!("{e}"))
 }
 
+/// gesso:// 三路由 → 本地文件路径。协议回调与回环媒体服务共用同一套解析
+/// 与穿越防护（改路由只改这里）。
+type RouteError = (lb_wry::http::StatusCode, &'static str);
+
+fn resolve(host: &str, path: &str) -> Result<PathBuf, RouteError> {
+    use lb_wry::http::StatusCode;
+    if host == "host" {
+        Ok(assets_dir().join("host").join(path))
+    } else if host == "library" {
+        // path = "<entry>/<相对资源>"
+        let mut it = path.splitn(2, '/');
+        let entry = it.next().unwrap_or_default();
+        let tail = it.next().unwrap_or_default();
+        // 路径穿越防护：条目内相对路径只允许 Normal 分量
+        if Path::new(tail)
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return Err((StatusCode::FORBIDDEN, "路径非法"));
+        }
+        Ok(library_dir().join(entry).join(tail))
+    } else if host == "steam" {
+        // path = "<entry>/<相对资源>"。凭据 = 用户已导入条目的不可猜 id：查清单
+        // 找到该条目的 source_dir（用户主动导入时记录的位置），拼接相对路径。
+        // 不扫描磁盘、不按路径空间枚举。
+        let mut it = path.splitn(2, '/');
+        let entry_id = it.next().unwrap_or_default();
+        let tail = it.next().unwrap_or_default();
+        if Path::new(tail)
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return Err((StatusCode::FORBIDDEN, "路径非法"));
+        }
+        let Some(man) = load_manifest() else {
+            return Err((StatusCode::SERVICE_UNAVAILABLE, "库不可用"));
+        };
+        let Some(entry) = man.entries.iter().find(|e| e.id == entry_id) else {
+            return Err((StatusCode::NOT_FOUND, "条目不存在或未导入"));
+        };
+        Ok(Path::new(&entry.source_dir).join(tail))
+    } else {
+        Err((StatusCode::NOT_FOUND, "未知路由"))
+    }
+}
+
 /// 处理一条 gesso:// 请求（协议回调）。
 fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<'static, [u8]>> {
     use lb_wry::http::StatusCode;
@@ -165,43 +387,9 @@ fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<
     let path = decode_path(uri.path().trim_start_matches('/'));
     let path = path.as_str();
 
-    let file: PathBuf = if host == "host" {
-        assets_dir().join("host").join(path)
-    } else if host == "library" {
-        // path = "<entry>/<相对资源>"
-        let mut it = path.splitn(2, '/');
-        let entry = it.next().unwrap_or_default();
-        let tail = it.next().unwrap_or_default();
-        // 路径穿越防护：条目内相对路径只允许 Normal 分量
-        if Path::new(tail)
-            .components()
-            .any(|c| !matches!(c, Component::Normal(_)))
-        {
-            return err(StatusCode::FORBIDDEN, "路径非法");
-        }
-        library_dir().join(entry).join(tail)
-    } else if host == "steam" {
-        // path = "<entry>/<相对资源>"。凭据 = 用户已导入条目的不可猜 id：查清单
-        // 找到该条目的 source_dir（用户主动导入时记录的位置），拼接相对路径。
-        // 不扫描磁盘、不按路径空间枚举。
-        let mut it = path.splitn(2, '/');
-        let entry_id = it.next().unwrap_or_default();
-        let tail = it.next().unwrap_or_default();
-        if Path::new(tail)
-            .components()
-            .any(|c| !matches!(c, Component::Normal(_)))
-        {
-            return err(StatusCode::FORBIDDEN, "路径非法");
-        }
-        let Some(man) = load_manifest() else {
-            return err(StatusCode::SERVICE_UNAVAILABLE, "库不可用");
-        };
-        let Some(entry) = man.entries.iter().find(|e| e.id == entry_id) else {
-            return err(StatusCode::NOT_FOUND, "条目不存在或未导入");
-        };
-        Path::new(&entry.source_dir).join(tail)
-    } else {
-        return err(StatusCode::NOT_FOUND, "未知路由");
+    let file = match resolve(host, path) {
+        Ok(f) => f,
+        Err((status, msg)) => return err(status, msg),
     };
 
     if log_enabled() {
@@ -237,8 +425,9 @@ fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<
         }
         // 开放范围（bytes=N-/0-）不读到 EOF：回有限前缀（206 部分响应），
         // 客户端按 Content-Range 自行追索后续区间——否则首字节延迟 = 整文件读取，
-        // 大视频的探查请求和 seek 全部超窗。
-        const OPEN_RANGE_CAP: usize = 512 * 1024;
+        // 大视频的探查请求和 seek 全部超窗。4MB：4K60 ≈14Mbps 下 512KB 只够
+        // 0.29s，每秒 3+ 轮三跳 IPC 往返；4MB 降 8 倍且内存代价可接受。
+        const OPEN_RANGE_CAP: usize = 4 * 1024 * 1024;
         let end = if end_req >= len {
             (start + OPEN_RANGE_CAP - 1).min(len - 1)
         } else {
@@ -267,7 +456,7 @@ fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<
             .header("Accept-Ranges", "bytes")
             .header("Content-Range", format!("bytes {start}-{end}/{len}"))
             .header("Access-Control-Allow-Origin", "*")
-            .header("Content-Security-Policy", CSP)
+            .header("Content-Security-Policy", csp())
             .body(Cow::Owned(chunk))
             .unwrap();
     }
@@ -287,7 +476,7 @@ fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<
                 .header("Content-Type", mime)
                 .header("Accept-Ranges", "bytes")
                 .header("Access-Control-Allow-Origin", "*")
-                .header("Content-Security-Policy", CSP)
+                .header("Content-Security-Policy", csp())
                 .body(Cow::Owned(bytes))
                 .unwrap()
         }
