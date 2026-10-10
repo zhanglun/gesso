@@ -182,7 +182,7 @@ fn handle_media_conn(mut stream: std::net::TcpStream) {
         };
         let n = end - start + 1;
         let mut resp = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {n}\r\nConnection: keep-alive\r\n",
+            "HTTP/1.1 {status}\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Length: {n}\r\nAccess-Control-Allow-Origin: *\r\nConnection: keep-alive\r\n",
             mime_of(&file)
         );
         if status.starts_with("206") {

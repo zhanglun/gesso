@@ -483,6 +483,13 @@ impl SessionManager {
             return;
         };
         let entry = entry.clone();
+        // 视频无帧率杠杆（宿主页 setFps 只门控 shader 循环；原生窗直接无
+        // JS）——不构建/加载宿主页，也不打误导性的"热重载"日志
+        if entry.kind == WallpaperKind::Video {
+            self.config.monitor_fps.insert(monitor_id.into(), fps);
+            let _ = self.save_config();
+            return;
+        }
         let url = Self::entry_host_url(&entry, fps);
         // 落配置
         self.config.monitor_fps.insert(monitor_id.into(), fps);
