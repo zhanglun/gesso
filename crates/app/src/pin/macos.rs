@@ -258,13 +258,7 @@ pub fn create_video_window(
         .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
     let window = make_pin_window(mtm);
     let (x, y, w, h) = monitor.frame;
-    window.setFrame_display(
-        objc2_foundation::NSRect::new(
-            objc2_foundation::NSPoint::new(x, y),
-            objc2_foundation::NSSize::new(w, h),
-        ),
-        true,
-    );
+    window.setFrame_display(video_pin_frame((x, y, w, h)), true);
 
     let content = window.contentView().expect("contentView 缺失");
     // SAFETY: 主线程；AVFoundation 家族方法按文档语义调用
@@ -322,13 +316,7 @@ impl WallpaperWindow for MacVideoWindow {
     }
 
     fn set_frame(&mut self, (x, y, w, h): (f64, f64, f64, f64)) {
-        self._window.setFrame_display(
-            objc2_foundation::NSRect::new(
-                objc2_foundation::NSPoint::new(x, y),
-                objc2_foundation::NSSize::new(w, h),
-            ),
-            true,
-        );
+        self._window.setFrame_display(video_pin_frame((x, y, w, h)), true);
     }
 
     fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64)) {
@@ -345,6 +333,18 @@ impl WallpaperWindow for MacVideoWindow {
     fn current_url(&self) -> String {
         "avplayer://native-video".into()
     }
+}
+
+/// 视频窗几何：四周外扩 2pt（超出屏幕的部分被 WindowServer 裁掉）。
+/// 原因：AspectFill 非整数缩放时 AVPlayerLayer 边缘有 ~2 设备像素的纹理
+/// 采样劣化带（双线性钳制采样到帧外，无 API 可关）——外扩即裁剪。
+/// 实测 1pt 只盖住一半（边框变细变淡），2pt 在 2x 屏 = 4px 完整吞掉
+/// （2026-10-10 双屏实测定位，见会话排障）。
+fn video_pin_frame((x, y, w, h): (f64, f64, f64, f64)) -> objc2_foundation::NSRect {
+    objc2_foundation::NSRect::new(
+        objc2_foundation::NSPoint::new(x - 2.0, y - 2.0),
+        objc2_foundation::NSSize::new(w + 4.0, h + 4.0),
+    )
 }
 
 // CGDisplay 身份三元组（EDID 的 vendor/product/serial）。合盖/重连/唤醒会重编
