@@ -70,6 +70,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ 协议已打通（`gesso://` 宿主页走统一副本、资源走 library、WE 源走 steam 只读直引；`bf3c294`）；WE video/web 零拷贝
 - ✅ 英文 i18n（中/英双文案包 + Auto，设置页即时切换）+ 远端网页壁纸（🔗 从 https URL 导入，iframe 直装，零本地拷贝）
 - ✅ V-PERF 视频卡顿排障闭环（2026-10-10）：视频字节流不走自定义 scheme（回环 HTTP 媒体服务，AVPlayer 原生管线）；**macOS 视频壁纸 = 原生 AVPlayerLayer（`pin::MacVideoWindow`），webview 只管 shader/html/图片**；帧率探针 `GESSO_VIDEO_DIAG=1`（rVFC/rAF 每 5s 采样）
+- ✅ 0.1.x 反馈修复（2026-10-10）：F11 三连修 + 视频窗 2pt 外扩（边缘劣化带）+ 唤醒显示器 ID 几何平移（副屏丢壁纸/幽灵窗）+ 视频内存直供（≤256MB 经 media-http RAM 直供，循环零盘读）；详见 CHANGELOG 与工程笔记
 - ✅ **0.1.0 已发布**（2026-10-07）：GitHub Actions 自动打包发布（macOS dmg / Windows 便携 zip / checksums）；ad-hoc 签名未公证；发布流程见 `docs/RELEASE-CHECKLIST.md`，打包脚本在 `packaging/`
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）

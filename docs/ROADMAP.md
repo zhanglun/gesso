@@ -17,6 +17,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ M-URL 远端网页壁纸（origin=url 条目 + 宿主页 iframe 直装 https；2026-10-07 macOS 实机验证：louie.co.nz/25th_hour 跨域渲染 + 缩略图 16 帧）
 ✅ 0.1.0 发布（2026-10-07，GitHub Actions 自动打包发布：macOS dmg + Windows 便携 zip + checksums；ad-hoc 签名、未公证）
 ✅ V-PERF 视频卡顿排障与分叉（2026-10-10 macOS 实机验证）：webview 减负（采集窗熄火/冻结帧降频/壁纸窗不透明）+ 视频媒体回环 HTTP 服务（自定义 scheme 碎片拉流 92 req/s → 原生管线一条流）+ macOS 视频壁纸原生 AVPlayerLayer 管线（webview 远端层树上屏无锁相，60fps 实测 53~56 波动 → 原生后顺滑）；帧率探针 GESSO_VIDEO_DIAG 入库
+✅ 0.1.x 反馈修复批次（2026-10-10）：F11 三连修（诊断色删除 + 全屏检测前台 PID 匹配 + 冻结帧画布）、视频窗 2pt 外扩裁掉 AVPlayerLayer 边缘劣化带、唤醒显示器 ID 重编几何平移（副屏丢壁纸/幽灵窗，实测）、视频壁纸内存直供（循环零盘读，实测 3 遍整文件物理读增量 0）
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 

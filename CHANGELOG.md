@@ -14,9 +14,13 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - **预置壁纸内容随包升级**：播种时对已入库预置条目重拷资源——此前样例只在首次播种时落盘，改版内容（修 shader/换标题）永远到不了老用户（真机复现）。
 - **预置壁纸文案去 demo 化**：条目标题去掉「（内置 Shader）/（内置）/测试图源」等措辞——Spectrum（原「测试图源」）、Plasma、Aurora、Noise Flow、Cursor Glow、Clock；标题表为唯一事实源；资源缺失不再静默跳过（留日志）；界面文案「内置样例」→「预置壁纸」。
 - `config.json` / `library.json` 加载剥离 UTF-8 BOM：用户用记事本编辑配置（Win10 默认存 BOM）后曾解析失败 → 静默回退默认配置 → 显示器指派被重置（真机复现）。
+- **视频壁纸内存直供（循环重读不再触盘）**：循环视频每圈重读整个文件（AVPlayerLooper 逐圈复制 item / WebView 对自定义 scheme 无媒体缓存），磁盘安静与否完全押在可被逐出的 OS 页缓存上——内存压力机器上 20MB 壁纸每圈从盘读 20MB（用户实测"一直在读磁盘"；本机 31GB swap 下复现同症状）。media-http 回环加 RAM 直供：≤256MB 条目首读整进内存、Range 全从内存切片（超限维持磁盘流送不硬吃内存）；macOS 原生视频窗 file:// → http:// 回环，服务不可用自动回落。实测连拉 3 遍整文件物理读增量 0.00MB。
 
 ### Fixed
 
+- **F11 切换桌面三连修（macOS）**：宿主页删除 video 调试状态色（`playing` 把 body 刷绿底——切桌面动画期间视频合成层短暂退出时闪绿屏，分数缩放屏上表现为左右 1-2px 绿线）+ 顺带清掉 shader 错误路径残留的 `state()` 调用（函数已删，会抛 ReferenceError 废掉 `window.__gesso`）；macOS 全屏检测加前台应用 PID 匹配（此前仅凭"layer 0 窗口盖满屏"几何判定，F11 桌面切换的过渡窗口被误判为全屏应用 → 壁纸误暂停/恢复）；video 垫低频冻结帧画布（合成层掉线的几百毫秒露壁纸末帧而非黑底）。
+- **macOS 视频壁纸 1px 淡边框**：AVPlayerLayer AspectFill 非整数缩放时最外圈 ~2 设备像素为纹理边界钳制采样劣化带（无 API 可关），且壁纸窗不透明黑底使缝隙显形——视频窗四周外扩 2pt 把劣化带裁出可视区（1pt 实测只盖一半）。双屏实测验证。
+- **锁屏/熄屏恢复后副屏丢壁纸 + 幽灵窗（Mac mini 双外接实测）**：唤醒会重编显示器 ID（macOS 26 无 EDID 符号回落 cg-id；同型号双屏消歧 id 也带 cgid），旧兜底"全失配迁移"只保一条指派。修法：拆会话前按帧几何一致（±2pt）把会话+配置+帧率平移到新 ID（不拆窗重建）；真拆除的会话显式 orderOut 再丢弃（AppKit 延迟 dealloc 曾让壁纸窗以旧帧残留成"无边框不可点窗口"）。新增 `plan_id_remap` 纯函数单测。
 - **退出/异常退出后桌面黑屏**：panic 钩子补上尽力清场（销毁存活的贴壁窗口 + 全屏失效逼 explorer 重绘）——此前 panic 只记日志，桌面必然黑屏；托盘退出的桌面还原追加全屏失效兜底（定向失效 WorkerW 可能不够）。真机验证三路径：托盘退出（EngineAction::Quit）、panic（GESSO_PANIC_AFTER_SECS 模拟）、强杀，桌面均恢复原壁纸。debug 构建新增 `GESSO_QUIT_AFTER_SECS` / `GESSO_PANIC_AFTER_SECS` 模拟钩子供无头验证。
 - 「从 URL 导入」弹窗打开即聚焦地址输入框：出现后可直接粘贴链接，免一次点击。
 - **Windows 启动闪退（#2，v0.1.0 安装版 100% 复现）**：单实例锁的文件路径字符串被 `single-instance 0.3` 原样传给 `CreateMutexW` 当内核对象名——`\` 是对象命名空间分隔符，`.\gesso-app-lock`（HOME 缺失兜底）与 `%USERPROFILE%\.gesso\…`（USERPROFILE 修复后）全都 `ERROR_PATH_NOT_FOUND(3)` → `unwrap` panic → 黑窗一闪而过。Windows 锁名改扁平 `Local\gesso-app-lock{GESSO_LOCK后缀}`，非 Windows 仍走绝对路径文件锁。此前 794a254 已落的两项排查沉淀（panic 落盘 `%USERPROFILE%\.gesso\gesso.log`、Windows `config_dir` 改读 `USERPROFILE`）随本修复一并生效。
