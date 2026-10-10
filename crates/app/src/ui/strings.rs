@@ -42,7 +42,6 @@ pub struct Texts {
     pub menu_set_wallpaper: &'static str,
     pub menu_all_monitors: &'static str,
     pub menu_open_folder: &'static str,
-    pub menu_details: &'static str,
     pub menu_remove: &'static str,
 
     // 导入失败
@@ -185,7 +184,6 @@ pub const ZH: Texts = Texts {
     menu_set_wallpaper: "设为壁纸",
     menu_all_monitors: "全部",
     menu_open_folder: "打开所在目录",
-    menu_details: "查看详情",
     menu_remove: "从库中移除",
 
     import_err_unsupported: "不支持的文件类型。支持：mp4 / webm / gif / webp / html / glsl",
@@ -313,7 +311,6 @@ pub const EN: Texts = Texts {
     menu_set_wallpaper: "Set as wallpaper",
     menu_all_monitors: "All displays",
     menu_open_folder: "Open containing folder",
-    menu_details: "View details",
     menu_remove: "Remove from library",
 
     import_err_unsupported: "Unsupported file type. Supported: mp4 / webm / gif / webp / html / glsl",
@@ -483,7 +480,7 @@ accessors! {
     we_empty_desc => WE_EMPTY_DESC, btn_view_all => BTN_VIEW_ALL,
     badge_we => BADGE_WE, file_removed => FILE_REMOVED,
     menu_set_wallpaper => MENU_SET_WALLPAPER, menu_all_monitors => MENU_ALL_MONITORS,
-    menu_open_folder => MENU_OPEN_FOLDER, menu_details => MENU_DETAILS, menu_remove => MENU_REMOVE,
+    menu_open_folder => MENU_OPEN_FOLDER, menu_remove => MENU_REMOVE,
     import_err_unsupported => IMPORT_ERR_UNSUPPORTED, import_err_mkv => IMPORT_ERR_MKV,
     import_err_hevc => IMPORT_ERR_HEVC, import_err_io => IMPORT_ERR_IO,
     dz_hint => DZ_HINT,

@@ -588,18 +588,6 @@ fn card_context_menu(
                 }
             })
         })
-        .item(PopupMenuItem::new(MENU_DETAILS()).on_click({
-            let id = item_id.clone();
-            move |_, window, cx| {
-                let detail = state(cx)
-                    .library
-                    .iter()
-                    .find(|w| w.id.as_ref() == id.as_str())
-                    .map(|w| format!("{} · {} · {}", w.name, w.kind.label(), w.meta))
-                    .unwrap_or_default();
-                window.push_notification(Notification::info(detail), cx);
-            }
-        }))
         .separator()
         .item(
             PopupMenuItem::element(move |_, cx| danger_item(MENU_REMOVE(), cx)).on_click({
