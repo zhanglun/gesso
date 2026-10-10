@@ -110,6 +110,34 @@ pub struct SessionManager {
     sessions: BTreeMap<String, Session>,
 }
 
+/// 唤醒/重连 ID 重编的平移计划：旧会话按几何一致匹配"新出现的未占用显示器"。
+/// 纯函数供单测；容差 ±2pt（重配前后屏幕布局通常逐点一致）。
+fn plan_id_remap(
+    stale: &[(String, (f64, f64, f64, f64))],
+    candidates: &[MonitorInfo],
+) -> Vec<(String, String)> {
+    const TOL: f64 = 2.0;
+    let mut used: std::collections::BTreeSet<String> = Default::default();
+    let mut out = Vec::new();
+    for (old_id, (x, y, w, h)) in stale {
+        let hit = candidates.iter().find(|m| {
+            if used.contains(&m.id) {
+                return false;
+            }
+            let (mx, my, mw, mh) = m.frame;
+            (mx - x).abs() < TOL
+                && (my - y).abs() < TOL
+                && (mw - w).abs() < TOL
+                && (mh - h).abs() < TOL
+        });
+        if let Some(m) = hit {
+            used.insert(m.id.clone());
+            out.push((old_id.clone(), m.id.clone()));
+        }
+    }
+    out
+}
+
 impl SessionManager {
     pub fn new(config: AppConfig, library: Vec<LibraryEntry>) -> Self {
         Self {
@@ -220,6 +248,50 @@ impl SessionManager {
         let now: std::collections::BTreeSet<String> =
             monitors.iter().map(|m| m.id.clone()).collect();
 
+        // 唤醒/重连后系统重编显示器 ID（macOS 26 无 EDID 符号回落 cg-id；
+        // 同型号双屏消歧 id 也带 cgid）：ID 失配 ≠ 屏幕没了。按几何一致把
+        // 会话+配置+帧率整体平移到新 ID——不拆窗重建（唤醒期的拆建正是
+        // 幽灵窗/黑屏的来源）。全失配迁移兜底保留（虚拟屏等无 EDID 场景）。
+        let stale: Vec<(String, (f64, f64, f64, f64))> = self
+            .sessions
+            .iter()
+            .filter(|(id, _)| !now.contains(*id))
+            .map(|(id, s)| (id.clone(), s.monitor.frame))
+            .collect();
+        if !stale.is_empty() {
+            let candidates: Vec<MonitorInfo> = monitors
+                .iter()
+                .filter(|m| {
+                    !self.sessions.contains_key(&m.id)
+                        && !self.config.monitors.contains_key(&m.id)
+                })
+                .cloned()
+                .collect();
+            for (old_id, new_id) in plan_id_remap(&stale, &candidates) {
+                let Some(m) = monitors.iter().find(|m| m.id == new_id).cloned() else {
+                    continue;
+                };
+                if let Some(mut s) = self.sessions.remove(&old_id) {
+                    let frame_changed = s.monitor.frame != m.frame;
+                    s.monitor = m.clone();
+                    if frame_changed {
+                        if let Some(w) = s.window.as_mut() {
+                            w.reassert_pinning(m.frame);
+                        }
+                    }
+                    self.sessions.insert(new_id.clone(), s);
+                }
+                if let Some(entry) = self.config.monitors.remove(&old_id) {
+                    self.config.monitors.insert(new_id.clone(), entry);
+                }
+                if let Some(fps) = self.config.monitor_fps.remove(&old_id) {
+                    self.config.monitor_fps.insert(new_id.clone(), fps);
+                }
+                println!("[session] 显示器 ID 重编：{old_id} → {new_id}（几何匹配，会话平移）");
+            }
+            let _ = self.save_config();
+        }
+
         // 拆掉已拔出的显示器
         let gone: Vec<String> = self
             .sessions
@@ -228,7 +300,13 @@ impl SessionManager {
             .cloned()
             .collect();
         for id in gone {
-            self.sessions.remove(&id);
+            // 显式熄窗再丢弃：唤醒期窗口释放可能被 AppKit 延迟，
+            // 残留即"幽灵壁纸窗"（无边框/不可点击/停帧画面）
+            if let Some(mut s) = self.sessions.remove(&id) {
+                if let Some(w) = s.window.as_mut() {
+                    w.set_visible(false);
+                }
+            }
             println!("[session] 显示器 {id} 已断开，会话拆除（配置保留）");
         }
 
@@ -978,6 +1056,42 @@ fn video_diag_enabled() -> bool {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    fn m(id: &str, x: f64, y: f64, w: f64, h: f64) -> MonitorInfo {
+        MonitorInfo {
+            id: id.into(),
+            name: String::new(),
+            frame: (x, y, w, h),
+            is_main: x == 0.0 && y == 0.0,
+        }
+    }
+
+    #[test]
+    fn id_remap_by_geometry() {
+        // 唤醒后 cg-id 重编：两块屏几何不变，会话应按帧匹配平移到新 ID
+        let stale = vec![
+            ("cg-1".into(), (0.0, 0.0, 2560.0, 1440.0)),
+            ("cg-7".into(), (2560.0, 0.0, 1920.0, 1080.0)),
+        ];
+        let candidates = vec![
+            m("cg-42", 2560.0, 0.0, 1920.0, 1080.0),
+            m("cg-99", 0.0, 0.0, 2560.0, 1440.0),
+        ];
+        let plan = plan_id_remap(&stale, &candidates);
+        assert!(plan.contains(&("cg-1".into(), "cg-99".into())));
+        assert!(plan.contains(&("cg-7".into(), "cg-42".into())));
+
+        // 几何不一致（真拔出/换位置）不映射，交给拆除/用户重设
+        let moved = vec![m("cg-5", 100.0, 100.0, 800.0, 600.0)];
+        assert!(plan_id_remap(&stale, &moved).is_empty());
+
+        // 同一候选只占一次（两块旧屏不会都挤到一块新屏上）
+        let dup = vec![m("cg-8", 0.0, 0.0, 2560.0, 1440.0)];
+        assert_eq!(
+            plan_id_remap(&stale, &dup),
+            vec![("cg-1".into(), "cg-8".into())]
+        );
+    }
 
     #[test]
     fn suspend_effect_fullscreen_wins_over_battery() {
