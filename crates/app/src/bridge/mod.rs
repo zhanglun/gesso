@@ -17,6 +17,8 @@ pub struct BridgeSnapshot {
     pub fullscreen: std::collections::BTreeSet<String>,
     /// 电源态：Some(true)=电池供电、Some(false)=接通电源、None=无电池（台式机）。
     pub on_battery: Option<bool>,
+    /// 屏幕锁定（锁屏时壁纸不可见，供自动暂停省电）。
+    pub locked: bool,
 }
 
 /// 光标瞬时态：平台原生全局坐标，与 MonitorInfo.frame 同系
@@ -64,6 +66,7 @@ pub fn sample() -> BridgeSnapshot {
         BridgeSnapshot {
             fullscreen: macos::fullscreen_displays(),
             on_battery: macos::on_battery(),
+            locked: macos::is_locked(),
         }
     }
     #[cfg(target_os = "windows")]
@@ -71,6 +74,7 @@ pub fn sample() -> BridgeSnapshot {
         BridgeSnapshot {
             fullscreen: windows::fullscreen_displays(),
             on_battery: windows::on_battery(),
+            locked: windows::is_locked(),
         }
     }
 }

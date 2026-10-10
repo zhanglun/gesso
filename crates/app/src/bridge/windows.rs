@@ -151,6 +151,12 @@ pub fn on_battery() -> Option<bool> {
     }
 }
 
+/// 锁屏态（Windows 未实现：锁屏暂停省电仅 macOS 生效）。
+/// ponytail: 若需 Windows 锁屏检测，用 WTSRegisterSessionNotification。
+pub fn is_locked() -> bool {
+    false
+}
+
 /// 光标位置（顶左原点物理像素，与 MonitorInfo.frame 同系，供后台高频比对）。
 pub fn mouse_location() -> (f64, f64) {
     let mut p = POINT::default();

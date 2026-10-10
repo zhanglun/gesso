@@ -1148,14 +1148,14 @@ fn main() {
                         });
                         refresh_ui = true;
                     }
-                    // M5 数据桥（与显示器同步同节奏，错开半拍）：全屏检测 + 电源态
+                    // M5 数据桥（与显示器同步同节奏，错开半拍）：锁屏 + 全屏 + 电源态
                     // → 策略解析 → 自动暂停/降帧；有状态变化才刷新 UI
                     if tick != 0 && tick % MONITOR_SYNC_EVERY == AUTOPAUSE_OFFSET {
                         let changed = cx.update(|cx| {
                             let snap = bridge::sample();
                             cx.global_mut::<engine::AppState>()
                                 .sm
-                                .apply_autopause(&snap.fullscreen, snap.on_battery)
+                                .apply_autopause(snap.locked, &snap.fullscreen, snap.on_battery)
                         });
                         refresh_ui |= changed;
                     }

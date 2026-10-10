@@ -53,6 +53,8 @@ extern "C" {
     // 位置改走 NSEvent::mouseLocation（见 mouse_sample）。
     fn CGEventSourceButtonState(state: u32, button: u16) -> u8;
     fn CGEventSourceSecondsSinceLastEventType(state: u32, event_type: u32) -> f64;
+    // 会话字典（+1，需 CFRelease）：含锁屏/控制台键，供锁屏暂停省电
+    fn CGSessionCopyCurrentDictionary() -> *const c_void;
 }
 
 #[link(name = "IOKit", kind = "framework")]
@@ -221,6 +223,27 @@ pub fn on_battery() -> Option<bool> {
         }
         CFRelease(info); // desc 借用自 info，随它一起失效
         result
+    }
+}
+
+/// 锁屏态：CGSessionCopyCurrentDictionary 含 "CGSSessionScreenIsLocked" 键即锁定。
+/// 无 GUI 会话（返回 NULL）按未锁处理——壁纸进程本就不在前台会话里渲染。
+/// 轮询式（随 bridge::sample 每 ~2s 采一次），无需通知监听基础设施。
+pub fn is_locked() -> bool {
+    unsafe {
+        let dict = CGSessionCopyCurrentDictionary();
+        if dict.is_null() {
+            return false;
+        }
+        let key = CFStringCreateWithCString(
+            std::ptr::null(),
+            b"CGSSessionScreenIsLocked\0".as_ptr() as *const c_char,
+            0x0800_0100,
+        );
+        let locked = !CFDictionaryGetValue(dict, key).is_null();
+        CFRelease(key);
+        CFRelease(dict);
+        locked
     }
 }
 

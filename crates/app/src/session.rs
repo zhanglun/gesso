@@ -39,6 +39,8 @@ pub enum ImportCheck {
 pub enum AutopauseReason {
     Fullscreen,
     Battery,
+    /// 屏幕锁定：壁纸整体不可见，无条件暂停（省电），不参与用户策略。
+    Locked,
 }
 
 /// 策略解析结果（纯函数 `suspend_effect` 的输出；执行在 apply_autopause）。
@@ -53,14 +55,18 @@ pub enum SuspendEffect {
     Downscale,
 }
 
-/// M5 数据桥策略解析：全屏优先于电池（本屏全屏时按全屏策略）。
+/// M5 数据桥策略解析：锁屏 > 全屏 > 电池。锁屏时屏幕整体不可见，无条件暂停
+/// （降帧/忽略对锁屏无意义），所以锁屏不走用户策略，直接 Pause。
 pub fn suspend_effect(
+    locked: bool,
     fullscreen_on_monitor: bool,
     on_battery: bool,
     fullscreen_policy: PausePolicy,
     battery_policy: PausePolicy,
 ) -> SuspendEffect {
-    if fullscreen_on_monitor {
+    if locked {
+        SuspendEffect::Pause(AutopauseReason::Locked)
+    } else if fullscreen_on_monitor {
         match fullscreen_policy {
             PausePolicy::Pause => SuspendEffect::Pause(AutopauseReason::Fullscreen),
             PausePolicy::Downscale => SuspendEffect::Downscale,
@@ -808,6 +814,7 @@ impl SessionManager {
     /// 自动暂停——状态机里 AutoPauseTrigger 对 PausedUser 是 no-op，这里同步跳过。
     pub fn apply_autopause(
         &mut self,
+        locked: bool,
         fullscreen: &std::collections::BTreeSet<String>,
         on_battery: Option<bool>,
     ) -> bool {
@@ -818,7 +825,7 @@ impl SessionManager {
         let ids: Vec<String> = self.sessions.keys().cloned().collect();
         for id in ids {
             let fps = self.fps_for(&id);
-            let effect = suspend_effect(fullscreen.contains(&id), battery, fs_policy, bat_policy);
+            let effect = suspend_effect(locked, fullscreen.contains(&id), battery, fs_policy, bat_policy);
             let Some(s) = self.sessions.get_mut(&id) else {
                 continue;
             };
@@ -1096,37 +1103,46 @@ mod tests {
     #[test]
     fn suspend_effect_fullscreen_wins_over_battery() {
         use PausePolicy as P;
+        // 锁屏优先于一切：无条件暂停（即使策略是 Ignore）
+        assert_eq!(
+            suspend_effect(true, false, false, P::Ignore, P::Ignore),
+            SuspendEffect::Pause(AutopauseReason::Locked)
+        );
+        assert_eq!(
+            suspend_effect(true, true, true, P::Downscale, P::Downscale),
+            SuspendEffect::Pause(AutopauseReason::Locked)
+        );
         // 全屏优先于电池（本屏全屏按全屏策略）
         assert_eq!(
-            suspend_effect(true, true, P::Pause, P::Downscale),
+            suspend_effect(false, true, true, P::Pause, P::Downscale),
             SuspendEffect::Pause(AutopauseReason::Fullscreen)
         );
         // 电池供电单独触发
         assert_eq!(
-            suspend_effect(false, true, P::Pause, P::Pause),
+            suspend_effect(false, false, true, P::Pause, P::Pause),
             SuspendEffect::Pause(AutopauseReason::Battery)
         );
         // 接通电源 + 无全屏 = 不干预
         assert_eq!(
-            suspend_effect(false, false, P::Pause, P::Pause),
+            suspend_effect(false, false, false, P::Pause, P::Pause),
             SuspendEffect::None
         );
         // 降帧策略（时钟类壁纸，技术方案 §423）
         assert_eq!(
-            suspend_effect(true, false, P::Downscale, P::Pause),
+            suspend_effect(false, true, false, P::Downscale, P::Pause),
             SuspendEffect::Downscale
         );
         assert_eq!(
-            suspend_effect(false, true, P::Pause, P::Downscale),
+            suspend_effect(false, false, true, P::Pause, P::Downscale),
             SuspendEffect::Downscale
         );
         // 忽略策略
         assert_eq!(
-            suspend_effect(true, false, P::Ignore, P::Pause),
+            suspend_effect(false, true, false, P::Ignore, P::Pause),
             SuspendEffect::None
         );
         assert_eq!(
-            suspend_effect(false, true, P::Pause, P::Ignore),
+            suspend_effect(false, false, true, P::Pause, P::Ignore),
             SuspendEffect::None
         );
     }
