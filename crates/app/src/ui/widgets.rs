@@ -63,6 +63,7 @@ pub fn preview(
     broken: bool,
     thumbs: &[String],
     frame: usize,
+    thumb_pending: bool,
     cx: &App,
 ) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
@@ -161,7 +162,8 @@ pub fn preview(
         }
     }
 
-    // 3) 兜底：渐变底色 + 居中加载指示（缩略图后台生成中）
+    // 3) 兜底：渐变底色 + 居中指示（生成中 = kit Spinner；
+    // 不可得（重试耗尽/Direct 无帧）= 类型图标，不假装在加载）
     let from: Hsla = rgb(art.from).into();
     let to: Hsla = rgb(art.to).into();
     div()
@@ -190,14 +192,15 @@ pub fn preview(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child({
-                            // video：帧序列后台生成中 → loading；其余类型永不产帧 → 类型图标
-                            let icon = if kind == Some(Kind::Video) {
-                                IconName::RefreshCw
-                            } else {
-                                kind_icon(kind.unwrap_or(Kind::Video))
-                            };
-                            Icon::new(icon).size_4().text_color(gpui_kit::gpui::white())
+                        .child(if thumb_pending {
+                            gpui_kit::component::spinner::Spinner::new()
+                                .color(gpui_kit::gpui::white())
+                                .into_any_element()
+                        } else {
+                            Icon::new(kind_icon(kind.unwrap_or(Kind::Video)))
+                                .size_4()
+                                .text_color(gpui_kit::gpui::white())
+                                .into_any_element()
                         }),
                 ),
         )

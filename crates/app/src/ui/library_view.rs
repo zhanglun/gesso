@@ -296,6 +296,7 @@ impl LibraryView {
                         broken,
                         &item.thumbs,
                         hover_frame,
+                        item.thumb_pending,
                         cx,
                     ))
                     .when(preloading, |r| {
@@ -806,7 +807,7 @@ impl Render for CardGhost {
             .shadow_lg()
             .opacity(0.9)
             .bg(t.panel)
-            .child(preview(self.art, None, false, &[], 0, cx))
+            .child(preview(self.art, None, false, &[], 0, false, cx))
             .child(
                 div()
                     .px_3()

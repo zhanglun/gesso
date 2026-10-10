@@ -158,9 +158,17 @@ fn bootstrap() -> (session::SessionManager, bool) {
 
     let mut library = {
         let p = protocol::library_dir().join("library.json");
-        gesso_core::LibraryManifest::load(&p)
-            .unwrap_or_default()
-            .entries
+        match gesso_core::LibraryManifest::load(&p) {
+            Ok(m) => m.entries,
+            Err(_) if !p.exists() => Vec::new(), // 真首启：无清单
+            // 灾难护栏：清单存在但解析失败（损坏/手工编辑错）时，绝不能
+            // 以空库继续启动——下方播种会把它覆写、用户条目全部丢失
+            //（2026-10-10 实测事故）。保留原文件供修复，仅内存降级。
+            Err(e) => {
+                eprintln!("[boot] library.json 解析失败（{e}），跳过播种覆写：{p:?}");
+                std::process::exit(78); // EX_CONFIG：带明确原因退出，交由用户修文件
+            }
+        }
     };
     // 预置壁纸：视频 1 + shader 8 + html 1（M4 DoD：shader 渲染，noiseflow 含 iChannel
     // 纹理，cursor 含 iMouse 光标桥；html 演示沙箱契约与 postMessage 暂停配合）。
@@ -318,7 +326,7 @@ fn bootstrap() -> (session::SessionManager, bool) {
 
 /// 会话快照 → UI 状态（GessoState.demo=false）。库/显示器/指派/状态取自真源；
 /// 条目失效按素材目录缺失判定（优雅降级：预览灰底 + 红字，永不白屏）。
-fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
+fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) -> GessoState {
     let mut g = GessoState {
         demo: false, // 快照覆盖本地投影；调用方回灌时保留浏览状态
         ..GessoState::default()
@@ -364,7 +372,15 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 WallpaperKind::Shader => ui::data::Kind::Shader,
                 WallpaperKind::Html => ui::data::Kind::Web,
             };
+            // 缩略图"生成中"投影：需生成的类型 + 当前缺帧 + 调度器仍会重试
+            // （在途或次数未耗尽）——耗尽后退回静态占位，不假装在加载
+            let home = encoding::thumb_home(e);
+            let frames = thumb::preview_frames(&home, e.kind);
             ui::data::LibraryItem {
+                thumb_pending: gesso_core::content_type(e.kind).thumb
+                    != gesso_core::ThumbStrategy::Direct
+                    && frames.len() < 2
+                    && thumbs.pending(&home),
                 id: e.id.clone().into(),
                 name: e.title.clone().into(),
                 kind,
@@ -384,7 +400,7 @@ fn snapshot_ui(sm: &session::SessionManager) -> GessoState {
                 remote: e.source_url.is_some(),
                 real: true,
                 art: kind_art(e.kind),
-                thumbs: thumb::preview_frames(&encoding::thumb_home(e), e.kind),
+                thumbs: frames,
             }
         })
         .collect();
@@ -1021,7 +1037,7 @@ fn main() {
             let autostart_on = sm.config().settings.autostart;
             AUTOSTART_HINT.store(autostart_on, std::sync::atomic::Ordering::SeqCst);
             cx.set_global(engine::AppState::new(sm));
-            cx.set_global(snapshot_ui(&cx.global::<engine::AppState>().sm));
+            cx.set_global(snapshot_ui(&cx.global::<engine::AppState>().sm, &cx.global::<engine::AppState>().thumbs));
 
             // 托盘（§4.1/§4.2）：左键 = 快速面板；右键 = 菜单。
             // 事件处理器全局按 id 路由，一次注册即可；语言切换后主循环
@@ -1152,7 +1168,7 @@ fn main() {
                     if refresh_ui {
                         // 会话 → UI 单向回灌（托盘/界面动作 / 显示器热插拔后的跨面同步）
                         cx.update(|cx| {
-                            let next = snapshot_ui(&cx.global::<engine::AppState>().sm);
+                            let next = snapshot_ui(&cx.global::<engine::AppState>().sm, &cx.global::<engine::AppState>().thumbs);
                             cx.update_global::<GessoState, _>(|g, _| merge_snapshot(g, next));
                             cx.refresh_windows();
                         });
@@ -1166,10 +1182,17 @@ fn main() {
             // 且无限重试——现在完成事件（ThumbsDone）驱动回灌，重试上限与在途
             // 去重收敛在 ThumbScheduler。
             cx.spawn(async move |cx| {
+                // 首轮立即扫：新装/首开不用干等 30s 才开始补帧（库卡片此时正转
+                // spinner）；后续 30s 一轮兜底。should_start 在途去重保证与
+                // 导入路径的即时派发互不重复。
+                let mut first = true;
                 loop {
-                    cx.background_executor()
-                        .timer(Duration::from_secs(30))
-                        .await;
+                    if !first {
+                        cx.background_executor()
+                            .timer(Duration::from_secs(30))
+                            .await;
+                    }
+                    first = false;
                     // 缺帧兜底：统一按策略扫描——Direct（图片）帧发现本就直引源文件，
                     // 只对需"生成"且当前缺帧的 Extract/Capture 起任务。
                     // 真源 = 库目录文件系统，不依赖 UI 快照新鲜度。

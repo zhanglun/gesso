@@ -67,6 +67,9 @@ pub struct LibraryItem {
     /// 预览帧序列（video = 抽帧 thumb.png + thumb-1..7.png；gif = 素材本身；
     /// 空 = 渐变占位）。悬停时 UI 轮播这些帧。
     pub thumbs: Vec<String>,
+    /// 缩略图生成中（调度器在途/仍会重试）：卡片渐变占位上转 spinner；
+    /// 重试耗尽后 false → 静态类型图标，不假装在加载。
+    pub thumb_pending: bool,
 }
 
 /// 运行状态（技术方案 §9 状态机的视图投影）。

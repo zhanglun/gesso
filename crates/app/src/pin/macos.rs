@@ -206,10 +206,15 @@ impl WallpaperWindow for MacWallpaperWindow {
     }
 
     fn current_url(&self) -> String {
-        self.webview
-            .url()
-            .map(|u| u.to_string())
-            .unwrap_or_else(|e| format!("<{e}>"))
+        // lb-wry 的 url() 在页面未提交首帧前对 nil URL unwrap 会 panic
+        //（WKWebView.URL() 返回 nil）——启动诊断/竞态路径必须容忍
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.webview
+                .url()
+                .map(|u| u.to_string())
+                .unwrap_or_else(|e| format!("<{e}>"))
+        }))
+        .unwrap_or_else(|_| "<unavailable>".into())
     }
 
     fn set_frame(&mut self, (x, y, w, h): (f64, f64, f64, f64)) {

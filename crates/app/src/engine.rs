@@ -60,6 +60,13 @@ impl ThumbScheduler {
         self.in_flight.remove(dir);
         *self.attempts.entry(dir.to_string()).or_insert(0) += 1;
     }
+
+    /// UI 投影：该条目缩略图是否"生成中/仍会生成"（在途或重试未耗尽）。
+    /// 驱动库卡片 spinner；重试耗尽 → false，退回静态占位不假装在加载。
+    pub fn pending(&self, dir: &str) -> bool {
+        self.in_flight.contains(dir)
+            || self.attempts.get(dir).copied().unwrap_or(0) < Self::MAX_ATTEMPTS
+    }
 }
 
 /// UI → 引擎的写动作。
