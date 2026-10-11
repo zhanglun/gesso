@@ -4,43 +4,36 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ## [Unreleased]
 
-### Added
-
-- **预置壁纸扩充 6 → 10**：新增 4 款 shader——Tide（深海潮汐，iChannel0 fbm 海面）、Starfield（星野，闪烁星点 + 星云）、Silk（流光绸缎，域扭曲暮色绸面）、Ember（余烬，底部上升的暗火微光）。真机逐个渲染验证（PrintWindow 抓帧，无红屏）。
-- **锁屏自动暂停省电**：锁屏是系统级安全上下文、壁纸窗口不参与渲染，锁屏时暂停所有壁纸渲染省资源、解锁自动恢复。macOS 轮询 `CGSessionCopyCurrentDictionary` 的 `CGSSessionScreenIsLocked` 键；Windows 同步落地（2026-10-11）：`WTSQuerySessionInformationW(WTSSessionInfoEx)` 轮询会话锁标志（纯轮询，无需 HWND/消息泵）。策略解析锁屏最高优先级（无条件暂停，不走用户策略）。
-- **Windows 帧率探针通道**：pin 层补齐 `evaluate_with_callback`（lb-wry ExecuteScript 完成回调，与采集窗同一管线）——`GESSO_VIDEO_DIAG=1` 自此可在 Windows 读宿主页 rVFC/rAF/丢帧探针，视频帧节奏实测（ROADMAP 第 3 项）的前置就绪。
-
-### Changed
-
-- **Windows 视频壁纸改走原生 MF + DXGI 管线（视频卡顿根治）**：WebView2 windowed hosting 的呈现路径（渲染进程合成器 → 跨进程纹理 → DComp 子窗口 → DWM）实测卡顿——v0.1.0 / e91e4bb / HEAD 三代构建、gesso:// 与回环 HTTP 两种传输、4GB/133MB/内置样例三类素材全卡，而同文件本地播放器与 Edge 丝滑；页侧探针（rVFC/rAF/丢帧）全绿，病灶锁定呈现交接层，与 macOS「远端层树无锁相」同病同解。`pin::WinVideoWindow`：MF SourceReader 解码（BGRA 缩放到屏）→ flip-model swapchain 直挂 WorkerW 子窗口（`Present(1)` 锁 vsync + PTS 对齐），解码跑专职线程；视频流纯解码无音频管线，静音契约天然成立。WebView2 从此只管 shader/html/图片（双平台架构对齐）。另：实测本机 System32 缺 Windows.UI.Composition.dll 等 WinRT UI 运行时（精简脚本所致），原生路径走经典 DXGI 对此类系统免疫。
-- **壁纸静音落地（audio=muted 契约对 html 类生效）**：ContentSpec 契约带 `audio: muted`，但宿主页从未实现——video 静音只是 `<video muted>` 硬编码，html/网页/WE web 的声音直通系统混音器（用户实测 louie.co.nz 网页壁纸出声）。Windows 用引擎级 `--mute-audio`：媒体照常自动播放（画面动），音频输出在浏览器引擎层关断；macOS 用 `with_autoplay(false)` 落回 WKWebView 默认「音频需手势」。中间版 `--autoplay-policy=user-gesture-required` 方案被探针实测否决——WebView2 下该策略连 muted 视频的自动播放也挡掉（视频壁纸冻结首帧、缩略图抽帧同废，且宿主页 `play()` 静默 catch 无报错表象）。：ContentSpec 契约带 `audio: muted`，但宿主页从未实现——video 静音只是 `<video muted>` 硬编码，html/网页/WE web 的声音直通系统混音器（用户实测 louie.co.nz 网页壁纸出声）。Windows 用引擎级 `--mute-audio`：媒体照常自动播放（画面动），音频输出在浏览器引擎层关断；macOS 用 `with_autoplay(false)` 落回 WKWebView 默认「音频需手势」。中间版 `--autoplay-policy=user-gesture-required` 方案被探针实测否决——WebView2 下该策略连 muted 视频的自动播放也挡掉（视频壁纸冻结首帧、缩略图抽帧同废，且宿主页 `play()` 静默 catch 无报错表象）。
-- **shader 画布按 devicePixelRatio 渲染**：此前 WebGL 画布取 CSS 尺寸，125%+ 缩放屏上被拉伸上屏（真机 2560×1440@125% 实际渲染 2048×1152），星点/粒子类内容发糊——Starfield/Ember 重写为像素级粒子（1-2px 硬核 + 小范围微光），Cursor Glow 光晕半径随分辨率自适应，iMouse 上传同步换算（光标桥与 html/WE 的 CSS 像素契约不变）。
-- **预置壁纸内容随包升级**：播种时对已入库预置条目重拷资源——此前样例只在首次播种时落盘，改版内容（修 shader/换标题）永远到不了老用户（真机复现）。
-- **预置壁纸文案去 demo 化**：条目标题去掉「（内置 Shader）/（内置）/测试图源」等措辞——Spectrum（原「测试图源」）、Plasma、Aurora、Noise Flow、Cursor Glow、Clock；标题表为唯一事实源；资源缺失不再静默跳过（留日志）；界面文案「内置样例」→「预置壁纸」。
-- `config.json` / `library.json` 加载剥离 UTF-8 BOM：用户用记事本编辑配置（Win10 默认存 BOM）后曾解析失败 → 静默回退默认配置 → 显示器指派被重置（真机复现）。
-- **视频壁纸内存直供（循环重读不再触盘）**：循环视频每圈重读整个文件（AVPlayerLooper 逐圈复制 item / WebView 对自定义 scheme 无媒体缓存），磁盘安静与否完全押在可被逐出的 OS 页缓存上——内存压力机器上 20MB 壁纸每圈从盘读 20MB（用户实测"一直在读磁盘"；本机 31GB swap 下复现同症状）。media-http 回环加 RAM 直供：≤256MB 条目首读整进内存、Range 全从内存切片（超限维持磁盘流送不硬吃内存）；macOS 原生视频窗 file:// → http:// 回环，服务不可用自动回落。实测连拉 3 遍整文件物理读增量 0.00MB。
-- **缩略图启动即生成 + 生成中 spinner**：缩略图扫描由「启动 30s 后」改为「启动立即执行」，之后 30s 一轮兜底；卡片生成中显示 kit `Spinner`（替换静态 RefreshCw 假 loading），重试耗尽退回类型图标不假装在加载（`ThumbScheduler::pending` 投影）。
-- **移除冗余「查看详情」菜单项**：原「查看详情」仅以 toast 显示「名称·类型·来源」——三条信息卡片上均已展示，零增量价值，删除。
+## [0.1.1] - 2026-10-11
 
 ### Fixed
 
-- **Windows 采集窗采集完不熄火**：`put_window` 只隐藏不导航——隐藏 ≠ 停播，隐藏 WebView2 里的 `<video>` 持续解码白耗资源；采集完（`put_window` 唯一出口）先导航回 about:blank 再隐藏，对齐 macOS 采集管线。
-- **CI Windows job 补 app clippy 门**：`pin/bridge` 平台专属代码只在对应平台参与编译，Windows 侧 clippy 告警（`LIVE_WALLPAPER_HWNDs` 命名等 14 条）曾因无人看本地输出带病进 main；本批全数清零后挂 `-D warnings` 堵住回归（macOS 侧待本地跑通再挂）。
-- **F11 切换桌面三连修（macOS）**：宿主页删除 video 调试状态色（`playing` 把 body 刷绿底——切桌面动画期间视频合成层短暂退出时闪绿屏，分数缩放屏上表现为左右 1-2px 绿线）+ 顺带清掉 shader 错误路径残留的 `state()` 调用（函数已删，会抛 ReferenceError 废掉 `window.__gesso`）；macOS 全屏检测加前台应用 PID 匹配（此前仅凭"layer 0 窗口盖满屏"几何判定，F11 桌面切换的过渡窗口被误判为全屏应用 → 壁纸误暂停/恢复）；video 垫低频冻结帧画布（合成层掉线的几百毫秒露壁纸末帧而非黑底）。
-- **macOS 视频壁纸 1px 淡边框**：AVPlayerLayer AspectFill 非整数缩放时最外圈 ~2 设备像素为纹理边界钳制采样劣化带（无 API 可关），且壁纸窗不透明黑底使缝隙显形——视频窗四周外扩 2pt 把劣化带裁出可视区（1pt 实测只盖一半）。双屏实测验证。
-- **锁屏/熄屏恢复后副屏丢壁纸 + 幽灵窗（Mac mini 双外接实测）**：唤醒会重编显示器 ID（macOS 26 无 EDID 符号回落 cg-id；同型号双屏消歧 id 也带 cgid），旧兜底"全失配迁移"只保一条指派。修法：拆会话前按帧几何一致（±2pt）把会话+配置+帧率平移到新 ID（不拆窗重建）；真拆除的会话显式 orderOut 再丢弃（AppKit 延迟 dealloc 曾让壁纸窗以旧帧残留成"无边框不可点窗口"）。新增 `plan_id_remap` 纯函数单测。
-- **退出/异常退出后桌面黑屏**：panic 钩子补上尽力清场（销毁存活的贴壁窗口 + 全屏失效逼 explorer 重绘）——此前 panic 只记日志，桌面必然黑屏；托盘退出的桌面还原追加全屏失效兜底（定向失效 WorkerW 可能不够）。真机验证三路径：托盘退出（EngineAction::Quit）、panic（GESSO_PANIC_AFTER_SECS 模拟）、强杀，桌面均恢复原壁纸。debug 构建新增 `GESSO_QUIT_AFTER_SECS` / `GESSO_PANIC_AFTER_SECS` 模拟钩子供无头验证。
-- 「从 URL 导入」弹窗打开即聚焦地址输入框：出现后可直接粘贴链接，免一次点击。
-- **Windows 启动闪退（#2，v0.1.0 安装版 100% 复现）**：单实例锁的文件路径字符串被 `single-instance 0.3` 原样传给 `CreateMutexW` 当内核对象名——`\` 是对象命名空间分隔符，`.\gesso-app-lock`（HOME 缺失兜底）与 `%USERPROFILE%\.gesso\…`（USERPROFILE 修复后）全都 `ERROR_PATH_NOT_FOUND(3)` → `unwrap` panic → 黑窗一闪而过。Windows 锁名改扁平 `Local\gesso-app-lock{GESSO_LOCK后缀}`，非 Windows 仍走绝对路径文件锁。此前 794a254 已落的两项排查沉淀（panic 落盘 `%USERPROFILE%\.gesso\gesso.log`、Windows `config_dir` 改读 `USERPROFILE`）随本修复一并生效。
-- 托盘「退出 Gesso」不再 `process::exit` 硬退：改走 `EngineAction::Quit`，在引擎主线程拆除全部壁纸会话（逐窗 `DestroyWindow`）并无效化 Progman/图标层/WorkerW 让 explorer 重绘，退出后恢复用户原壁纸而非黑底。
-- NSIS 脚本 `gesso.nsi` 补 UTF-8 BOM：无 BOM 在中文 Windows（ACP 936）下 `Bad text encoding` 编不过安装包；英文 CI 仅注释乱码不报错，故一直未暴露。
-- **竖版/超宽素材被 cover 裁切成中间切片**：根因是 gpui 的 `img` 元素会被图片固有宽高比撑开（覆盖 `size_full` 高度），再被 `overflow_hidden` 裁成 cover 错觉——`ObjectFit::Contain` 本身正确但从未真正生效。修法：img 显式 `.aspect_ratio(...)` 压制固有宽高比；库卡片/宿主页/显示器小样 object-fit → contain；macOS 原生视频 `AVLayerVideoGravityResizeAspectFill` → `ResizeAspect`。
-- **清单解析失败静默覆写用户库**：启动时 `library.json` 解析失败会以空库继续启动 → 播种覆写清单、用户条目全部丢失（目录还在、清单没了）。修法：解析失败且文件存在时 `exit(78)` 保文件供修复，仅真首启（无清单）才视为空库。
+- **Windows 安装版启动闪退（#2）**：0.1.0 的安装包在 Windows 上 100% 无法启动，黑窗一闪而过。单实例锁把文件路径字符串当内核对象名传给 `CreateMutexW`，路径里的 `\` 不被接受。锁名改为扁平的 `Local\gesso-app-lock`。
+- **视频壁纸卡顿（macOS / Windows 双平台）**：视频此前在 webview 里播放，浏览器把视频帧跨进程搬上屏的路径没有匀速保证（macOS 实测 60fps 内容只上屏 53~56fps；Windows 的呈现交接层同样的问题），高帧率素材和多屏下肉眼可见地卡。两平台都改为原生播放器直挂壁纸窗口（macOS 用 AVPlayerLayer，Windows 用 Media Foundation 解码 + DXGI swapchain 呈现），webview 只保留给 shader / 网页 / 图片。重写前做了三代构建 × 两种传输 × 三类素材的真机对照，确认问题在呈现层而不是数据供给。
+- **循环视频持续读磁盘**：循环播放每圈重读整个文件，内存紧张的机器上页缓存被换出，磁盘一直忙。现在不超过 256MB 的视频首次读入后常驻内存，循环和 seek 都不再触盘；更大的文件仍走磁盘流送，不硬吃内存。
+- **锁屏/合盖唤醒后副屏丢壁纸、残留幽灵窗口**：唤醒会重编显示器 ID，旧的兜底逻辑只保得住一块屏的指派。现在按帧几何把会话和配置一起平移到新 ID；被真拆除的会话先隐藏再丢弃，不再残留不可点击的空窗口。
+- **退出或崩溃后桌面黑屏**：托盘退出改为正常拆除流程（逐窗销毁、通知 explorer 重绘）；panic 时钩子也会尽力清场。Windows 崩溃原因落在 `%USERPROFILE%\.gesso\gesso.log`。
+- **F11 / 切换桌面时的绿屏闪烁与误暂停**（macOS）：移除宿主页的调试底色，全屏判定加上前台应用匹配，不再把桌面切换的过渡窗口当成全屏应用。
+- **竖版 / 超宽素材被裁成中间一条**：库卡片和壁纸本体改用 contain 语义，完整显示不再裁切。
+- **记事本编辑过的配置被重置**：`config.json` / `library.json` 带 BOM 时解析失败并静默回退默认值，显示器指派被清空。加载时剥离 BOM。
+- **库清单损坏时被空库覆盖**：`library.json` 解析失败不再用空清单覆写用户的库，保留原文件并以退出码 78 结束，留待手工修复。
+- 「从 URL 导入」弹窗打开即聚焦输入框，出现后可直接粘贴。
+- macOS 视频壁纸边缘约 1px 的淡色边框：AVPlayerLayer 非整数缩放的采样劣化带，窗口四周外扩 2pt 裁出可视区。
+- NSIS 安装脚本补 UTF-8 BOM：中文 Windows（ACP 936）上此前直接编译失败；英文 CI 只会乱码注释不报错，所以一直没暴露。
 
 ### Changed
 
-- release 构建改 Windows GUI 子系统（`windows_subsystem = "windows"`）：双击启动不再弹终端黑窗；debug 构建保留控制台承接日志，诊断由 panic 落盘兜底。
-- 管理窗口「关闭=隐藏」（设计规格 §「管理窗口」早已定义，此前代码偏离）：自绘 ✕ 与 Alt+F4/任务栏关闭统一隐藏进托盘，进程常驻；托盘「管理窗口…」或再次双击桌面/开始菜单图标（第二实例发激活信号）均可唤回。
+- **网页 / HTML 壁纸真正静音**：`audio=muted` 此前只对视频生效，网页的声音直通系统混音器。Windows 在引擎层关断音频输出；macOS 落回 WKWebView「音频需要手势」的默认行为。
+- **锁屏自动暂停**：锁屏即暂停全部壁纸、解锁恢复，不走用户策略（锁屏是系统级安全上下文，壁纸窗口本来就不参与渲染）。
+- shader 画布按 devicePixelRatio 渲染：125%+ 缩放屏上此前实际渲染分辨率被压低，星点、粒子类内容发糊。
+- 预置壁纸扩充到 10 款（新增 Tide / Starfield / Silk / Ember 四款 shader）；预置内容随版本升级到达老用户（此前只在首次播种时落盘，改版内容永远到不了）；条目和界面文案去掉 demo 措辞。
+- 缩略图启动即开始生成（此前要等 30 秒），生成中显示 spinner，重试耗尽退回类型图标，不假装在加载。
+- 关闭管理窗口改为隐藏进托盘（回归设计规格）；release 构建改 GUI 子系统，双击不再弹终端黑窗。
+- 移除「查看详情」菜单项：它只是把卡片上已有的三条信息再弹一次 toast。
+
+### Added
+
+- 帧率诊断开关 `GESSO_VIDEO_DIAG=1`（双平台）：每 5 秒打印视频上屏帧数、页面渲染节拍和丢帧数，播放类问题先量化再动手。
 
 ## [0.1.0] - 2026-10-07
 
