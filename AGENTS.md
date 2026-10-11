@@ -33,6 +33,7 @@ cargo test  -p gesso-core -p gesso-app   # 单测
 cargo clippy -p gesso-core --all-targets -- -D warnings
 pkill -f "target/debug/gesso"            # 退出（有单实例锁）
 GESSO_LOCK=dev ./target/debug/gesso      # 开发期多实例并存（用完记得关）
+GESSO_UPDATE_MODAL=1 GESSO_LOCK=dev ./target/debug/gesso   # 启动即「检查更新+开小窗」；加 GESSO_UPDATE_AUTO_DL=1 连「发现→下载」一并自动确认（仅 debug）
 ```
 
 ## 仓库地图
@@ -51,6 +52,7 @@ crates/app      应用：
   ├─ protocol.rs  gesso:// 资源协议（已打通：host 统一宿主页 + library 条目资源，视频 Range）
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
+  ├─ update.rs    应用自更新（§4.7：GitHub Releases 检查/下载/交付；状态真源在模块全局，代数计数回灌）
   ├─ ui/          管理窗口 UI（gpui-kit；we_view.rs 工坊窗）
   └─ assets/      宿主页（host/index.html）/ 预置壁纸（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）
 docs/           工程文档 + design/（设计归档）
@@ -69,6 +71,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ 架构还债：content 内容类型表（类型/扩展名/MIME/缩略图策略单一事实源）、HostCommand 类型化、main 上帝循环拆解、session 工具抽到 encoding
 - ✅ 协议已打通（`gesso://` 宿主页走统一副本、资源走 library、WE 源走 steam 只读直引；`bf3c294`）；WE video/web 零拷贝
 - ✅ 英文 i18n（中/英双文案包 + Auto，设置页即时切换）+ 远端网页壁纸（🔗 从 https URL 导入，iframe 直装，零本地拷贝）
+- ✅ 应用自更新（§4.7，2026-10-11）：GitHub Releases 检查（启动 +24h 节拍，`settings.update_check` 开关）→ 多层通知（系统通知 best-effort + 应用内 toast + 托盘 tooltip）→ 「软件更新」小窗（检查/下载进度/交付六态）；下载官方安装包交由系统安装，**不做静默自替换**；dev 钩子 `GESSO_UPDATE_MODAL=1`
 - ✅ V-PERF 视频卡顿排障闭环（2026-10-10）：视频字节流不走自定义 scheme（回环 HTTP 媒体服务，AVPlayer 原生管线）；**macOS 视频壁纸 = 原生 AVPlayerLayer（`pin::MacVideoWindow`），webview 只管 shader/html/图片**；帧率探针 `GESSO_VIDEO_DIAG=1`（rVFC/rAF 每 5s 采样）
 - ✅ 0.1.x 反馈修复（2026-10-10）：视频窗 2pt 外扩与媒体 ≤256MB 内存直供均为刻意行为（勿当 bug/泄漏清除），唤醒后显示器 ID 重编按几何平移（sync_monitors 内置守卫）；细节见工程笔记 §2 与 CHANGELOG
 - ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（根因：gpui img 固有宽高比撑高被裁，显式 `.aspect_ratio` 压制）；缩略图启动即生成 + spinner；清单解析失败 exit 78 保文件；锁屏自动暂停省电；移除冗余「查看详情」菜单项

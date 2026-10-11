@@ -397,6 +397,75 @@ impl Render for SettingsView {
             ));
         }
 
+        // —— 关于与更新（§4.7）——
+        // 版本行右侧 = 版本号 + [检查更新]，同行呈现（常见应用惯例；设计 §4.5 布局）。
+        // 已知有新版/下载中/已就绪时按钮转 [查看更新] 直达小窗，版本旁附 accent 徽标。
+        // 「检查更新」在 UI 线程直接开小窗（与设置页其他即时动作同惯例），检查本身
+        // 走引擎动作；manual 语义 = 绕过 24h 抑制（update 模块内不再区分来源）。
+        let upd = state(cx).update.clone();
+        let known_update = matches!(
+            upd.phase,
+            super::data::UpdatePhase::Available
+                | super::data::UpdatePhase::Downloading
+                | super::data::UpdatePhase::Ready
+        );
+        let version_right = h_flex()
+            .gap_2()
+            .items_center()
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(t.text2)
+                    .child(super::strings::version_value(&upd.current_version)),
+            )
+            .when(known_update, |d| {
+                d.child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(t.accent)
+                        .child(badge_new_version_value(&upd.version)),
+                )
+            });
+        let check_btn = Button::new("btn-check-update")
+            .label(if known_update {
+                BTN_VIEW_UPDATE()
+            } else {
+                BTN_CHECK_UPDATE()
+            })
+            .secondary()
+            .with_size(Size::Small)
+            .on_click(move |_, _, cx| {
+                super::update_view::open(cx);
+                // 已知有更新时只开小窗（重复检查会被 BUSY 忽略）；否则发起真检查
+                if !known_update {
+                    crate::engine::enqueue(crate::engine::EngineAction::UpdateCheck {
+                        open_modal: false,
+                    });
+                }
+            });
+        let about = vec![
+            set_row(
+                SET_VERSION(),
+                None,
+                version_right
+                    .child(check_btn.into_any_element())
+                    .into_any_element(),
+                cx,
+            ),
+            set_row(
+                SET_AUTO_CHECK(),
+                Some(SET_AUTO_CHECK_DESC()),
+                Switch::new("set-auto-check")
+                    .checked(s.update_check)
+                    .on_click(|checked, window, cx| {
+                        update(window, cx, |g| g.settings.update_check = *checked);
+                        persist_settings(cx);
+                    })
+                    .into_any_element(),
+                cx,
+            ),
+        ];
+
         // —— 高级 ——
         // 表单行动作钮统一 Small（24px/14px 字）：默认 Medium 是 32px/16px，
         // 在 13px 的设置行里头重脚轻（§1.2 控件 13px 工艺基准）
@@ -498,6 +567,11 @@ impl Render for SettingsView {
                     .border_color(t.hairline)
                     .child(rows)
             })
+            .child(self.group(
+                div().child(GROUP_ABOUT()).into_any_element(),
+                about,
+                cx,
+            ))
             .child(self.group(
                 div().child(GROUP_ADVANCED()).into_any_element(),
                 advanced,

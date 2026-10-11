@@ -36,8 +36,18 @@ png = "0.17"
 percent-encoding = "2.3"
 trash = "5"
 
+# 应用自更新（§4.7 软件更新）：GitHub Releases 检查 + 安装包流式下载。
+# 默认 rustls：macOS/Windows 同一套 TLS 栈，行为一致，无系统 openssl 依赖。
+# proxy-from-env：尊重 HTTP(S)_PROXY/ALL_PROXY/NO_PROXY——CLI/开发场景下
+# GitHub 常需代理（GUI 双击启动无这些变量时行为不变）；socks-proxy 支持全常见代理
+# 环境变量形如 ALL_PROXY=socks5://…
+ureq = { version = "2", features = ["proxy-from-env", "socks-proxy"] }
+
 # 平台依赖（贴壁层 §4）
 [target.'cfg(windows)'.dependencies]
+# 更新可用时的系统 toast 通知（§4.7）：依赖 AUMID（Inno 安装版注册「Gesso」），
+# 便携 zip 未注册时 show() 失败 → 静默降级（应用内 toast/托盘仍在）。
+tauri-winrt-notification = "0.8"
 windows = { version = "0.62", features = [
   "Win32_UI_WindowsAndMessaging",   # 壁纸窗口/WorkerW 挂载（pin/windows.rs）
   "Win32_Graphics_Gdi",             # 显示器枚举（EnumDisplayMonitors）

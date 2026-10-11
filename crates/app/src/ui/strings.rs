@@ -155,6 +155,30 @@ pub struct Texts {
     pub url_import_desc: &'static str,
     pub url_import_placeholder: &'static str,
     pub url_import_invalid: &'static str,
+
+    // 软件更新（§4.7：设置页「关于与更新」组 + 更新小窗六态 + 托盘项）
+    pub group_about: &'static str,
+    pub set_version: &'static str,
+    pub btn_check_update: &'static str,
+    pub btn_view_update: &'static str,
+    pub set_auto_check: &'static str,
+    pub set_auto_check_desc: &'static str,
+    pub tray_check_update: &'static str,
+    pub update_title: &'static str,
+    pub update_checking: &'static str,
+    pub update_downloading: &'static str,
+    pub update_ready_title: &'static str,
+    pub update_ready_desc: &'static str,
+    pub update_failed_title: &'static str,
+    pub update_notes_empty: &'static str,
+    pub update_btn_download: &'static str,
+    pub update_btn_release: &'static str,
+    pub update_btn_later: &'static str,
+    pub update_btn_cancel_dl: &'static str,
+    pub update_btn_install: &'static str,
+    pub update_btn_reveal: &'static str,
+    pub update_btn_close: &'static str,
+    pub update_btn_retry: &'static str,
 }
 
 /// 简体中文。
@@ -234,6 +258,29 @@ pub const ZH: Texts = Texts {
     url_import_desc: "远端网页将嵌入桌面图标层之下（仅 https）；断网时该壁纸显示空白。",
     url_import_placeholder: "https://…（网页地址）",
     url_import_invalid: "无效的网页地址（需要 https://）",
+
+    group_about: "关于与更新",
+    set_version: "当前版本",
+    btn_check_update: "检查更新",
+    btn_view_update: "查看…",
+    set_auto_check: "自动检查更新",
+    set_auto_check_desc: "启动后与每 24 小时静默检查一次（GitHub Releases）",
+    tray_check_update: "检查更新…",
+    update_title: "软件更新",
+    update_checking: "正在检查更新…",
+    update_downloading: "正在下载更新…",
+    update_ready_title: "下载完成",
+    update_ready_desc: "关闭应用后运行安装包即可完成更新",
+    update_failed_title: "更新失败",
+    update_notes_empty: "此版本没有发布说明。",
+    update_btn_download: "下载更新",
+    update_btn_release: "前往发布页",
+    update_btn_later: "稍后",
+    update_btn_cancel_dl: "取消下载",
+    update_btn_install: "打开安装包",
+    update_btn_reveal: "打开所在文件夹",
+    update_btn_close: "关闭",
+    update_btn_retry: "重试",
 
     btn_redetect: "重新检测",
     monitor_hover_note: "悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制",
@@ -360,6 +407,29 @@ pub const EN: Texts = Texts {
     url_import_desc: "The remote page runs embedded below your desktop icons (https only); it goes blank when offline.",
     url_import_placeholder: "https://… (page URL)",
     url_import_invalid: "Invalid web page URL (https:// required)",
+
+    group_about: "About & Updates",
+    set_version: "Current version",
+    btn_check_update: "Check for updates",
+    btn_view_update: "View…",
+    set_auto_check: "Check for updates automatically",
+    set_auto_check_desc: "Silent check shortly after launch and every 24 hours (GitHub Releases)",
+    tray_check_update: "Check for updates…",
+    update_title: "Software Update",
+    update_checking: "Checking for updates…",
+    update_downloading: "Downloading update…",
+    update_ready_title: "Download complete",
+    update_ready_desc: "Quit the app and run the installer to finish updating",
+    update_failed_title: "Update failed",
+    update_notes_empty: "This release has no release notes.",
+    update_btn_download: "Download update",
+    update_btn_release: "Open release page",
+    update_btn_later: "Later",
+    update_btn_cancel_dl: "Cancel download",
+    update_btn_install: "Open installer",
+    update_btn_reveal: "Show in folder",
+    update_btn_close: "Close",
+    update_btn_retry: "Retry",
 
 
     btn_redetect: "Redetect",
@@ -500,6 +570,18 @@ accessors! {
     url_import_title => URL_IMPORT_TITLE,
     url_import_desc => URL_IMPORT_DESC, url_import_placeholder => URL_IMPORT_PLACEHOLDER,
     url_import_invalid => URL_IMPORT_INVALID, btn_cancel => BTN_CANCEL,
+    group_about => GROUP_ABOUT, set_version => SET_VERSION, btn_check_update => BTN_CHECK_UPDATE,
+    btn_view_update => BTN_VIEW_UPDATE,
+    set_auto_check => SET_AUTO_CHECK, set_auto_check_desc => SET_AUTO_CHECK_DESC,
+    tray_check_update => TRAY_CHECK_UPDATE,
+    update_title => UPDATE_TITLE, update_checking => UPD_CHECKING,
+    update_downloading => UPD_DOWNLOADING, update_ready_title => UPD_READY_TITLE,
+    update_ready_desc => UPD_READY_DESC, update_failed_title => UPD_FAILED_TITLE,
+    update_notes_empty => UPD_NOTES_EMPTY,
+    update_btn_download => UPD_BTN_DOWNLOAD, update_btn_release => UPD_BTN_RELEASE,
+    update_btn_later => UPD_BTN_LATER, update_btn_cancel_dl => UPD_BTN_CANCEL_DL,
+    update_btn_install => UPD_BTN_INSTALL, update_btn_reveal => UPD_BTN_REVEAL,
+    update_btn_close => UPD_BTN_CLOSE, update_btn_retry => UPD_BTN_RETRY,
     btn_redetect => BTN_REDETECT, monitor_hover_note => MONITOR_HOVER_NOTE,
     st_select_wallpaper => ST_SELECT_WALLPAPER, monitors_empty_title => MONITORS_EMPTY_TITLE,
     edid_note_short => EDID_NOTE_SHORT, btn_change => BTN_CHANGE,
@@ -556,6 +638,91 @@ pub fn toast_imported(name: &str) -> String {
         format!("Imported \"{name}\"")
     } else {
         format!("已导入「{name}」")
+    }
+}
+
+/* ── 软件更新（§4.7）：带参文案在包内拼装，调用处不拼字符串 ───────────────── */
+
+fn mb(bytes: u64) -> String {
+    format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+}
+
+/// 设置页版本行右侧文本（tabular 数字在样式层统一）。
+pub fn version_value(v: &str) -> String {
+    format!("v{v}")
+}
+
+/// 更新小窗标题行：发现新版本 + 版本号。
+pub fn update_found_title(v: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("New version available — v{v}")
+    } else {
+        format!("发现新版本 v{v}")
+    }
+}
+
+/// 更新小窗「已最新」描述行。
+pub fn update_uptodate_desc(v: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("Gesso v{v} is up to date")
+    } else {
+        format!("Gesso v{v} 已是最新版本")
+    }
+}
+
+/// 更新小窗资产行：安装包名 · 大小（§7 数字 tabular、单位前置）。
+pub fn update_asset_line(name: &str, bytes: u64) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("Installer: {name} · {}", mb(bytes))
+    } else {
+        format!("安装包 {name} · {}", mb(bytes))
+    }
+}
+
+/// 下载进度行：「12.3 / 45.6 MB · 27%」；总大小未知退化为已下载量。
+pub fn update_dl_progress(downloaded: u64, total: u64) -> String {
+    let pct = if total > 0 {
+        format!(" · {}%", (downloaded as f64 / total as f64 * 100.).min(100.) as u64)
+    } else {
+        String::new()
+    };
+    if LANG.load(Ordering::Relaxed) == 1 {
+        if total > 0 {
+            format!("{} / {}{}", mb(downloaded), mb(total), pct)
+        } else {
+            format!("{} downloaded", mb(downloaded))
+        }
+    } else if total > 0 {
+        format!("{} / {}{}", mb(downloaded), mb(total), pct)
+    } else {
+        format!("已下载 {}", mb(downloaded))
+    }
+}
+
+/// 设置页徽标：新版本可用 + 版本号。
+pub fn badge_new_version_value(v: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("New version available — v{v}")
+    } else {
+        format!("新版本可用 · v{v}")
+    }
+}
+
+/// 应用内 toast：发现新版本的出路指引。
+pub fn toast_update_available(v: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("Version v{v} is available — see Settings → About & Updates")
+    } else {
+        format!("发现新版本 v{v}，可在设置 → 关于与更新中下载")
+    }
+}
+
+/// 失败详情（§7：失败文案带原因和出路；原因由 update 模块给出，这里补出路）。
+pub fn update_failed_detail(detail: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("{detail}\nYou can retry later, or download manually from the release page.")
+    } else {
+        format!("{detail}\n可稍后重试，或前往发布页手动下载。")
     }
 }
 

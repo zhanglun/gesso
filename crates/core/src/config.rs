@@ -24,6 +24,8 @@ pub struct Settings {
     pub startup_behavior: StartupBehavior,
     /// 界面语言（Auto = 跟随系统 locale；解析见 app 的 i18n）。
     pub language: Language,
+    /// 自动检查更新（启动后与每 24h 静默检查 GitHub Releases；手动检查不受此开关约束）。
+    pub update_check: bool,
 }
 
 impl Default for Settings {
@@ -36,6 +38,7 @@ impl Default for Settings {
             autostart: true,
             startup_behavior: StartupBehavior::RestoreLast,
             language: Language::Auto,
+            update_check: true,
         }
     }
 }
@@ -210,6 +213,7 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.fps_cap_default, 60);
         assert_eq!(s.fullscreen_policy, PausePolicy::Pause);
+        assert!(s.update_check, "自动检查更新默认开");
         assert!(!AppConfig::default().initialized);
     }
 

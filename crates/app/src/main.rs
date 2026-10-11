@@ -18,6 +18,7 @@ mod pin;
 mod protocol;
 mod session;
 mod thumb;
+mod update;
 mod ui;
 mod we;
 mod we_shim;
@@ -345,8 +346,11 @@ fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) ->
             gesso_core::config::Language::Zh => 1,
             gesso_core::config::Language::En => 2,
         },
+        update_check: cs.update_check,
         ..ui::data::Settings::default()
     };
+    // 软件更新投影（§4.7；真源 = update 模块全局，随快照单向回灌）
+    g.update = update::public_view();
     g.library = sm
         .library()
         .iter()
@@ -530,6 +534,8 @@ struct ActionOutcome {
     pending_thumbs: Vec<(String, WallpaperKind)>,
     /// 请求激活/重建主管理窗口（需 window/cx，不能在纯动作处理里完成）。
     focus_main: bool,
+    /// 请求打开/激活「软件更新」小窗（§4.7 托盘入口；设置页在 UI 线程直接开）。
+    open_update_modal: bool,
     /// 界面语言变化（托盘菜单文案需重建，见主循环）。
     lang_changed: bool,
 }
@@ -542,6 +548,7 @@ fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
     let mi_pause = MenuItem::with_id("pause", ui::strings::TRAY_PAUSE_ALL(), true, None);
     let mi_cycle = MenuItem::with_id("cycle", ui::strings::TRAY_RANDOM(), true, None);
     let mi_main = MenuItem::with_id("main", ui::strings::TRAY_MAIN_WINDOW(), true, None);
+    let mi_update = MenuItem::with_id("check-update", ui::strings::TRAY_CHECK_UPDATE(), true, None);
     let mi_auto = CheckMenuItem::with_id(
         "autostart",
         ui::strings::TRAY_AUTOSTART(),
@@ -555,6 +562,7 @@ fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
         &mi_cycle,
         &PredefinedMenuItem::separator(),
         &mi_main,
+        &mi_update,
         &PredefinedMenuItem::separator(),
         &mi_auto,
         &PredefinedMenuItem::separator(),
@@ -579,6 +587,9 @@ fn install_tray_menu_handler() {
             }
             "cycle" => engine::enqueue(EngineAction::CycleMain),
             "main" => engine::enqueue(EngineAction::FocusMainWindow),
+            // 「检查更新…」：动作带开窗意图（托盘线程不能直接开 GPUI 窗口，
+            // 主循环兑现）；检查本身在 update 模块后台线程
+            "check-update" => engine::enqueue(EngineAction::UpdateCheck { open_modal: true }),
             "autostart" => {
                 // CheckMenuItem 在 macOS 原生翻转；此处读翻转后的近似值
                 let now = !AUTOSTART_HINT.load(std::sync::atomic::Ordering::SeqCst);
@@ -697,6 +708,21 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             sm.set_fps(&monitor_id, fps);
         }
         engine::EngineAction::FocusMainWindow => out.focus_main = true,
+        // 软件更新（§4.7）：检查/下载在 update 模块自有线程执行（阻塞 IO），
+        // 进度与结果经状态代数回灌主循环（下方 update 代数观察），不走 ThumbsDone 式回执
+        engine::EngineAction::UpdateCheck { open_modal } => {
+            println!("[engine] 检查更新（open_modal={open_modal}）");
+            out.open_update_modal = open_modal;
+            update::spawn_check();
+        }
+        engine::EngineAction::UpdateDownload => {
+            println!("[engine] 下载更新安装包");
+            update::spawn_download();
+        }
+        engine::EngineAction::UpdateCancelDownload => {
+            println!("[engine] 取消下载更新");
+            update::cancel_download();
+        }
         engine::EngineAction::ThumbsDone { dir } => {
             // 后台抽帧完成：释放在途标记（重试计数随之累加）；快照回灌由主循环触发
             app.thumbs.mark_finished(&dir);
@@ -1009,6 +1035,9 @@ fn main() {
     // 视频媒体回环服务：会话构建（ContentSpec → media_url）前必须就绪
     protocol::start_media_server();
 
+    // 更新下载目录清场（§4.7）：.part 半成品与已交付的旧安装包不跨会话保留
+    update::cleanup_download_dir();
+
     // Windows：监听后续第二实例的激活信号（自动重置事件，快速连点也不丢信号：
     // 无等待者时 SetEvent 会记忆信号态）
     #[cfg(target_os = "windows")]
@@ -1053,7 +1082,10 @@ fn main() {
                 const AUTOPAUSE_OFFSET: u32 = 6; // 自动暂停检测，与同步错开半拍
                 const TIME_TICK_EVERY: u32 = 7; // 挂钟脉冲 ≈1.05s
                 const DIAGNOSE_AT: [u32; 2] = [20, 40]; // 启动后诊断快照（3s/6s）
+                const UPDATE_FIRST_TICK: u32 = 100; // 更新首查 ≈启动后 15s（避开启动 I/O 风暴）
+                const UPDATE_AUTO_PROBE: u32 = 6000; // 更新探测节拍 ≈15min（模块内按 24h 真抑制）
                 let mut tick: u32 = 0;
+                let mut last_update_gen: u64 = update::generation();
                 loop {
                     cx.background_executor()
                         .timer(Duration::from_millis(150))
@@ -1084,6 +1116,7 @@ fn main() {
                     let mut pending_thumbs: Vec<(String, WallpaperKind)> = Vec::new();
                     if !engine_actions.is_empty() {
                         let mut focus_main = false;
+                        let mut open_update_modal = false;
                         let mut lang_changed = false;
                         cx.update(|cx| {
                             for a in engine_actions {
@@ -1092,6 +1125,9 @@ fn main() {
                                 pending_thumbs.extend(out.pending_thumbs);
                                 if out.focus_main {
                                     focus_main = true;
+                                }
+                                if out.open_update_modal {
+                                    open_update_modal = true;
                                 }
                                 if out.lang_changed {
                                     lang_changed = true;
@@ -1111,6 +1147,10 @@ fn main() {
                         // FocusMainWindow 需 window/cx：借用结束后兑现
                         if focus_main {
                             cx.update(focus_or_reopen_main);
+                        }
+                        // 更新小窗同理（托盘「检查更新…」入口的 open_modal 兑现）
+                        if open_update_modal {
+                            cx.update(ui::update_view::open);
                         }
                     }
 
@@ -1168,6 +1208,60 @@ fn main() {
                         cx.update(|cx| {
                             cx.global_mut::<engine::AppState>().sm.broadcast_time_tick()
                         });
+                    }
+                    // 软件更新自动检查节拍（§4.7）：开关读引擎真源，发起与否由
+                    // update 模块按 24h 抑制窗口判定（忙时忽略）
+                    if tick == UPDATE_FIRST_TICK
+                        || (tick > UPDATE_FIRST_TICK && tick.is_multiple_of(UPDATE_AUTO_PROBE))
+                    {
+                        let enabled = cx.update(|cx| {
+                            cx.global::<engine::AppState>()
+                                .sm
+                                .config()
+                                .settings
+                                .update_check
+                        });
+                        update::maybe_auto_check(enabled);
+                    }
+                    // 更新状态代数变化：回灌快照 + 托盘 tooltip 跟随；首次「发现新
+                    // 版本」补应用内 toast（系统通知已在检查线程先行发出）
+                    let update_gen = update::generation();
+                    if update_gen != last_update_gen {
+                        last_update_gen = update_gen;
+                        refresh_ui = true;
+                        let view = update::public_view();
+                        let tip = if view.phase == ui::data::UpdatePhase::Available {
+                            format!(
+                                "Gesso — {}",
+                                ui::strings::badge_new_version_value(&view.version)
+                            )
+                        } else {
+                            "Gesso".to_string()
+                        };
+                        let _ = tray.set_tooltip(Some(tip));
+                        // 开发验证钩子（仅 debug 构建）：GESSO_UPDATE_AUTO_DL=1 时
+                        // 「发现新版本」即自动确认下载，无头跑通检查→下载→就绪全链路
+                        #[cfg(debug_assertions)]
+                        if view.phase == ui::data::UpdatePhase::Available
+                            && std::env::var("GESSO_UPDATE_AUTO_DL").is_ok()
+                        {
+                            engine::enqueue(engine::EngineAction::UpdateDownload);
+                        }
+                        if let Some(ver) = update::consume_available_toast() {
+                            use gpui_kit::component::WindowExt as _;
+                            cx.update(|cx| {
+                                if let Some(h) = MAIN_WINDOW.lock().ok().and_then(|g| *g) {
+                                    let _ = h.update(cx, |_, window, cx| {
+                                        window.push_notification(
+                                            gpui_kit::component::notification::Notification::info(
+                                                ui::strings::toast_update_available(&ver),
+                                            ),
+                                            cx,
+                                        );
+                                    });
+                                }
+                            });
+                        }
                     }
                     if refresh_ui {
                         // 会话 → UI 单向回灌（托盘/界面动作 / 显示器热插拔后的跨面同步）
@@ -1248,6 +1342,14 @@ fn main() {
                 cx.update(|cx| cx.global_mut::<engine::AppState>().sm.poll_mouse(&sample));
             })
             .detach();
+
+            // 开发验证钩子（仅 debug 构建）：GESSO_UPDATE_MODAL=1 启动即走托盘
+            // 同款「检查更新 + 开小窗」动作，无头验证更新链路（弹窗六态/托盘 tooltip/
+            // 快照回灌），如 GESSO_UPDATE_MODAL=1 GESSO_LOCK=dev ./target/debug/gesso
+            #[cfg(debug_assertions)]
+            if std::env::var("GESSO_UPDATE_MODAL").is_ok() {
+                engine::enqueue(engine::EngineAction::UpdateCheck { open_modal: true });
+            }
 
             // 管理窗口：三页签 UI（§4.3–4.5；44px 顶栏 + 键盘模型 + 双主题）
             open_main_window(cx);

@@ -6,7 +6,7 @@
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::{App, BorrowAppContext as _, Global, SharedString, Window};
 
-use super::data::{Kind, LibraryItem, MonitorEntry, PlayState, Settings};
+use super::data::{Kind, LibraryItem, MonitorEntry, PlayState, Settings, UpdateView};
 
 /// 筛选段控件的当前值。
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -56,6 +56,8 @@ pub struct GessoState {
     pub import_counter: usize,
     /// 状态条红字（不支持类型等原因说明，§4.3 拖入文件交互）。
     pub status_error: Option<String>,
+    /// 软件更新子系统投影（§4.7；真源 = app::update 模块全局，快照注入）。
+    pub update: UpdateView,
     /// 库卡片拖拽进行中（区分卡片拖拽与 OS 文件拖放，供投放覆盖层判定）。
     pub card_dragging: bool,
     /// false = 页面数据来自真会话快照（main.rs 装配）；true = 纯演示数据。
@@ -81,6 +83,7 @@ impl Default for GessoState {
             pending_new_monitor: false,
             import_counter: 0,
             status_error: None,
+            update: UpdateView::default(),
             card_dragging: false,
             demo: false,
         }

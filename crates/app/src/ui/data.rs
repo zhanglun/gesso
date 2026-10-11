@@ -139,6 +139,8 @@ pub struct Settings {
     pub weather_key: String,
     /// 界面语言（0=auto, 1=zh, 2=en）。
     pub language: u32,
+    /// 自动检查更新（真源 = core Settings.update_check）。
+    pub update_check: bool,
 }
 
 impl Default for Settings {
@@ -153,6 +155,7 @@ impl Default for Settings {
             weather_custom_key: false,
             weather_key: String::new(),
             language: 0,
+            update_check: true,
         }
     }
 }
@@ -181,8 +184,44 @@ impl Settings {
                 2 => gesso_core::config::Language::En,
                 _ => gesso_core::config::Language::Auto,
             },
+            update_check: self.update_check,
         }
     }
 }
 
 pub const FPS_OPTIONS: [u32; 4] = [60, 30, 15, 5];
+
+/// 更新子系统阶段（§4.7 弹窗六态的投影；真源 = app::update 模块全局态）。
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum UpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    UpToDate,
+    Available,
+    Downloading,
+    Ready,
+    Failed,
+}
+
+/// 更新视图（快照注入；UI 不直接触碰 update 模块全局）。
+#[derive(Clone, Default)]
+pub struct UpdateView {
+    pub phase: UpdatePhase,
+    pub current_version: SharedString,
+    /// 新版本号（Available/Downloading/Ready 态有值）。
+    pub version: SharedString,
+    /// release notes（按纯文本展示，弹窗限高滚动）。
+    pub notes: SharedString,
+    pub asset_name: SharedString,
+    /// 安装包字节数（0 = 未知；进度行走不确定文案）。
+    pub asset_size: u64,
+    /// 已下载安装包的绝对路径（Ready 态）。
+    pub file_path: SharedString,
+    /// 下载进度原始字节（Downloading 态；total = asset_size，0 = 未知大小）。
+    pub downloaded: u64,
+    /// 失败原因（含出路提示）。
+    pub error: SharedString,
+    /// true = 下载阶段失败（[重试] 直达下载）；false = 检查阶段失败（[重试] 重新检查）。
+    pub can_retry_download: bool,
+}

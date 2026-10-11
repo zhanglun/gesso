@@ -78,8 +78,20 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 引擎把 `SessionManager` 放进 `gpui` 全局状态（`crates/app/src/engine.rs`：`cx.set_global(engine::AppState::new(sm))`）
 - 读：`main.rs::snapshot_ui(&sm)` 生成 `ui::app_state::GessoState`（UI 投影），启动注入 + 轮询回灌（保留 tab/selected/query/filter 等浏览状态）
 - 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
-  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow`（另有引擎内部的 `ThumbsDone`，UI 不入队）
+  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload`（另有引擎内部的 `ThumbsDone`，UI 不入队）
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
+
+## 4.2 软件更新子系统（§4.7，2026-10-11）
+
+自建更新（非 Tauri，无 updater 插件）：检查/下载跑在 `crates/app/src/update.rs` 自有线程，
+状态真源 = 模块全局（代数计数），主循环每拍比对、变化即回灌快照 + `refresh_windows`。
+
+- **读**：`GessoState.update`（`ui::data::UpdateView`，六态投影）——快照注入，UI 不直接触碰模块全局
+- **写**：只入队 `UpdateCheck` / `UpdateDownload` / `UpdateCancelDownload` 三个动作
+- **开更新小窗**：`ui::update_view::open(cx)`（已开则激活；托盘入口经 `UpdateCheck{open_modal:true}` 由主循环兑现）
+- **交付**：`update::open_installer` / `reveal` / `open_release_page` 是只读系统命令（与「打开日志目录」同惯例，不经动作队列）
+- 系统通知在检查线程内 best-effort 发出（macOS osascript / Windows toast）；应用内 toast
+  与托盘 tooltip 由主循环在状态代数变化时补发（`consume_available_toast` 每代数去重一次）
 
 ## 4.1 类型与命令的单一事实源
 

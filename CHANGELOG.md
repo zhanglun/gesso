@@ -4,6 +4,11 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **应用自更新（§4.7 软件更新）**：启动后与每 24 小时静默检查 GitHub Releases（设置页「关于与更新」可关闭；托盘与设置页均可手动「检查更新…」）。发现新版本时多层通知——系统通知（macOS 走 osascript；Windows 走 toast，便携版未注册 AUMID 时自动降级）+ 应用内 toast + 托盘 tooltip + 设置页常驻徽标。「软件更新」小窗一屏承载六态：检查中 / 已最新 / 发现新版本（release notes + 下载）/ 下载中（进度条，可取消）/ 下载完成（打开安装包或所在文件夹）/ 失败（带原因与出路，可重试）。v1 交付形态为下载官方安装包后交由系统安装，不做静默自替换。
+- 新增开发验证钩子（仅 debug 构建，同 `GESSO_DEV_URL` 惯例）：`GESSO_UPDATE_MODAL=1` 启动即走「检查更新 + 开小窗」动作；`GESSO_UPDATE_AUTO_DL=1` 在「发现新版本」时自动确认下载，无头验证检查→下载→就绪全链路。
+
 ## [0.1.1] - 2026-10-11
 
 ### Fixed
