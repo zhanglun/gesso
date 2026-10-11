@@ -12,8 +12,8 @@ use gpui_kit::component::progress::{Progress, ProgressCircle};
 use gpui_kit::component::{h_flex, v_flex, Sizable as _, Size};
 use gpui_kit::gpui::{
     div, px, size, AnyElement, App, AppContext as _, Bounds, Context, FocusHandle, Focusable,
-    FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString, Styled,
-    StatefulInteractiveElement as _, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_kit::AnyWindowHandle;
 

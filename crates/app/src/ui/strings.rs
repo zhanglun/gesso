@@ -682,7 +682,10 @@ pub fn update_asset_line(name: &str, bytes: u64) -> String {
 /// 下载进度行：「12.3 / 45.6 MB · 27%」；总大小未知退化为已下载量。
 pub fn update_dl_progress(downloaded: u64, total: u64) -> String {
     let pct = if total > 0 {
-        format!(" · {}%", (downloaded as f64 / total as f64 * 100.).min(100.) as u64)
+        format!(
+            " · {}%",
+            (downloaded as f64 / total as f64 * 100.).min(100.) as u64
+        )
     } else {
         String::new()
     };

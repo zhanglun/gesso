@@ -191,7 +191,10 @@ fn run_check() {
     match fetch_latest() {
         Ok(release) => {
             if version_newer(current, &release.version) {
-                println!("[update] 发现新版本 v{}（当前 v{current}）", release.version);
+                println!(
+                    "[update] 发现新版本 v{}（当前 v{current}）",
+                    release.version
+                );
                 notify_update_available(&release);
                 set(UpdateState::Available(release));
             } else {
@@ -299,8 +302,7 @@ fn fetch_latest() -> Result<ReleaseInfo, String> {
     // 开发验证钩子（仅 debug）：GESSO_RELEASE_API=<url> 覆盖检查端点——无头验证
     // 走本地 mock（绕开 GitHub 匿名限额/离线造失败态），未来也可指向 staging 源
     #[cfg(debug_assertions)]
-    let endpoint =
-        std::env::var("GESSO_RELEASE_API").unwrap_or_else(|_| RELEASE_API.to_string());
+    let endpoint = std::env::var("GESSO_RELEASE_API").unwrap_or_else(|_| RELEASE_API.to_string());
     #[cfg(not(debug_assertions))]
     let endpoint = RELEASE_API;
     let ua = user_agent();
@@ -449,7 +451,11 @@ fn notify_update_available(release: &ReleaseInfo) {
             "display notification \"{}\" with title \"Gesso\"",
             safe(&body)
         );
-        if let Err(e) = std::process::Command::new("osascript").arg("-e").arg(&script).spawn() {
+        if let Err(e) = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .spawn()
+        {
             println!("[update] 系统通知发送失败（忽略）：{e}");
         }
     }
@@ -484,7 +490,9 @@ pub fn reveal(path: &str) {
         return;
     }
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").args(["-R", path]).spawn();
+    let _ = std::process::Command::new("open")
+        .args(["-R", path])
+        .spawn();
     #[cfg(target_os = "windows")]
     let _ = std::process::Command::new("explorer")
         .arg(format!("/select,{path}"))
@@ -615,15 +623,30 @@ mod tests {
         let r = parse_release(SAMPLE_JSON).expect("样例可解析");
         assert_eq!(r.version, "0.2.0");
         assert!(r.notes.contains("竖版适配"));
-        assert_eq!(r.asset_size, 48000000, "本机（macOS arm64）取 arch 命中的 dmg");
-        assert_eq!(r.asset_name, "Gesso-0.2.0-arm64.dmg");
-        assert_eq!(r.asset_url, "https://x/arm64.dmg");
+        // 资产按本机平台挑选（§4.7 规则：macOS=dmg / Windows=setup.exe，arch
+        // 命中优先）——期望值按 arch_tag() 动态推导，断言在双平台 CI 都成立
+        let arch = arch_tag();
+        let (want_name, want_size, want_url): (&str, u64, &str) = if cfg!(target_os = "macos") {
+            ("Gesso-0.2.0-arm64.dmg", 48000000, "https://x/arm64.dmg")
+        } else {
+            (
+                "Gesso-0.2.0-x64-setup.exe",
+                43000000,
+                "https://x/x64-setup.exe",
+            )
+        };
+        assert_eq!(r.asset_name, want_name, "arch 命中本平台安装包");
+        assert_eq!(r.asset_size, want_size);
+        assert_eq!(r.asset_url, want_url);
     }
 
     #[test]
     fn parse_release_rejects_malformed() {
         assert!(parse_release("not json").is_err());
-        assert!(parse_release(r#"{"tag_name": "v1.0.0"}"#).is_err(), "缺 assets");
+        assert!(
+            parse_release(r#"{"tag_name": "v1.0.0"}"#).is_err(),
+            "缺 assets"
+        );
         let no_asset = r#"{"tag_name": "v1.0.0", "assets": [{"name": "checksums.txt", "size": 1, "browser_download_url": "https://x"}]}"#;
         assert!(parse_release(no_asset).is_err(), "无本平台资产 → 明确报错");
     }
@@ -640,14 +663,14 @@ mod tests {
         // 平台无关断言：arch 命中优先于 arch 未命中
         #[cfg(target_os = "macos")]
         {
-            let picked = pick_asset(&mk(&[
-                "Gesso-0.2.0-x64.dmg",
-                "Gesso-0.2.0-arm64.dmg",
-            ]))
-            .unwrap();
+            let picked =
+                pick_asset(&mk(&["Gesso-0.2.0-x64.dmg", "Gesso-0.2.0-arm64.dmg"])).unwrap();
             assert_eq!(picked.0, "Gesso-0.2.0-arm64.dmg");
             let fallback = pick_asset(&mk(&["Gesso-0.2.0-x64.dmg", "checksums.txt"])).unwrap();
-            assert_eq!(fallback.0, "Gesso-0.2.0-x64.dmg", "无 arch 匹配退回任意 dmg");
+            assert_eq!(
+                fallback.0, "Gesso-0.2.0-x64.dmg",
+                "无 arch 匹配退回任意 dmg"
+            );
             assert!(pick_asset(&mk(&["only.zip"])).is_none(), "macOS 不取 zip");
         }
         #[cfg(target_os = "windows")]
@@ -657,10 +680,19 @@ mod tests {
                 "Gesso-0.2.0-x64-setup.exe",
             ]))
             .unwrap();
-            assert_eq!(picked.0, "Gesso-0.2.0-x64-setup.exe", "安装器优先于便携 zip");
+            assert_eq!(
+                picked.0, "Gesso-0.2.0-x64-setup.exe",
+                "安装器优先于便携 zip"
+            );
             let portable_only = pick_asset(&mk(&["Gesso-0.2.0-arm64-portable.zip"])).unwrap();
-            assert_eq!(portable_only.0, "Gesso-0.2.0-arm64-portable.zip", "无安装器时取便携 zip");
-            assert!(pick_asset(&mk(&["Gesso-0.2.0.dmg"])).is_none(), "Windows 不取 dmg");
+            assert_eq!(
+                portable_only.0, "Gesso-0.2.0-arm64-portable.zip",
+                "无安装器时取便携 zip"
+            );
+            assert!(
+                pick_asset(&mk(&["Gesso-0.2.0.dmg"])).is_none(),
+                "Windows 不取 dmg"
+            );
         }
     }
 

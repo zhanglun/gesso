@@ -18,8 +18,8 @@ mod pin;
 mod protocol;
 mod session;
 mod thumb;
-mod update;
 mod ui;
+mod update;
 mod we;
 mod we_shim;
 

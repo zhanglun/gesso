@@ -567,11 +567,7 @@ impl Render for SettingsView {
                     .border_color(t.hairline)
                     .child(rows)
             })
-            .child(self.group(
-                div().child(GROUP_ABOUT()).into_any_element(),
-                about,
-                cx,
-            ))
+            .child(self.group(div().child(GROUP_ABOUT()).into_any_element(), about, cx))
             .child(self.group(
                 div().child(GROUP_ADVANCED()).into_any_element(),
                 advanced,
