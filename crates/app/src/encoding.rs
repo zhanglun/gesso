@@ -166,8 +166,9 @@ pub fn valid_exts(kind: WallpaperKind) -> &'static [&'static str] {
 }
 
 /// 条目主资源文件名：优先目录内真实存在的 `index.*`（导入保留源扩展名），
-/// 找不到时回退到类型默认名。**导入 / 失效判定 / 宿主页 spec 三处必须共用本函数**，
-/// 否则 webm/webp 这类条目会出现"能导入但被判失效"或"宿主页请求错文件名"。
+/// 找不到时回退到类型默认名。**导入 / 失效判定 / 宿主页 spec 三处必须共用
+/// `entry_main_source`**（WE 条目先取 project.json 声明的 main_file，再回落到
+/// 本函数），否则会出现"能导入但被判失效"或"宿主页请求错文件名"。
 ///
 /// Html 条目例外：主资源固定 `wallpaper.html`——条目里的 `index.html` 永远是
 /// 宿主页，绝不能被"任意 index.*"回退命中成壁纸资源。
@@ -208,6 +209,15 @@ pub fn entry_main_source(entry: &gesso_core::LibraryEntry) -> String {
         WallpaperKind::Html => "wallpaper.html".to_string(),
         k => format!("index.{}", default_ext(k)),
     })
+}
+
+/// 条目主资源是否真实存在于盘上（库列表失效判定用）。必须经 `entry_main_source`
+/// 解析——WE 条目主文件按 project.json 命名而非 `index.*` 约定，绕过 main_file
+/// 直接扫描约定名会把每个 WE 导入误判成"文件已移除"。
+pub fn main_asset_exists(entry: &gesso_core::LibraryEntry) -> bool {
+    Path::new(&entry.source_dir)
+        .join(entry_main_source(entry))
+        .is_file()
 }
 
 #[cfg(test)]
@@ -262,5 +272,41 @@ mod tests {
         assert_eq!(base64_decode("+/8="), Some(vec![0xFB, 0xFF]));
         assert_eq!(base64_decode("A"), None); // 长度 %4 == 1
         assert_eq!(base64_decode("aGVs*bG8="), None); // 非法字符
+    }
+
+    /// WE 零拷贝条目回归：主文件按 project.json 命名（非 index.* 约定），
+    /// 失效判定必须与 entry_main_source 同源——否则导入即被误判"文件已移除"。
+    #[test]
+    fn main_asset_exists_respects_we_main_file() {
+        let base = std::env::temp_dir().join(format!("gesso-exists-{}", gesso_core::generate_id()));
+        let dir = base.join("123");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("video.mp4"), b"v").unwrap();
+
+        let we_video = gesso_core::LibraryEntry {
+            id: "abc0000000000001".into(),
+            kind: WallpaperKind::Video,
+            title: "WE Video".into(),
+            origin: "wallpaper-engine".into(),
+            source_dir: dir.display().to_string(),
+            main_file: Some("video.mp4".into()),
+            source_url: None,
+        };
+        assert!(main_asset_exists(&we_video), "main_file 命中真实文件");
+
+        // 工坊内容被移走/删除 → 仍能正确判失效
+        let mut gone = we_video.clone();
+        gone.main_file = Some("missing.mp4".into());
+        assert!(!main_asset_exists(&gone));
+
+        // 无 main_file 的普通条目仍按约定名探测（行为同旧逻辑）
+        let mut local = we_video;
+        local.origin = "local".into();
+        local.main_file = None;
+        assert!(!main_asset_exists(&local), "目录里没有约定名 → 失效");
+        std::fs::write(dir.join("index.mp4"), b"v").unwrap();
+        assert!(main_asset_exists(&local));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

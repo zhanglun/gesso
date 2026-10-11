@@ -395,8 +395,7 @@ fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) ->
                 },
                 assigned: None,
                 // 远端条目无本地素材，不按文件缺失判失效（断网 = 空白帧降级）
-                broken: e.source_url.is_none()
-                    && encoding::main_asset_name(&e.source_dir, e.kind).is_none(),
+                broken: e.source_url.is_none() && !encoding::main_asset_exists(e),
                 remote: e.source_url.is_some(),
                 real: true,
                 art: kind_art(e.kind),
