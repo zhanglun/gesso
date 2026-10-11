@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     组装 Windows 便携版 Gesso（zip，不签名）。
 
