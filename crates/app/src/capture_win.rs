@@ -124,6 +124,10 @@ fn take_window() -> CaptureWindow {
 }
 
 fn put_window(w: CaptureWindow) {
+    // 熄火（对齐 macOS capture）：导航回 about:blank 再隐藏——隐藏 ≠ 停播，
+    // WebView2 隐藏窗里的 <video> 仍在解码；导航才是确定性的断电点。
+    // 下次采集 take_window 显身后由各 frames 路径重新加载目标 URL
+    let _ = w.webview.load_url("about:blank");
     // 空闲即隐藏：屏幕上不常驻近隐形顶层窗（隐藏窗不参与命中测试与合成）。
     // SAFETY: 同主线程创建的窗口；webview 保留，下次采集显身即复用
     unsafe {

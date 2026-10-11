@@ -11,14 +11,20 @@
 //!   带全屏 rect 却不可见）。
 //! - 电源：GetSystemPowerStatus（ACLineStatus 0=电池供电 / 1=交流；
 //!   BatteryFlag 128 = 系统无电池 → None）。
+//! - 锁屏：WTSQuerySessionInformationW(WTSSessionInfoEx) 读会话锁标志——
+//!   纯轮询，与桥内其余信号同款纪律（无需 HWND + 消息泵）。
 
 use std::collections::BTreeSet;
 
 use windows::core::BOOL;
-use windows::core::{w, PCWSTR};
+use windows::core::{w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+use windows::Win32::System::RemoteDesktop::{
+    WTSFreeMemory, WTSQuerySessionInformationW, WTSSessionInfoEx, WTSINFOEXW,
+    WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTS_SESSIONSTATE_LOCK,
+};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
@@ -151,10 +157,34 @@ pub fn on_battery() -> Option<bool> {
     }
 }
 
-/// 锁屏态（Windows 未实现：锁屏暂停省电仅 macOS 生效）。
-/// ponytail: 若需 Windows 锁屏检测，用 WTSRegisterSessionNotification。
+/// 锁屏态（会话级）：WTSSessionInfoEx.SessionFlags，随 bridge::sample 一拍轮询。
+/// 已知语义坑：LOCK/UNLOCK 两值在 Win7 及以前文档化互换（Win8 修复）——WebView2
+/// 运行时本身要求 Win10+，按文档语义直读。查询失败（无活动会话/Secure 桌面）
+/// 按未锁，与 macOS 桥「无 GUI 会话返回 NULL 按未锁」同纪律。
 pub fn is_locked() -> bool {
-    false
+    let mut buf = PWSTR::null();
+    let mut len = 0u32;
+    // SAFETY: buf/len 为出参；成功时 buf 指向 WTS 分配的 WTSINFOEXW，下方读取并释放
+    let ok = unsafe {
+        WTSQuerySessionInformationW(
+            Some(WTS_CURRENT_SERVER_HANDLE),
+            WTS_CURRENT_SESSION,
+            WTSSessionInfoEx,
+            &mut buf,
+            &mut len,
+        )
+    };
+    if ok.is_err() || buf.0.is_null() {
+        return false;
+    }
+    // SAFETY: WTSSessionInfoEx 契约——成功返回的缓冲即 WTSINFOEXW
+    let info = unsafe { &*(buf.0 as *const WTSINFOEXW) };
+    // SessionFlags 在 Level 1 联合体分支；读联合体字段是 unsafe
+    let locked = info.Level == 1
+        && unsafe { info.Data.WTSInfoExLevel1.SessionFlags } as u32 == WTS_SESSIONSTATE_LOCK;
+    // SAFETY: 与查询配对释放，杜绝泄漏
+    unsafe { WTSFreeMemory(buf.0 as *mut core::ffi::c_void) };
+    locked
 }
 
 /// 光标位置（顶左原点物理像素，与 MonitorInfo.frame 同系，供后台高频比对）。

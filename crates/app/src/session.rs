@@ -119,7 +119,7 @@ pub struct SessionManager {
 /// 唤醒/重连 ID 重编的平移计划：旧会话按几何一致匹配"新出现的未占用显示器"。
 /// 纯函数供单测；容差 ±2pt（重配前后屏幕布局通常逐点一致）。
 fn plan_id_remap(
-    stale: &[(String, (f64, f64, f64, f64))],
+    stale: &[(String, crate::pin::MonitorFrame)],
     candidates: &[MonitorInfo],
 ) -> Vec<(String, String)> {
     const TOL: f64 = 2.0;
@@ -268,8 +268,7 @@ impl SessionManager {
             let candidates: Vec<MonitorInfo> = monitors
                 .iter()
                 .filter(|m| {
-                    !self.sessions.contains_key(&m.id)
-                        && !self.config.monitors.contains_key(&m.id)
+                    !self.sessions.contains_key(&m.id) && !self.config.monitors.contains_key(&m.id)
                 })
                 .cloned()
                 .collect();
@@ -740,10 +739,9 @@ impl SessionManager {
 
     /// M6：导入一个 WE 工坊条目（video/web；scene/application 已在 UI 过滤）。
     ///
-    /// video：拷主文件（project.file）为 index.<ext>，复用视频管线；
-    /// web：拷贝整个条目目录，把入口（project.file）改名为 wallpaper.html
-    /// 并注入 WE API shim，其余子资源相对路径不动，复用 html 管线。
-    /// ponytail: 当前拷贝制（video 文档设想的零拷贝直引待 gesso:// 修复）。
+    /// 零拷贝：source_dir 直指 Steam 工坊目录（只读，绝不改原文件）；video
+    /// 走回环 HTTP / gesso://steam 流式 Range，web 的 shim 在协议层内存注入。
+    /// main_file 记住 project.json 声明的主资源名（video 媒体 / web 入口）。
     pub fn import_we_entry(&mut self, e: &crate::we::WeEntry) -> Result<LibraryEntry, ImportError> {
         use crate::we::WeKind;
         let title = if e.project.title.is_empty() {
@@ -825,7 +823,13 @@ impl SessionManager {
         let ids: Vec<String> = self.sessions.keys().cloned().collect();
         for id in ids {
             let fps = self.fps_for(&id);
-            let effect = suspend_effect(locked, fullscreen.contains(&id), battery, fs_policy, bat_policy);
+            let effect = suspend_effect(
+                locked,
+                fullscreen.contains(&id),
+                battery,
+                fs_policy,
+                bat_policy,
+            );
             let Some(s) = self.sessions.get_mut(&id) else {
                 continue;
             };
@@ -896,7 +900,7 @@ impl SessionManager {
         let n = TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // 视频诊断（GESSO_VIDEO_DIAG=1）：每 5s 读宿主页探针（rVFC/rAF/
         // dropped/currentTime）——上屏节奏的突发/停滞/丢帧一眼可见。
-        if n % 5 == 0 && video_diag_enabled() {
+        if n.is_multiple_of(5) && video_diag_enabled() {
             const PROBE: &str = "(function(){var v=document.getElementById('media');var q=(v&&v.getVideoPlaybackQuality)?v.getVideoPlaybackQuality():null;return JSON.stringify({vfc:window.__vfc|0,raf:window.__rafV|0,ct:v?v.currentTime:-1,drop:q?q.droppedVideoFrames:-1,tot:q?q.totalVideoFrames:-1,now:Math.round(performance.now())})})()";
             for (id, s) in self.sessions.iter_mut() {
                 if s.entry_id.is_empty() {
@@ -1347,7 +1351,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-/// 光标归一化量化（poll_mouse 内联逻辑的纯函数镜像，防坐标系改坏）
+    /// 光标归一化量化（poll_mouse 内联逻辑的纯函数镜像，防坐标系改坏）
     fn quantize(v: f64) -> u16 {
         (v.clamp(0.0, 1.0) * 10_000.0).round() as u16
     }

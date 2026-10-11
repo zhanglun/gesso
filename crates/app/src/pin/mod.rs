@@ -10,6 +10,9 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+/// 显示器矩形 `(x, y, w, h)`——平台原生全局坐标，见 [`MonitorInfo::frame`]。
+pub type MonitorFrame = (f64, f64, f64, f64);
+
 /// 显示器信息（枚举产物，稳定 ID 是配置映射的 key）。
 #[derive(Debug, Clone)]
 pub struct MonitorInfo {
@@ -21,7 +24,7 @@ pub struct MonitorInfo {
     /// 平台原生全局坐标（含菜单栏/任务栏等全部区域）：macOS = AppKit（原点左下）、
     /// Windows = 虚拟桌面物理像素（原点左上，可为负——左侧/上方屏幕）。
     /// 排序/归一化只做同平台内比较，不做跨平台换算。
-    pub frame: (f64, f64, f64, f64), // x, y, w, h
+    pub frame: MonitorFrame, // x, y, w, h
     pub is_main: bool,
 }
 
@@ -99,7 +102,7 @@ pub fn create_wallpaper_window(
     #[cfg(target_os = "windows")]
     {
         let _ = entry;
-        return windows::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
+        windows::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {

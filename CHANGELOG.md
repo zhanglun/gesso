@@ -7,10 +7,12 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 ### Added
 
 - **预置壁纸扩充 6 → 10**：新增 4 款 shader——Tide（深海潮汐，iChannel0 fbm 海面）、Starfield（星野，闪烁星点 + 星云）、Silk（流光绸缎，域扭曲暮色绸面）、Ember（余烬，底部上升的暗火微光）。真机逐个渲染验证（PrintWindow 抓帧，无红屏）。
-- **锁屏自动暂停省电**：锁屏是 macOS 系统级安全上下文、壁纸窗口不参与渲染，锁屏时暂停所有壁纸渲染省资源、解锁自动恢复。`bridge::is_locked` 轮询 `CGSessionCopyCurrentDictionary` 的 `CGSSessionScreenIsLocked` 键；策略解析锁屏最高优先级（无条件暂停，不走用户策略）。Windows 暂存根返回 false（WTSRegisterSessionNotification 待接）。
+- **锁屏自动暂停省电**：锁屏是系统级安全上下文、壁纸窗口不参与渲染，锁屏时暂停所有壁纸渲染省资源、解锁自动恢复。macOS 轮询 `CGSessionCopyCurrentDictionary` 的 `CGSSessionScreenIsLocked` 键；Windows 同步落地（2026-10-11）：`WTSQuerySessionInformationW(WTSSessionInfoEx)` 轮询会话锁标志（纯轮询，无需 HWND/消息泵）。策略解析锁屏最高优先级（无条件暂停，不走用户策略）。
+- **Windows 帧率探针通道**：pin 层补齐 `evaluate_with_callback`（lb-wry ExecuteScript 完成回调，与采集窗同一管线）——`GESSO_VIDEO_DIAG=1` 自此可在 Windows 读宿主页 rVFC/rAF/丢帧探针，视频帧节奏实测（ROADMAP 第 3 项）的前置就绪。
 
 ### Changed
 
+- **壁纸静音落地（audio=muted 契约对 html 类生效）**：ContentSpec 契约带 `audio: muted`，但宿主页从未实现——video 静音只是 `<video muted>` 硬编码，html/网页/WE web 的声音直通系统混音器（用户实测 louie.co.nz 网页壁纸出声）。Windows 用引擎级 `--mute-audio`：媒体照常自动播放（画面动），音频输出在浏览器引擎层关断；macOS 用 `with_autoplay(false)` 落回 WKWebView 默认「音频需手势」。中间版 `--autoplay-policy=user-gesture-required` 方案被探针实测否决——WebView2 下该策略连 muted 视频的自动播放也挡掉（视频壁纸冻结首帧、缩略图抽帧同废，且宿主页 `play()` 静默 catch 无报错表象）。
 - **shader 画布按 devicePixelRatio 渲染**：此前 WebGL 画布取 CSS 尺寸，125%+ 缩放屏上被拉伸上屏（真机 2560×1440@125% 实际渲染 2048×1152），星点/粒子类内容发糊——Starfield/Ember 重写为像素级粒子（1-2px 硬核 + 小范围微光），Cursor Glow 光晕半径随分辨率自适应，iMouse 上传同步换算（光标桥与 html/WE 的 CSS 像素契约不变）。
 - **预置壁纸内容随包升级**：播种时对已入库预置条目重拷资源——此前样例只在首次播种时落盘，改版内容（修 shader/换标题）永远到不了老用户（真机复现）。
 - **预置壁纸文案去 demo 化**：条目标题去掉「（内置 Shader）/（内置）/测试图源」等措辞——Spectrum（原「测试图源」）、Plasma、Aurora、Noise Flow、Cursor Glow、Clock；标题表为唯一事实源；资源缺失不再静默跳过（留日志）；界面文案「内置样例」→「预置壁纸」。
@@ -21,6 +23,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Fixed
 
+- **Windows 采集窗采集完不熄火**：`put_window` 只隐藏不导航——隐藏 ≠ 停播，隐藏 WebView2 里的 `<video>` 持续解码白耗资源；采集完（`put_window` 唯一出口）先导航回 about:blank 再隐藏，对齐 macOS 采集管线。
+- **CI Windows job 补 app clippy 门**：`pin/bridge` 平台专属代码只在对应平台参与编译，Windows 侧 clippy 告警（`LIVE_WALLPAPER_HWNDs` 命名等 14 条）曾因无人看本地输出带病进 main；本批全数清零后挂 `-D warnings` 堵住回归（macOS 侧待本地跑通再挂）。
 - **F11 切换桌面三连修（macOS）**：宿主页删除 video 调试状态色（`playing` 把 body 刷绿底——切桌面动画期间视频合成层短暂退出时闪绿屏，分数缩放屏上表现为左右 1-2px 绿线）+ 顺带清掉 shader 错误路径残留的 `state()` 调用（函数已删，会抛 ReferenceError 废掉 `window.__gesso`）；macOS 全屏检测加前台应用 PID 匹配（此前仅凭"layer 0 窗口盖满屏"几何判定，F11 桌面切换的过渡窗口被误判为全屏应用 → 壁纸误暂停/恢复）；video 垫低频冻结帧画布（合成层掉线的几百毫秒露壁纸末帧而非黑底）。
 - **macOS 视频壁纸 1px 淡边框**：AVPlayerLayer AspectFill 非整数缩放时最外圈 ~2 设备像素为纹理边界钳制采样劣化带（无 API 可关），且壁纸窗不透明黑底使缝隙显形——视频窗四周外扩 2pt 把劣化带裁出可视区（1pt 实测只盖一半）。双屏实测验证。
 - **锁屏/熄屏恢复后副屏丢壁纸 + 幽灵窗（Mac mini 双外接实测）**：唤醒会重编显示器 ID（macOS 26 无 EDID 符号回落 cg-id；同型号双屏消歧 id 也带 cgid），旧兜底"全失配迁移"只保一条指派。修法：拆会话前按帧几何一致（±2pt）把会话+配置+帧率平移到新 ID（不拆窗重建）；真拆除的会话显式 orderOut 再丢弃（AppKit 延迟 dealloc 曾让壁纸窗以旧帧残留成"无边框不可点窗口"）。新增 `plan_id_remap` 纯函数单测。

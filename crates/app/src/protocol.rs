@@ -328,6 +328,7 @@ fn load_manifest() -> Option<gesso_core::LibraryManifest> {
 /// 条目资源的页面可见 URL。
 /// - WE 条目（origin == "wallpaper-engine"）→ steam 路由，以 entry id 为凭据
 /// - 其余（库内拷贝）→ library 路由
+///
 /// `rel` 为该条目内的相对资源路径。
 ///
 /// Windows 返回 WebView2 workaround 形态 `http://gesso.<host段>/…`（子资源不走
@@ -358,11 +359,13 @@ pub fn host_url() -> &'static str {
 
 /// 创建挂到给定原生视图的壁纸 webview（注册 gesso:// 协议）。
 ///
-/// 壁纸默认静音（ContentSpec.audio = muted，技术方案 §5.2）：关掉免手势自动播放——
-/// WebView2 默认允许**有声**自动播放（`with_autoplay(false)` 只是不加放行旗标，须显式
-/// 传 `--autoplay-policy=user-gesture-required`）；WKWebView 落回默认「音频需手势」。
-/// muted 视频壁纸不受影响（Chromium/WKWebView 对静音媒体始终放行）；壁纸窗口永远
-/// 得不到用户手势，html/网页类的声音由此实质关闭。
+/// 壁纸默认静音（ContentSpec.audio = muted，技术方案 §5.2）。Windows 用引擎级
+/// `--mute-audio`：媒体照常自动播放，音频输出在浏览器引擎层关断——网页/html
+/// 壁纸出不了声，muted 视频与采集抽帧零影响。**不要用
+/// `--autoplay-policy=user-gesture-required` 做静音**：实测（2026-10-11，
+/// GESSO_VIDEO_DIAG 探针）该策略在 WebView2 下连 muted 视频的自动播放也挡掉，
+/// 视频壁纸冻结在首帧、缩略图抽帧同废。macOS 用 `with_autoplay(false)` 落回
+/// WKWebView 默认「音频需手势」，语义精确且实测有效。
 pub fn create_webview<H: HasWindowHandle + 'static>(
     handle: H,
     url: &str,
@@ -375,8 +378,7 @@ pub fn create_webview<H: HasWindowHandle + 'static>(
     // --disable-features 必须自己带上（proxy 本项目未用，略）。
     #[cfg(target_os = "windows")]
     let builder = builder.with_additional_browser_args(
-        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
-         --autoplay-policy=user-gesture-required",
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --mute-audio",
     );
     builder.build_as_child(&handle).map_err(|e| format!("{e}"))
 }
@@ -436,7 +438,7 @@ fn route(request: lb_wry::http::Request<Vec<u8>>) -> lb_wry::http::Response<Cow<
     //   gesso://library/<id>/<rel> → 库条目目录
     //   gesso://steam/<rel from steam root> → Steam 工坊（WE 只读直引）
     let uri = request.uri();
-    let host = uri.host().map(|h| h.as_ref() as &str).unwrap_or_default();
+    let host = uri.host().map(|h| h as &str).unwrap_or_default();
     // 先解码再路由：entry id 是 ascii hex 不受影响，资源相对路径含空格/非 ASCII。
     let path = decode_path(uri.path().trim_start_matches('/'));
     let path = path.as_str();
@@ -548,6 +550,20 @@ fn parse_byte_range(h: &str) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
+fn err(status: lb_wry::http::StatusCode, msg: &str) -> lb_wry::http::Response<Cow<'static, [u8]>> {
+    lb_wry::http::Response::builder()
+        .status(status)
+        .body(Cow::Owned(msg.as_bytes().to_vec()))
+        .unwrap()
+}
+
+fn mime_of(p: &Path) -> &'static str {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .and_then(gesso_core::mime_for_ext)
+        .unwrap_or("application/octet-stream")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{library_dir, parse_byte_range, route};
@@ -646,18 +662,4 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&thome);
     }
-}
-
-fn err(status: lb_wry::http::StatusCode, msg: &str) -> lb_wry::http::Response<Cow<'static, [u8]>> {
-    lb_wry::http::Response::builder()
-        .status(status)
-        .body(Cow::Owned(msg.as_bytes().to_vec()))
-        .unwrap()
-}
-
-fn mime_of(p: &Path) -> &'static str {
-    p.extension()
-        .and_then(|e| e.to_str())
-        .and_then(gesso_core::mime_for_ext)
-        .unwrap_or("application/octet-stream")
 }

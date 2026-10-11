@@ -69,19 +69,16 @@ pub fn shim_script() -> String {
 pub fn inject(html: &str) -> String {
     let shim = shim_script();
     let lower = html.to_ascii_lowercase();
-    match lower.find("<head") {
-        Some(head_start) => {
-            // 找该 <head ...> 标签的结束 '>'
-            if let Some(gt) = html[head_start..].find('>') {
-                let at = head_start + gt + 1;
-                let mut out = String::with_capacity(html.len() + shim.len());
-                out.push_str(&html[..at]);
-                out.push_str(&shim);
-                out.push_str(&html[at..]);
-                return out;
-            }
+    if let Some(head_start) = lower.find("<head") {
+        // 找该 <head ...> 标签的结束 '>'
+        if let Some(gt) = html[head_start..].find('>') {
+            let at = head_start + gt + 1;
+            let mut out = String::with_capacity(html.len() + shim.len());
+            out.push_str(&html[..at]);
+            out.push_str(&shim);
+            out.push_str(&html[at..]);
+            return out;
         }
-        None => {}
     }
     format!("{shim}{html}")
 }

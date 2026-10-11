@@ -39,8 +39,7 @@ pub fn title_from_url(url: &str) -> String {
     let host_and_path = rest.split(['?', '#']).next().unwrap_or(rest);
     let seg = host_and_path
         .split('/')
-        .filter(|s| !s.is_empty())
-        .last()
+        .rfind(|s| !s.is_empty())
         .unwrap_or_default();
     if seg.is_empty() {
         host_and_path.split('/').next().unwrap_or("web").to_string()

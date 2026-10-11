@@ -30,7 +30,13 @@ jobs:
       - name: 应用单测（Windows）
         if: matrix.os == 'windows-latest'
         run: cargo test -p gesso-app --locked
+      - name: Clippy（app，Windows；警告即失败）
+        if: matrix.os == 'windows-latest'
+        run: cargo clippy -p gesso-app --all-targets -- -D warnings
       # 盲区教训（609d44d）：Windows 专属测试只在此 job 跑——monitor PnP
       # 解析的接口形态 bug 因 CI 不执行 app 测试而带病进 main（真 Windows
       # 上 Some("?")），由本步骤堵住。macOS app 测试与开发命令一致已在
-      # 本地覆盖，为省 runner 时间不加。
+      # 本地覆盖，为省 runner 时间不加。app clippy 同理只挂 Windows job：
+      # pin/bridge 的平台专属代码在对应 job 才参与编译，Windows 侧告警
+      # 曾因无人看本地输出而带病进 main（LIVE_WALLPAPER_HWNDs）；macOS 侧
+      # 待本地跑通后再挂。

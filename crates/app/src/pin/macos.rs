@@ -255,10 +255,7 @@ pub struct MacVideoWindow {
     player: Retained<objc2_av_foundation::AVQueuePlayer>,
 }
 
-pub fn create_video_window(
-    monitor: &MonitorInfo,
-    url: &str,
-) -> gesso_core::Result<MacVideoWindow> {
+pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Result<MacVideoWindow> {
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
     let window = make_pin_window(mtm);
@@ -323,7 +320,8 @@ impl WallpaperWindow for MacVideoWindow {
     }
 
     fn set_frame(&mut self, (x, y, w, h): (f64, f64, f64, f64)) {
-        self._window.setFrame_display(video_pin_frame((x, y, w, h)), true);
+        self._window
+            .setFrame_display(video_pin_frame((x, y, w, h)), true);
     }
 
     fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64)) {

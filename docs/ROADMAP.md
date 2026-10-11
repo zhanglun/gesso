@@ -26,7 +26,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 
 1. **发布后反馈消化**：安装/首启问题归集进 issue，质量修补随 0.1.x 小版本滚动（发布全自动化在 `.github/workflows/release.yml`，打 tag 即出产物）。
 2. **Windows 多显示器实机验证**（实现已就位，等环境）。
-3. **Windows 视频帧节奏实测**：实机跑 `GESSO_VIDEO_DIAG=1`（需先给 Windows pin 层补 `evaluate_with_callback`）看 WebView2 的 rVFC 曲线——有撞帧再立项原生视频管线（Media Foundation + DComp，macOS `MacVideoWindow` 是现成设计模板）；回环媒体服务已跨平台生效。
+3. **Windows 视频帧节奏实测**：实机跑 `GESSO_VIDEO_DIAG=1` 看 WebView2 的 rVFC 曲线（pin 层 `evaluate_with_callback` 已补齐 ✅ 2026-10-11，探针在视频壁纸会话出数验证过）——有撞帧再立项原生视频管线（Media Foundation + DComp，macOS `MacVideoWindow` 是现成设计模板）；回环媒体服务已跨平台生效。
 4. **M7 Wallpaper Engine import II (scene)**（长期）。
 
 ### M5 — system data bridge（✅ 已完成）
@@ -42,6 +42,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - ✅ 全屏检测：EnumWindows 找 rect 完整覆盖显示器 frame（±3px）的可见顶层窗口，排除自身类/shell（Progman/WorkerW 恒全屏）/工具窗/DWM cloak 幽灵。实机：真全屏触发自动暂停、退出解除、与空闲降帧状态互斥正确。
 - ✅ 电池：GetSystemPowerStatus（BatteryFlag 128 = 无电池 → None；台式机正确返回 None）。
 - ✅ 空闲降帧：5 分钟无输入 → 5 fps，一动即恢复（实机触发复验）。
+- ✅ 锁屏检测（2026-10-11）：`WTSQuerySessionInformationW(WTSSessionInfoEx)` 轮询会话锁标志，与 macOS 同为纯轮询（无需 HWND/消息泵）；查询失败按未锁。解锁/锁屏暂停省电自此双平台生效。
 
 ### M1 — Windows pinning（✅ 主体完成，2026-10-05 实机验证）
 - ✅ 自有 Win32 壁纸窗口（WS_POPUP + TOOLWINDOW/NOACTIVATE，非 GPUI 窗口）+ wry/WebView2 子窗口直挂。

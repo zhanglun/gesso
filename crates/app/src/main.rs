@@ -829,7 +829,7 @@ fn signal_first_instance(suffix: &str) {
 
 /// 激活/重建主管理窗口（FocusMainWindow 副作用的兑现）。
 fn focus_or_reopen_main(cx: &mut gpui_kit::gpui::App) {
-    let existing = MAIN_WINDOW.lock().ok().and_then(|g| g.clone());
+    let existing = MAIN_WINDOW.lock().ok().and_then(|g| *g);
     let mut activated = false;
     if let Some(h) = existing {
         // 关闭=隐藏的窗口先 SW_SHOW，否则 activate_window 对隐藏窗口无效
@@ -1037,7 +1037,10 @@ fn main() {
             let autostart_on = sm.config().settings.autostart;
             AUTOSTART_HINT.store(autostart_on, std::sync::atomic::Ordering::SeqCst);
             cx.set_global(engine::AppState::new(sm));
-            cx.set_global(snapshot_ui(&cx.global::<engine::AppState>().sm, &cx.global::<engine::AppState>().thumbs));
+            cx.set_global(snapshot_ui(
+                &cx.global::<engine::AppState>().sm,
+                &cx.global::<engine::AppState>().thumbs,
+            ));
 
             // 托盘（§4.1/§4.2）：左键 = 快速面板；右键 = 菜单。
             // 事件处理器全局按 id 路由，一次注册即可；语言切换后主循环
@@ -1108,7 +1111,7 @@ fn main() {
                         });
                         // FocusMainWindow 需 window/cx：借用结束后兑现
                         if focus_main {
-                            cx.update(|cx| focus_or_reopen_main(cx));
+                            cx.update(focus_or_reopen_main);
                         }
                     }
 
@@ -1153,9 +1156,11 @@ fn main() {
                     if tick != 0 && tick % MONITOR_SYNC_EVERY == AUTOPAUSE_OFFSET {
                         let changed = cx.update(|cx| {
                             let snap = bridge::sample();
-                            cx.global_mut::<engine::AppState>()
-                                .sm
-                                .apply_autopause(snap.locked, &snap.fullscreen, snap.on_battery)
+                            cx.global_mut::<engine::AppState>().sm.apply_autopause(
+                                snap.locked,
+                                &snap.fullscreen,
+                                snap.on_battery,
+                            )
                         });
                         refresh_ui |= changed;
                     }
@@ -1168,7 +1173,10 @@ fn main() {
                     if refresh_ui {
                         // 会话 → UI 单向回灌（托盘/界面动作 / 显示器热插拔后的跨面同步）
                         cx.update(|cx| {
-                            let next = snapshot_ui(&cx.global::<engine::AppState>().sm, &cx.global::<engine::AppState>().thumbs);
+                            let next = snapshot_ui(
+                                &cx.global::<engine::AppState>().sm,
+                                &cx.global::<engine::AppState>().thumbs,
+                            );
                             cx.update_global::<GessoState, _>(|g, _| merge_snapshot(g, next));
                             cx.refresh_windows();
                         });

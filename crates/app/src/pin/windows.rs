@@ -75,7 +75,7 @@ static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 static REMOUNT_PENDING: AtomicBool = AtomicBool::new(false);
 /// 存活的贴壁窗口句柄（仅 create() 的壁纸窗口，不含采集 overlay）。
 /// panic 钩子的 emergency_teardown 按此清单尽力销毁。
-static LIVE_WALLPAPER_HWNDs: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
+static LIVE_WALLPAPER_HWNDS: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
 
 // ---------------------------------------------------------------------------
 // 纯逻辑（单测覆盖）：URL 翻译与子窗口定位换算
@@ -109,8 +109,10 @@ fn monitor_id_from_device(device: &str) -> String {
 /// 显示器硬件身份：该屏挂的 monitor PnP ID（EDID 派生，如 `dela0bc`），
 /// 跨重启/驱动重装稳定——DISPLAYn 枚举序号则不是（v1 已知缺陷）。取不到回落。
 fn monitor_pnp_id(device: &str) -> Option<String> {
-    let mut dd = DISPLAY_DEVICEW::default();
-    dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+    let mut dd = DISPLAY_DEVICEW {
+        cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
+        ..Default::default()
+    };
     let device_w: Vec<u16> = device.encode_utf16().chain(std::iter::once(0)).collect();
     // SAFETY: dd 为本栈帧局部，cbSize 按 API 约定填写；device_w 含 NUL 终止
     if unsafe { EnumDisplayDevicesW(PCWSTR(device_w.as_ptr()), 0, &mut dd, 0) }.as_bool() {
@@ -385,7 +387,7 @@ pub fn restore_desktop() {
 /// 重绘。DestroyWindow 仅在创建线程合法——panic 发生在其他线程时失败，
 /// 静默忽略（进程随后死亡，OS 兜底销毁窗口）。任何路径都不 panic。
 pub fn emergency_teardown() {
-    let live = LIVE_WALLPAPER_HWNDs
+    let live = LIVE_WALLPAPER_HWNDS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .drain(..)
@@ -633,7 +635,7 @@ pub fn create(monitor: &MonitorInfo) -> Result<WinWallpaperWindow> {
         let _ = ShowWindow(hwnd, SW_SHOWNA);
     }
     // 登记：panic 钩子的 emergency_teardown 按此清单尽力销毁
-    LIVE_WALLPAPER_HWNDs
+    LIVE_WALLPAPER_HWNDS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .push(hwnd.0 as isize);
@@ -675,6 +677,14 @@ impl WallpaperWindow for WinWallpaperWindow {
     fn evaluate(&mut self, js: &str) {
         if let Some(w) = self.webview.as_ref() {
             let _ = w.evaluate_script(js);
+        }
+    }
+
+    fn evaluate_with_callback(&mut self, js: &str, cb: Box<dyn Fn(String) + Send>) {
+        // WebView2 ExecuteScript 结果经完成回调回传（JSON 编码——采集窗 eval_cb
+        // 同一管线）；与 macOS 侧同款透传
+        if let Some(w) = self.webview.as_ref() {
+            let _ = w.evaluate_script_with_callback(js, move |v: String| cb(v));
         }
     }
 
@@ -744,7 +754,7 @@ impl Drop for WinWallpaperWindow {
                 eprintln!("[pin] DestroyWindow 失败：{e}");
             }
         }
-        LIVE_WALLPAPER_HWNDs
+        LIVE_WALLPAPER_HWNDS
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|h| *h != self.hwnd.0 as isize);

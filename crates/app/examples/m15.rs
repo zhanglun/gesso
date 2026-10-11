@@ -2,9 +2,10 @@
 //!
 //! 架构修正（v1 教训）：壁纸窗口不再是 GPUI 管理的窗口——GPUI 的窗口协调器
 //! 与桌面级全屏窗口的几何必然冲突（v1 用轮询对打压不住）。改为：
-//!   壁纸窗口 = 纯 AppKit NSWindow（borderless + level + 穿透，一次设置）
-//!   + wry webview 直接挂它的 contentView（不经 gpui-wry）
-//! GPUI 只负责托盘与动作轮询；两者同跑一个 NSApplication。
+//!
+//! - 壁纸窗口 = 纯 AppKit NSWindow（borderless + level + 穿透，一次设置），
+//!   wry webview 直接挂它的 contentView（不经 gpui-wry）
+//! - GPUI 只负责托盘与动作轮询；两者同跑一个 NSApplication。
 //!
 //! 运行：cargo run -p gesso-app --example m15
 //! 验收：壁纸铺满整屏（含菜单栏带）、图标可点、Space 跟随、全屏无异常。

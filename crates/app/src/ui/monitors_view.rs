@@ -53,6 +53,14 @@ const DOT_STEP: f32 = 22.;
 /// 只做矩形裁剪，内容须自圆角——widgets::preview 同款解法）。
 const MINI_INNER_R: f32 = 8.;
 
+/// 小像几何：沙盘坐标系内的落位与宽高比（placements 对每块屏的产出）。
+struct MiniGeom {
+    left: Pixels,
+    top: Pixels,
+    width: Pixels,
+    ratio: f32,
+}
+
 pub struct MonitorsView {
     /// 每块屏一个帧率下拉（§4.4：FPS 下拉 60/30/15/5）。
     fps_selects: Vec<Entity<SelectState<SearchableVec<String>>>>,
@@ -328,11 +336,7 @@ impl MonitorsView {
         &self,
         i: usize,
         m: &MonitorEntry,
-        left: Pixels,
-        top: Pixels,
-        width: Pixels,
-        ratio: f32,
-        _selected_idx: usize,
+        geom: MiniGeom,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = tokens(cx);
@@ -366,10 +370,10 @@ impl MonitorsView {
         div()
             .id(SharedString::from(format!("screen-{i}")))
             .absolute()
-            .left(left)
-            .top(top)
-            .w(width)
-            .aspect_ratio(ratio)
+            .left(geom.left)
+            .top(geom.top)
+            .w(geom.width)
+            .aspect_ratio(geom.ratio)
             .rounded(px(10.))
             .overflow_hidden()
             .border_2()
@@ -421,7 +425,7 @@ impl MonitorsView {
                     .inset_0()
                     .rounded(px(MINI_INNER_R))
                     .overflow_hidden()
-                    .child(Self::screen_surface(item.as_ref(), ratio, cx)),
+                    .child(Self::screen_surface(item.as_ref(), geom.ratio, cx)),
             )
             .when(assigned, |d| {
                 d.child(Self::status_chip(st_icon, st_label, dimmed))
@@ -459,7 +463,6 @@ impl MonitorsView {
         let t = tokens(cx);
         let monitors = state(cx).monitors.clone();
         let desk = Self::desk_size(window);
-        let selected_idx = self.resolve_selected(&monitors);
 
         // —— 等比排布：工作区包围盒适配画布（y 轴翻转：macOS 坐标向上，画布向下）——
         let (min_x, min_y, max_x, max_y) = monitors.iter().fold(
@@ -530,7 +533,17 @@ impl MonitorsView {
             .into_iter()
             .enumerate()
             .map(|(i, (left, top, w, ratio))| {
-                self.screen_mini(i, &monitors[i], left, top, w, ratio, selected_idx, cx)
+                self.screen_mini(
+                    i,
+                    &monitors[i],
+                    MiniGeom {
+                        left,
+                        top,
+                        width: w,
+                        ratio,
+                    },
+                    cx,
+                )
             })
             .collect::<Vec<_>>();
 
