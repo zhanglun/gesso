@@ -49,6 +49,13 @@ pub trait WallpaperWindow {
     fn mount_ok(&self) -> bool {
         true
     }
+    /// 读回窗口当前几何（显示器坐标语义；None = 平台不支持读回）。
+    /// 收敛器用它检测 WindowServer 对窗口的搬移/收容——这类篡改记录值
+    /// 感知不到（记录与枚举都「对」，窗口实际已被挪走），只有读回能发现。
+    fn actual_frame(&self) -> Option<MonitorFrame> {
+        None
+    }
+
     /// 当前 URL（诊断用：判断导航是否被 WKWebView 拒绝）
     fn current_url(&self) -> String;
     /// 透传 JS（M5 数据桥通道：时间 tick / 降帧 setFps；暂停仍走 set_paused）。
@@ -72,6 +79,27 @@ pub fn enumerate_monitors() -> Vec<MonitorInfo> {
     return windows::enumerate_monitors();
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     Vec::new()
+}
+
+/// 安装显示器拓扑事件监听（进程内一次，任意线程可调）：
+/// macOS = CGDisplayReconfigurationCallback；Windows = 监听窗收 WM_DISPLAYCHANGE。
+/// 事件只翻转纪元代数（[`topology_epoch`]），由引擎心跳去抖消费——
+/// 显示器重配走事件驱动收敛，不再靠轮询发现（见 ARCHITECTURE §2）。
+pub fn install_topology_watch() {
+    #[cfg(target_os = "macos")]
+    macos::install_topology_watch();
+    #[cfg(target_os = "windows")]
+    windows::install_topology_watch();
+}
+
+/// 拓扑纪元代数（只增不减；仅用于「有变化」判定）。
+pub fn topology_epoch() -> u64 {
+    #[cfg(target_os = "macos")]
+    return macos::topology_epoch();
+    #[cfg(target_os = "windows")]
+    return windows::topology_epoch();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    0
 }
 
 /// 平台分派（Linux 按非目标返回 Unsupported）。

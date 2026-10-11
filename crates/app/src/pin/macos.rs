@@ -5,6 +5,8 @@
 //! - Borderless + CanJoinAllSpaces|Stationary|FullScreenAuxiliary|IgnoresCycle
 //! - ignoresMouseEvents + 透明底（webview 隐藏 = 露系统壁纸）
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use objc2::rc::Retained;
 use objc2_app_kit::{
     NSColor, NSScreen, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
@@ -12,10 +14,52 @@ use objc2_app_kit::{
 use objc2_foundation::MainThreadMarker;
 use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
 
-use super::{MonitorInfo, WallpaperWindow};
+use super::{MonitorFrame, MonitorInfo, WallpaperWindow};
 use gesso_core::{GessoError, Result};
 
 pub(crate) const PIN_LEVEL: isize = -2147483604;
+
+// —— 拓扑纪元（topology epochs）——
+// 显示器重配（连接/断开/移动/主屏切换/模式变更）必须事件驱动：轮询采样有
+// 2s 级延迟（WindowServer 收容窗口的错误中间态肉眼可见），且可能采到重配
+// 序列的半程状态。回调只做代数自增——投递期 WindowServer 正持锁，不得触碰
+// AppKit/分配；去抖与消费在引擎心跳侧（main.rs）。
+static TOPOLOGY_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+// SAFETY: CoreGraphics 公开 C ABI——CGDirectDisplayID = u32，
+// CGDisplayChangeSummaryFlags = u32 位掩码，CGError = i32
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGDisplayRegisterReconfigurationCallback(
+        callback: unsafe extern "C" fn(u32, u32, *mut core::ffi::c_void),
+        userinfo: *mut core::ffi::c_void,
+    ) -> i32;
+}
+
+unsafe extern "C" fn on_display_reconfig(_: u32, _: u32, _: *mut core::ffi::c_void) {
+    TOPOLOGY_EPOCH.fetch_add(1, Ordering::Release);
+}
+
+/// 安装显示器重配监听（进程内一次；引擎心跳经 [`topology_epoch`] 消费）。
+/// begin/end/逐屏 pass 全部计入——纪元只要「有变化」语义，去抖在心跳侧。
+/// 注册失败只打日志：稳态巡检（≈5s 深收敛）兜底一切丢失的事件。
+pub fn install_topology_watch() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // SAFETY: 进程级一次性注册；回调是静态 fn，生命周期覆盖全程
+        let err = unsafe {
+            CGDisplayRegisterReconfigurationCallback(on_display_reconfig, std::ptr::null_mut())
+        };
+        if err != 0 {
+            println!("[pin] 显示器重配监听注册失败 err={err}（稳态巡检兜底）");
+        }
+    });
+}
+
+/// 拓扑纪元代数（只增不减；仅用于「有变化」判定，不区分事件种类）。
+pub fn topology_epoch() -> u64 {
+    TOPOLOGY_EPOCH.load(Ordering::Acquire)
+}
 
 /// wry 直挂所需的句柄包装（仅主线程使用）
 struct ViewHandle(*mut NSView);
@@ -104,6 +148,9 @@ pub fn create(monitor: &MonitorInfo) -> Result<MacWallpaperWindow> {
     let window = make_pin_window(mtm);
 
     let (x, y, w, h) = monitor.frame;
+    // 几何在创建时施加，但**保持隐藏**——显示由会话收敛器统一复显
+    //（先落位后可见；旧路径 create 即 orderFront，重建时会以未加载的
+    // 黑底/错误几何先可见，正是唤醒期伪影的来源之一）
     window.setFrame_display(
         objc2_foundation::NSRect::new(
             objc2_foundation::NSPoint::new(x, y),
@@ -111,7 +158,6 @@ pub fn create(monitor: &MonitorInfo) -> Result<MacWallpaperWindow> {
         ),
         true,
     );
-    window.orderFrontRegardless();
 
     let content = window
         .contentView()
@@ -231,6 +277,11 @@ impl WallpaperWindow for MacWallpaperWindow {
         });
     }
 
+    fn actual_frame(&self) -> Option<MonitorFrame> {
+        let f = self._window.frame();
+        Some((f.origin.x, f.origin.y, f.size.width, f.size.height))
+    }
+
     fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64)) {
         // WindowServer 在显示器重配后可能重置层级/空间行为（实测：合盖再开盖，
         // 壁纸窗口从图标层之下浮成普通窗口）——与 create() 保持同一组贴壁参数
@@ -286,7 +337,8 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Resu
         player.play();
         (player, looper)
     };
-    window.orderFrontRegardless();
+    // 与 webview 窗同一纪律：创建保持隐藏，几何落位由会话收敛器统一复显
+    //（AVPlayer 在不可见窗口中照常解码，点亮即有画面）
     println!("[session] 原生视频窗 {url}");
     Ok(MacVideoWindow {
         _window: window,
@@ -322,6 +374,17 @@ impl WallpaperWindow for MacVideoWindow {
     fn set_frame(&mut self, (x, y, w, h): (f64, f64, f64, f64)) {
         self._window
             .setFrame_display(video_pin_frame((x, y, w, h)), true);
+    }
+
+    fn actual_frame(&self) -> Option<MonitorFrame> {
+        // 读回还原 video_pin_frame 的 2pt 外扩，保持显示器坐标语义可比
+        let f = self._window.frame();
+        Some((
+            f.origin.x + 2.0,
+            f.origin.y + 2.0,
+            f.size.width - 4.0,
+            f.size.height - 4.0,
+        ))
     }
 
     fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64)) {
@@ -422,13 +485,14 @@ fn identity_ids(entries: &[(Option<[u32; 3]>, u32)]) -> Vec<String> {
         .collect()
 }
 
-/// 枚举显示器（稳定 ID = EDID 身份三元组；无身份回落 CGDirectDisplayID）。
-pub fn enumerate_monitors() -> Vec<MonitorInfo> {
+/// 枚举 (MonitorInfo, NSScreen) 对——desktop_bridge 按显示器 ID 定位系统屏
+/// （设/读桌面图）用。必须主线程。
+pub fn screens() -> Vec<(MonitorInfo, Retained<NSScreen>)> {
     let mtm = match MainThreadMarker::new() {
         Some(m) => m,
         None => return vec![],
     };
-    let mut screens: Vec<(objc2_foundation::NSRect, u32)> = Vec::new();
+    let mut screens: Vec<(objc2_foundation::NSRect, u32, Retained<NSScreen>)> = Vec::new();
     // SAFETY: 主线程标记保证
     for screen in NSScreen::screens(mtm).iter() {
         // SAFETY: NSArray<NSScreen> 元素类型保证，指针级 cast 绕过 NSObject 外观
@@ -439,39 +503,50 @@ pub fn enumerate_monitors() -> Vec<MonitorInfo> {
         let cgid = screen
             .deviceDescription()
             .objectForKey(&key)
-            .and_then(|v| unsafe {
+            .map(|v| unsafe {
                 // SAFETY: NSScreenNumber 值为 NSNumber；指针级转 NSNumber 后取值
                 let nsnumber: &objc2_foundation::NSNumber =
                     &*(std::ptr::from_ref(&*v) as *const objc2_foundation::NSNumber);
-                Some(nsnumber.unsignedIntValue())
+                nsnumber.unsignedIntValue()
             })
             .unwrap_or(0);
-        screens.push((frame, cgid));
+        // SAFETY: 同上指针级 cast；Retained 接管不转移所有权（数组保活）
+        let retained: Retained<NSScreen> =
+            unsafe { Retained::retain(screen as *const NSScreen as *mut NSScreen) }
+                .expect("NSScreen 保活");
+        screens.push((frame, cgid, retained));
     }
 
     let identities: Vec<(Option<[u32; 3]>, u32)> = screens
         .iter()
-        .map(|(_, cgid)| (*cgid, display_edid_identity(*cgid)))
-        .map(|(cgid, idty)| (idty, cgid))
+        .map(|(_, cgid, _)| (display_edid_identity(*cgid), *cgid))
         .collect();
     let ids = identity_ids(&identities);
 
     screens
-        .iter()
+        .into_iter()
         .zip(ids)
         .enumerate()
-        .map(|(i, ((frame, _), id))| MonitorInfo {
-            id,
-            name: format!("显示器 {}", i + 1),
-            frame: (
-                frame.origin.x,
-                frame.origin.y,
-                frame.size.width,
-                frame.size.height,
-            ),
-            is_main: frame.origin.x == 0.0 && frame.origin.y == 0.0,
+        .map(|(i, ((frame, _, screen), id))| {
+            let info = MonitorInfo {
+                id,
+                name: format!("显示器 {}", i + 1),
+                frame: (
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height,
+                ),
+                is_main: frame.origin.x == 0.0 && frame.origin.y == 0.0,
+            };
+            (info, screen)
         })
         .collect()
+}
+
+/// 枚举显示器（稳定 ID = EDID 身份三元组；无身份回落 CGDirectDisplayID）。
+pub fn enumerate_monitors() -> Vec<MonitorInfo> {
+    screens().into_iter().map(|(m, _)| m).collect()
 }
 
 #[cfg(test)]

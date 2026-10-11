@@ -30,7 +30,7 @@
 //! 子资源 URL（spec.source）由 `protocol::entry_url` 引擎侧直接产出 workaround 形态。
 
 use std::num::NonZero;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -66,8 +66,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, IsWindowVisible, RegisterClassW, RegisterWindowMessageW, SendMessageTimeoutW,
     SetLayeredWindowAttributes, SetParent, SetWindowPos, ShowWindow, HTTRANSPARENT, HWND_BOTTOM,
     LWA_ALPHA, MONITORINFOF_PRIMARY, SMTO_NORMAL, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA,
-    WINDOW_EX_STYLE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
+    WINDOW_EX_STYLE, WM_DISPLAYCHANGE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
 };
 
 use super::{MonitorInfo, WallpaperWindow};
@@ -94,6 +94,9 @@ static PIN_ENV: std::sync::Once = std::sync::Once::new();
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 /// TaskbarCreated 已到（explorer 重启）→ 引擎轮询取走并触发各会话 remount。
 static REMOUNT_PENDING: AtomicBool = AtomicBool::new(false);
+/// 拓扑纪元（显示器分辨率/排列/模式变化计数，WM_DISPLAYCHANGE）→ 引擎心跳
+/// 经 topology_epoch 消费，去抖后跑一轮收敛。与 TaskbarCreated 同一监听窗收取。
+static TOPOLOGY_EPOCH: AtomicU64 = AtomicU64::new(0);
 /// 存活的贴壁窗口句柄（仅 create() 的壁纸窗口，不含采集 overlay）。
 /// panic 钩子的 emergency_teardown 按此清单尽力销毁。
 static LIVE_WALLPAPER_HWNDS: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
@@ -578,7 +581,7 @@ fn ensure_pin_env() {
     });
 }
 
-/// 监听窗口过程：只认 TaskbarCreated 广播（explorer 重启信号）。
+/// 监听窗口过程：TaskbarCreated（explorer 重启信号）+ WM_DISPLAYCHANGE（显示器重配）。
 unsafe extern "system" fn listener_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     let taskbar = TASKBAR_CREATED.load(Ordering::Relaxed);
     if taskbar != 0 && msg == taskbar {
@@ -586,7 +589,22 @@ unsafe extern "system" fn listener_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LP
         REMOUNT_PENDING.store(true, Ordering::Relaxed);
         return LRESULT(0);
     }
+    if msg == WM_DISPLAYCHANGE {
+        TOPOLOGY_EPOCH.fetch_add(1, Ordering::Relaxed);
+        return LRESULT(0);
+    }
     DefWindowProcW(hwnd, msg, wp, lp)
+}
+
+/// 安装拓扑事件监听：监听窗在 ensure_pin_env 创建（Once 幂等）。
+/// 引擎心跳经 [`topology_epoch`] 消费，与 macOS 的 CG 重配回调同构。
+pub fn install_topology_watch() {
+    ensure_pin_env();
+}
+
+/// 拓扑纪元代数（只增不减；仅用于「有变化」判定）。
+pub fn topology_epoch() -> u64 {
+    TOPOLOGY_EPOCH.load(Ordering::Acquire)
 }
 
 /// 壁纸窗口过程：命中测试一律穿透（v1 非交互语义，对齐 macOS ignoresMouseEvents）；

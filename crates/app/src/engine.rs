@@ -105,6 +105,9 @@ pub enum EngineAction {
     UpdateCancelDownload,
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
+    /// 托盘「恢复系统壁纸」：桌面桥接全量恢复（逃生门——怀疑接管残留时用；
+    /// 之后重新指派壁纸会按设置再次接管）。
+    RestoreSystemWallpaper,
     /// 后台抽帧任务完成（thumb 调度 → 引擎：释放在途标记 + 触发快照回灌）。
     ThumbsDone { dir: String },
     /// 托盘「退出 Gesso」：引擎线程上拆除全部壁纸会话 → 通知 shell 重绘 → 进程退出。

@@ -26,6 +26,10 @@ pub struct Settings {
     pub language: Language,
     /// 自动检查更新（启动后与每 24h 静默检查 GitHub Releases；手动检查不受此开关约束）。
     pub update_check: bool,
+    /// 桌面桥接：在屏期间把系统桌面壁纸设为当前壁纸的静态帧，显示器重配的
+    /// 抑制窗口露出它（无缝过渡）；退出/取消指派恢复用户原壁纸。关闭则完全不
+    /// 接管系统桌面（重配期显示系统原壁纸）。
+    pub desktop_bridge: bool,
 }
 
 impl Default for Settings {
@@ -39,6 +43,7 @@ impl Default for Settings {
             startup_behavior: StartupBehavior::RestoreLast,
             language: Language::Auto,
             update_check: true,
+            desktop_bridge: true,
         }
     }
 }

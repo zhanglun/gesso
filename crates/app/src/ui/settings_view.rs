@@ -331,6 +331,18 @@ impl Render for SettingsView {
                     .into_any_element(),
                 cx,
             ),
+            set_row(
+                SET_BRIDGE(),
+                Some(SET_BRIDGE_DESC()),
+                Switch::new("set-bridge")
+                    .checked(s.desktop_bridge)
+                    .on_click(|checked, window, cx| {
+                        update(window, cx, |g| g.settings.desktop_bridge = *checked);
+                        persist_settings(cx);
+                    })
+                    .into_any_element(),
+                cx,
+            ),
         ];
 
         // —— 启动 ——

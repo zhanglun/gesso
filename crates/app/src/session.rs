@@ -11,7 +11,7 @@ use gesso_core::{
     WallpaperKind,
 };
 
-use crate::pin::{self, MonitorInfo, WallpaperWindow};
+use crate::pin::{self, MonitorFrame, MonitorInfo, WallpaperWindow};
 
 /// 导入失败原因（UI 侧映射 strings.rs 文案；§7 失败文案带原因和出路）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +88,15 @@ pub struct Session {
     pub monitor: MonitorInfo,
     pub entry_id: String,
     pub window: Option<Box<dyn WallpaperWindow>>,
+    /// 施加信念：最后施加给窗口的显示器几何（视频窗存外扩前的基准值）。
+    /// 收敛决策与漂移检测的比对基准——记录值（monitor）会随 remap/枚举更新，
+    /// 只有真正的窗口突变才更新这里；基准用错会让「记录没变就不动窗」对
+    /// WindowServer 搬移窗口的行为全盲（唤醒收容伪影的根因之一）。
+    pub applied_frame: Option<MonitorFrame>,
+    /// 可见性信念：窗口是否应处于显示态。两段式提交的账本——settle 轮
+    /// （拓扑触发的突变轮）把窗口压在抑制态，commit 轮据此统一复显；
+    /// 「隐藏中」的存活会话是「需要 commit 收敛」的判据。
+    pub visible: bool,
     /// 当前生效的自动暂停原因（None = 非自动暂停态；进 PausedUser 也不清它——
     /// 状态机里用户暂停压住自动暂停，退出全屏后仍由 AutoPauseClear 恢复）。
     pub autopause_reason: Option<AutopauseReason>,
@@ -114,6 +123,9 @@ pub struct SessionManager {
     pub config: AppConfig,
     pub library: Vec<LibraryEntry>,
     sessions: BTreeMap<String, Session>,
+    /// 上次收敛的枚举签名（诊断）：变化才打一行日志。重配期的过渡枚举
+    /// （半程状态）一眼可见，是定位「过渡几何上窗」类伪影的第一手证据。
+    last_enum_sig: Option<String>,
 }
 
 /// 唤醒/重连 ID 重编的平移计划：旧会话按几何一致匹配"新出现的未占用显示器"。
@@ -144,12 +156,46 @@ fn plan_id_remap(
     out
 }
 
+/// 单会话收敛动作（`plan_converge` 的输出；窗口副作用由 `converge` 执行）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConvergeAct {
+    /// 不动窗（深巡检时仅重施贴壁不变量，几何相同零视觉变化）。
+    Keep,
+    /// 先熄窗 → 重申贴壁与几何 → 复显（错误几何的中间态不可观测）。
+    Reassert,
+    /// 先熄窗 → 拆除（AppKit 延迟 dealloc 的幽灵窗隐患，见工程笔记）。
+    Remove,
+}
+
+/// 收敛决策（纯函数）。比对基准是**施加信念** `applied`，不是记录值
+/// `s.monitor`——记录会随 remap/枚举更新，只有窗口突变才更新施加信念。
+/// `drifted` = 窗口读回与施加信念不一致（平台不支持读回时恒 false，
+/// 此时退化为旧「记录比对」语义）。
+fn plan_converge(
+    present: bool,
+    m_frame: MonitorFrame,
+    m_is_main: bool,
+    applied: Option<MonitorFrame>,
+    recorded_is_main: bool,
+    drifted: bool,
+) -> ConvergeAct {
+    if !present {
+        return ConvergeAct::Remove;
+    }
+    if drifted || applied.is_some_and(|a| a != m_frame) || recorded_is_main != m_is_main {
+        ConvergeAct::Reassert
+    } else {
+        ConvergeAct::Keep
+    }
+}
+
 impl SessionManager {
     pub fn new(config: AppConfig, library: Vec<LibraryEntry>) -> Self {
         Self {
             config,
             library,
             sessions: BTreeMap::new(),
+            last_enum_sig: None,
         }
     }
 
@@ -159,7 +205,9 @@ impl SessionManager {
     pub fn teardown_all(&mut self) {
         let n = self.sessions.len();
         self.sessions.clear();
-        println!("[session] 退出拆除：{n} 个壁纸会话已销毁");
+        // 桌面桥接全量恢复（先于进程退出；离线屏的边界见 desktop_bridge.rs）
+        let restored = crate::desktop_bridge::restore_all();
+        println!("[session] 退出拆除：{n} 个壁纸会话已销毁，系统壁纸恢复 {restored} 项接管");
     }
 
     /// explorer 重启自愈（Windows M1）：TaskbarCreated 后由引擎轮询触发。
@@ -189,6 +237,8 @@ impl SessionManager {
                     w.load(&Self::entry_host_url(&entry, fps));
                     all_ok &= w.mount_ok();
                     s.window = Some(w);
+                    s.applied_frame = Some(monitor.frame);
+                    s.visible = true; // Windows create 即自显（SW_SHOWNA）
                 }
                 Err(e) => {
                     println!("[session] {mid} 重钉失败：{e}");
@@ -199,9 +249,116 @@ impl SessionManager {
         all_ok
     }
 
-    /// 全量同步：枚举显示器 → 按配置建/拆会话（启动与显示器轮询共用）。
+    /// 全量同步（外部入口保持旧名）：立即收敛并复显（启动、托盘「重新检测
+    /// 显示器」）。稳定语境下的收敛：突变即上屏。
     pub fn sync_monitors(&mut self) {
+        self.converge(false, false);
+    }
+
+    /// 拓扑触发的收敛（两段式提交）：与 [`Self::sync_monitors`] 同一收敛逻辑，
+    /// 但拓扑未稳期间（跨采样枚举不一致）**重申整段延迟、补建压在隐藏态**——
+    /// 几何过时的窗口已被 30ms 清扫提前熄灭（桥接帧兜底），过渡几何（半程
+    /// 枚举）从构造上不上窗（实机伪影：开盖小窗先现后放大、合盖超大图/放大
+    /// 帧一闪）。返回 true = 还有未完成的工作，调用方必须安排 commit 收敛
+    /// （枚举跨采样稳定后原子施加几何并统一点亮）。
+    pub fn sync_monitors_settling(&mut self) -> bool {
+        self.converge(false, true)
+    }
+
+    /// 稳态巡检（深收敛）：在 [`Self::sync_monitors`] 之上，对「无变化」会话
+    /// 也无条件重施贴壁不变量。兜两类事件驱动够不着的情况：进程挂起期间
+    /// 丢失的拓扑事件；WindowServer 不留痕迹的窗口篡改（层级/空间行为重置
+    /// 读不回——level() 可能原值不动，只能重施不能检测）。稳定语境：突变即复显。
+    pub fn patrol(&mut self) {
+        self.converge(true, false);
+    }
+
+    /// 拓扑事件的即时清扫（30ms 观察器调用，去抖前）：熄灭一切「与现实
+    /// 脱节」的窗口。两类：① 屏已从枚举消失（消失是硬事实，残窗会以旧
+    /// 坐标落在重锚后的别的屏上）；② 屏在但枚举帧 ≠ 施加帧（显示器模式
+    /// 切换/重锚——屏幕已变，旧窗口立即过时；实机：外接屏合盖时
+    /// 2560×1440→1920×1080，旧帧滞留表现为「壁纸先放大再恢复」）。被熄
+    /// 的窗口由桥接帧兜底（桌面代理已按新模式正确缩放），收敛稳定后原子
+    /// 施加再点亮。只熄不拆：瞬时抖动（blip）由 commit 轮按 `visible`
+    /// 信念原样点亮。唤醒期 ID 重编会让所有会话「看似消失」——先用几何
+    /// 平移判定幸存者，只熄真脱节的。
+    pub fn sweep_stale(&mut self) {
         let monitors = pin::enumerate_monitors();
+        let now: std::collections::BTreeSet<String> =
+            monitors.iter().map(|m| m.id.clone()).collect();
+        let stale: Vec<(String, MonitorFrame)> = self
+            .sessions
+            .values()
+            .filter(|s| !now.contains(&s.monitor.id))
+            .map(|s| (s.monitor.id.clone(), s.monitor.frame))
+            .collect();
+        // 与 converge 的 remap 同一候选过滤：几何一致的幸存者不清扫
+        let candidates: Vec<MonitorInfo> = monitors
+            .iter()
+            .filter(|m| {
+                !self.sessions.contains_key(&m.id) && !self.config.monitors.contains_key(&m.id)
+            })
+            .cloned()
+            .collect();
+        let rescued: std::collections::BTreeSet<String> = plan_id_remap(&stale, &candidates)
+            .into_iter()
+            .map(|(old, _)| old)
+            .collect();
+        for s in self.sessions.values_mut() {
+            if !s.visible {
+                continue;
+            }
+            let gone = !now.contains(&s.monitor.id) && !rescued.contains(&s.monitor.id);
+            let stale_geom = now.contains(&s.monitor.id)
+                && s.applied_frame.is_some()
+                && monitors
+                    .iter()
+                    .find(|m| m.id == s.monitor.id)
+                    .is_some_and(|m| Some(m.frame) != s.applied_frame);
+            if gone || stale_geom {
+                if let Some(w) = s.window.as_mut() {
+                    w.set_visible(false);
+                }
+                s.visible = false;
+                println!(
+                    "[session] {} 即时熄窗（{}，去抖前清扫）",
+                    s.monitor.id,
+                    if gone { "屏已消失" } else { "几何过时" }
+                );
+            }
+        }
+    }
+
+    /// 单一收敛函数：以枚举真值 + 施加信念为基准，把会话派生态收敛到用户
+    /// 意图。纪律：先计划、先藏后动、几何落位才可见；`settling` = 拓扑段
+    /// （突变轮压住复显，交 commit 轮统一点亮）。返回 true = 有突变被压在
+    /// 抑制态，调用方应安排 commit 收敛。
+    fn converge(&mut self, deep: bool, settling: bool) -> bool {
+        let monitors = pin::enumerate_monitors();
+
+        // 枚举签名（诊断）：变化才打一行——重配期过渡枚举的帧值直接可见。
+        // `enum_stable`（本次采样 == 上次采样）同时是几何施放的闸门：拓扑未稳
+        // 期间重申一律延迟（见 Reassert 分支），过渡几何永不上窗。
+        let sig = monitors
+            .iter()
+            .map(|m| {
+                format!(
+                    "{}=({:.0},{:.0},{:.0}×{:.0}{})",
+                    m.id,
+                    m.frame.0,
+                    m.frame.1,
+                    m.frame.2,
+                    m.frame.3,
+                    if m.is_main { ",主" } else { "" }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("  ");
+        let enum_stable = self.last_enum_sig.as_deref() == Some(sig.as_str());
+        if !enum_stable {
+            println!("[session] 拓扑枚举：{sig}");
+            self.last_enum_sig = Some(sig);
+        }
 
         // v2 稳定 ID：macOS 用 EDID 身份三元组（vendor/model/serial，跨合盖/重连/重启
         // 不变）；Windows 仍用设备名。全失配迁移保留作兜底：虚拟屏无 EDID 回落 cg-id，
@@ -276,14 +433,10 @@ impl SessionManager {
                 let Some(m) = monitors.iter().find(|m| m.id == new_id).cloned() else {
                     continue;
                 };
+                // 平移只动会话归属与记录；几何重申交给下方收敛计划——
+                // applied 信念保持旧值，「帧变了/窗口被搬了」自然判 Reassert
                 if let Some(mut s) = self.sessions.remove(&old_id) {
-                    let frame_changed = s.monitor.frame != m.frame;
                     s.monitor = m.clone();
-                    if frame_changed {
-                        if let Some(w) = s.window.as_mut() {
-                            w.reassert_pinning(m.frame);
-                        }
-                    }
                     self.sessions.insert(new_id.clone(), s);
                 }
                 if let Some(entry) = self.config.monitors.remove(&old_id) {
@@ -297,45 +450,106 @@ impl SessionManager {
             let _ = self.save_config();
         }
 
-        // 拆掉已拔出的显示器
-        let gone: Vec<String> = self
-            .sessions
-            .keys()
-            .filter(|id| !now.contains(*id))
-            .cloned()
-            .collect();
-        for id in gone {
-            // 显式熄窗再丢弃：唤醒期窗口释放可能被 AppKit 延迟，
-            // 残留即"幽灵壁纸窗"（无边框/不可点击/停帧画面）
-            if let Some(mut s) = self.sessions.remove(&id) {
-                if let Some(w) = s.window.as_mut() {
-                    w.set_visible(false);
-                }
-            }
-            println!("[session] 显示器 {id} 已断开，会话拆除（配置保留）");
-        }
-
-        // 几何重申（合盖 clamshell / 主屏切换 / 分辨率变更）：ID 存活但 frame 变了
-        // = 显示器重配。AppKit 全局坐标以主屏为原点，主屏切换会平移所有屏的
-        // frame——壁纸窗口必须跟随，否则比例/位置错；WindowServer 还可能在重配后
-        // 重置窗口层级（壁纸浮成普通窗口），顺带重申贴壁属性。
+        // —— 计划：单会话收敛动作（决策纯函数见 plan_converge）——
+        let mut plans: Vec<(String, ConvergeAct)> = Vec::new();
         for m in &monitors {
             let Some(s) = self.sessions.get_mut(&m.id) else {
-                continue;
+                continue; // 无会话 → 下方补建分支处理
             };
-            if s.monitor.frame != m.frame || s.monitor.is_main != m.is_main {
-                if let Some(w) = s.window.as_mut() {
-                    w.reassert_pinning(m.frame);
-                }
-                println!(
-                    "[session] {} 几何变化 → 重申贴壁（{:.0},{:.0},{:.0}×{:.0}）",
-                    m.id, m.frame.0, m.frame.1, m.frame.2, m.frame.3
-                );
-                s.monitor = m.clone();
+            // 漂移检测：窗口读回 vs 施加信念。WindowServer 会在显示器离线期
+            // 把桌面级窗口搬进可见屏并钳位（副屏壁纸以冻结帧出现在主屏角落）
+            // ——这种篡改记录值感知不到，只有读回能发现。
+            let drifted = match (s.window.as_ref(), s.applied_frame) {
+                (Some(w), Some(applied)) => w.actual_frame().is_some_and(|a| a != applied),
+                _ => false,
+            };
+            let act = plan_converge(
+                true,
+                m.frame,
+                m.is_main,
+                s.applied_frame,
+                s.monitor.is_main,
+                drifted,
+            );
+            s.monitor = m.clone();
+            plans.push((m.id.clone(), act));
+        }
+        for id in self.sessions.keys() {
+            if !now.contains(id) {
+                plans.push((id.clone(), ConvergeAct::Remove));
             }
         }
 
-        // 新建/补齐已配置的显示器
+        // —— 抑制：settling 段熄「将被拆除」的窗；重申目标（几何过时）通常
+        //   已被 30ms 清扫提前熄灭、由桥接帧兜底，此处不重复处理——它们的
+        //   几何延迟到拓扑稳定后原子施加。非 settling（启动/托盘/巡检，稳定
+        //   语境）维持先熄后显的老纪律。 ——
+        for (id, act) in &plans {
+            let suppress = match act {
+                ConvergeAct::Remove => true,
+                ConvergeAct::Reassert => !settling,
+                ConvergeAct::Keep => false,
+            };
+            if suppress {
+                if let Some(s) = self.sessions.get_mut(id) {
+                    if let Some(w) = s.window.as_mut() {
+                        w.set_visible(false);
+                    }
+                    s.visible = false;
+                }
+            }
+        }
+
+        // —— 突变 ——
+        let mut pending = false;
+        for (id, act) in plans {
+            match act {
+                ConvergeAct::Keep => {
+                    if deep {
+                        // 深巡检：不变会话也无条件重施贴壁不变量——层级/空间
+                        // 行为的重置读不回，只能重施；几何相同时幂等零视觉变化
+                        if let Some(m) = monitors.iter().find(|m| m.id == id) {
+                            if let Some(s) = self.sessions.get_mut(&id) {
+                                if let Some(w) = s.window.as_mut() {
+                                    w.reassert_pinning(m.frame);
+                                    s.applied_frame = Some(m.frame);
+                                }
+                            }
+                        }
+                    }
+                }
+                ConvergeAct::Remove => {
+                    self.sessions.remove(&id);
+                    println!("[session] 显示器 {id} 已断开，会话拆除（配置保留）");
+                }
+                ConvergeAct::Reassert => {
+                    // 拓扑未稳：不上几何。窗口多半已被 30ms 清扫熄灭（桥接帧
+                    // 兜底）；若清扫后枚举又变回施加帧（模式抖动回弹），窗口
+                    // 仍可见也一致——几何与显示同步才是不变量。commit 轮采样
+                    // 跨轮一致后才施加，过渡枚举永远不会成为可见状态。
+                    if settling && !enum_stable {
+                        pending = true;
+                        continue;
+                    }
+                    let Some(m) = monitors.iter().find(|m| m.id == id) else {
+                        continue;
+                    };
+                    let frame = m.frame;
+                    if let Some(s) = self.sessions.get_mut(&id) {
+                        if let Some(w) = s.window.as_mut() {
+                            w.reassert_pinning(frame);
+                            s.applied_frame = Some(frame);
+                        }
+                        println!(
+                            "[session] {id} 贴壁重申（{:.0},{:.0},{:.0}×{:.0}）",
+                            frame.0, frame.1, frame.2, frame.3
+                        );
+                    }
+                }
+            }
+        }
+
+        // —— 补建：已配置但无会话的显示器（macOS 创建为隐藏窗，统一复显）——
         for m in monitors {
             let Some(entry_id) = self.config.monitors.get(&m.id).cloned() else {
                 continue;
@@ -352,14 +566,39 @@ impl SessionManager {
             };
             let title = entry.title.clone();
             let fps = self.fps_for(&m.id);
-            match Self::build_session(m.clone(), entry, fps) {
+            match Self::build_session(m.clone(), entry.clone(), fps) {
                 Ok(s) => {
-                    println!("[session] {} ← {}（{}）", m.id, s.entry_id, title);
-                    self.sessions.insert(m.id, s);
+                    println!(
+                        "[session] {} ← {}（{}，frame=({:.0},{:.0},{:.0}×{:.0})）",
+                        m.id, s.entry_id, title, m.frame.0, m.frame.1, m.frame.2, m.frame.3
+                    );
+                    self.sessions.insert(m.id.clone(), s);
+                    // 桌面桥接接管：补建路径也要接管（开机/重连的会话不经
+                    // assign——漏了这里桥接要等用户手动换壁纸才生效）
+                    if self.config.settings.desktop_bridge {
+                        crate::desktop_bridge::acquire(&entry, &m.id);
+                    }
                 }
                 Err(e) => println!("[session] {} 创建失败：{e}", m.id),
             }
         }
+
+        // —— 复显：非拓扑段立即点亮全部隐藏会话（几何已落位才可见）；拓扑
+        //   段仅在跨采样稳定（enum_stable）时点亮新补建的窗——不稳定采样建
+        //   的窗压在隐藏态，等稳定轮确认同一几何后才可见 ——
+        if !settling || enum_stable {
+            for s in self.sessions.values_mut() {
+                if !s.visible {
+                    if let Some(w) = s.window.as_mut() {
+                        w.set_visible(true);
+                    }
+                    s.visible = true;
+                }
+            }
+        }
+        // 返回：还有未完成的工作（延迟的重申 / 压在隐藏态的补建）→ 调用方
+        // 安排下一轮 commit 收敛
+        settling && (pending || self.sessions.values().any(|s| !s.visible))
     }
 
     /// 条目自包含：把宿主页拷进条目目录（贴 WE 项目模型；M3 起随条目分发）
@@ -453,6 +692,9 @@ impl SessionManager {
         }
         Ok(Session {
             state: SessionState::Playing,
+            applied_frame: Some(monitor.frame),
+            // macOS 创建为隐藏窗；复显由收敛器按 visible 信念统一执行
+            visible: false,
             monitor,
             entry_id: entry.id,
             window: Some(window),
@@ -531,13 +773,28 @@ impl SessionManager {
             s.state = transfer(s.state, SessionEvent::Assign);
             if let Some(entry) = entry {
                 s.entry_id = entry_id.into();
+                // 先建新窗再熄旧窗：构建失败保留旧壁纸（不变黑屏）；换窗前
+                // 显式 orderOut——AppKit 延迟 dealloc 的幽灵窗隐患与拆除同源
                 if let Ok(mut w) = Self::build_window_only(&s.monitor, &entry) {
+                    if let Some(old) = s.window.as_mut() {
+                        old.set_visible(false);
+                    }
                     w.load(&Self::entry_host_url(&entry, fps));
                     s.window = Some(w);
+                    s.applied_frame = Some(s.monitor.frame);
                     s.state = transfer(s.state, SessionEvent::Loaded);
                     // 新会话页不继承旧桥状态（autopause/降帧随指派清零）
                     s.autopause_reason = None;
                     s.downscaled = false;
+                    // macOS 侧创建为隐藏窗：指派是用户动作，立即复显
+                    if let Some(w) = s.window.as_mut() {
+                        w.set_visible(true);
+                    }
+                    s.visible = true;
+                    // 桌面桥接接管（设置开关；静态帧兜底过渡期，desktop_bridge.rs）
+                    if self.config.settings.desktop_bridge {
+                        crate::desktop_bridge::acquire(&entry, &s.monitor.id);
+                    }
                 }
             }
         } else {
@@ -555,6 +812,25 @@ impl SessionManager {
     /// 设置更新（设置页全部即时生效：写内存 + 落盘，§4.5）
     pub fn update_settings(&mut self, settings: gesso_core::Settings) {
         self.config.settings = settings;
+        // 桌面桥接开关即时生效：关闭 = 全量恢复；开启 = 对现有会话补接管
+        if self.config.settings.desktop_bridge {
+            let owned: Vec<(String, LibraryEntry)> = self
+                .sessions
+                .values()
+                .filter_map(|s| {
+                    self.library
+                        .iter()
+                        .find(|e| e.id == s.entry_id)
+                        .cloned()
+                        .map(|e| (s.monitor.id.clone(), e))
+                })
+                .collect();
+            for (monitor_id, entry) in owned {
+                crate::desktop_bridge::acquire(&entry, &monitor_id);
+            }
+        } else {
+            crate::desktop_bridge::restore_all();
+        }
         let _ = self.save_config();
     }
 
@@ -608,6 +884,9 @@ impl SessionManager {
             self.config.monitors.remove(m);
             self.sessions.remove(m);
         }
+        // 桥接释放 + 桥接图清理（显示该条目桥接图的屏恢复原壁纸）
+        crate::desktop_bridge::release_entry(entry_id);
+        crate::desktop_bridge::discard_file(entry_id);
         let _ = self.save_config();
         let p = crate::protocol::library_dir().join("library.json");
         let saved = gesso_core::LibraryManifest {
@@ -1107,6 +1386,43 @@ mod tests {
         assert_eq!(
             plan_id_remap(&stale, &dup),
             vec![("cg-1".into(), "cg-8".into())]
+        );
+    }
+
+    #[test]
+    fn converge_plan_decisions() {
+        let full = (0.0, 0.0, 2560.0, 1440.0);
+        let moved = (2560.0, 0.0, 1920.0, 1080.0);
+        // 显示器不在枚举里 → 拆除
+        assert_eq!(
+            plan_converge(false, full, true, Some(full), true, false),
+            ConvergeAct::Remove
+        );
+        // 施加信念 == 枚举、主屏身份一致 → 不动窗
+        assert_eq!(
+            plan_converge(true, full, true, Some(full), true, false),
+            ConvergeAct::Keep
+        );
+        // 施加信念缺失（不支持读回的平台/旧会话）→ 退化为记录比对，不动窗
+        assert_eq!(
+            plan_converge(true, full, true, None, true, false),
+            ConvergeAct::Keep
+        );
+        // 几何变化（重配/主屏平移）→ 重申
+        assert_eq!(
+            plan_converge(true, moved, false, Some(full), false, false),
+            ConvergeAct::Reassert
+        );
+        // 主屏身份变化 → 重申
+        assert_eq!(
+            plan_converge(true, full, false, Some(full), true, false),
+            ConvergeAct::Reassert
+        );
+        // 读回漂移（WindowServer 搬移收容）→ 重申——即使施加信念与枚举一致，
+        // 记录比对对此全盲，这正是「副屏壁纸钳在主屏角落」的修复判据
+        assert_eq!(
+            plan_converge(true, full, true, Some(full), true, true),
+            ConvergeAct::Reassert
         );
     }
 

@@ -11,6 +11,7 @@ mod bridge;
 mod capture;
 #[cfg(target_os = "windows")]
 mod capture_win;
+mod desktop_bridge;
 mod encoding;
 mod engine;
 mod host_cmd;
@@ -23,7 +24,7 @@ mod update;
 mod we;
 mod we_shim;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gesso_core::{AppConfig, LibraryEntry, SessionState, StartupBehavior, WallpaperKind};
 
@@ -306,6 +307,13 @@ fn bootstrap() -> (session::SessionManager, bool) {
     let mut sm = session::SessionManager::new(config, library);
     sm.sync_monitors();
 
+    // 桌面桥接对账：硬杀残留的接管记录按当前活跃指派清理；开关关闭则全量
+    // 恢复（desktop_bridge.rs 模块注释——所有权纪律与已知边界）
+    let active: std::collections::BTreeSet<String> =
+        sm.config().monitors.values().cloned().collect();
+    let bridge_on = sm.config().settings.desktop_bridge;
+    desktop_bridge::reconcile(&active, bridge_on);
+
     // 开发验证钩子（仅 debug 构建）：GESSO_DEV_URL=<https 地址> 启动即导入并指派
     // 主屏，用于无头验证远端网页链路（跨域 iframe 装载/缩略图），如
     // GESSO_DEV_URL=https://louie.co.nz/25th_hour/ GESSO_LOCK=dev ./target/debug/gesso
@@ -347,6 +355,7 @@ fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) ->
             gesso_core::config::Language::En => 2,
         },
         update_check: cs.update_check,
+        desktop_bridge: cs.desktop_bridge,
         ..ui::data::Settings::default()
     };
     // 软件更新投影（§4.7；真源 = update 模块全局，随快照单向回灌）
@@ -557,6 +566,12 @@ fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
         None,
     );
     let mi_quit = MenuItem::with_id("quit", ui::strings::TRAY_QUIT(), true, None);
+    let mi_restore = MenuItem::with_id(
+        "restore-wallpaper",
+        ui::strings::TRAY_RESTORE_WALLPAPER(),
+        true,
+        None,
+    );
     menu.append_items(&[
         &mi_pause,
         &mi_cycle,
@@ -566,6 +581,7 @@ fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
         &PredefinedMenuItem::separator(),
         &mi_auto,
         &PredefinedMenuItem::separator(),
+        &mi_restore,
         &mi_quit,
     ])
     .expect("菜单");
@@ -587,6 +603,8 @@ fn install_tray_menu_handler() {
             }
             "cycle" => engine::enqueue(EngineAction::CycleMain),
             "main" => engine::enqueue(EngineAction::FocusMainWindow),
+            // 逃生门：全量恢复系统壁纸（重新指派壁纸会按设置再次接管）
+            "restore-wallpaper" => engine::enqueue(EngineAction::RestoreSystemWallpaper),
             // 「检查更新…」：动作带开窗意图（托盘线程不能直接开 GPUI 窗口，
             // 主循环兑现）；检查本身在 update 模块后台线程
             "check-update" => engine::enqueue(EngineAction::UpdateCheck { open_modal: true }),
@@ -653,6 +671,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::CycleMain => {
             println!("[ui] 随机换一张（主屏）");
             sm.cycle_main();
+        }
+        engine::EngineAction::RestoreSystemWallpaper => {
+            let n = desktop_bridge::restore_all();
+            println!("[ui] 恢复系统壁纸：{n} 屏已还原");
         }
         engine::EngineAction::Import { path } => {
             // 选中 WE 的 project.json → 转 WE 整目录导入
@@ -978,6 +1000,12 @@ fn install_panic_logger() {
         // 让用户壁纸回来而非黑屏。任何失败静默——进程随后即死。
         #[cfg(target_os = "windows")]
         pin::windows::emergency_teardown();
+        // 桌面桥接恢复（macOS）：AppKit 只能主线程调——主线程 panic 直接
+        // 恢复；后台线程 panic 跳过，留待下次启动对账（desktop_bridge.rs）
+        #[cfg(target_os = "macos")]
+        if objc2::MainThreadMarker::new().is_some() {
+            desktop_bridge::restore_all();
+        }
     }));
 }
 
@@ -1054,6 +1082,10 @@ fn main() {
             #[cfg(target_os = "macos")]
             apply_dock_icon();
 
+            // 显示器拓扑监听先于会话建立：唤醒/重配事件驱动收敛（ARCHITECTURE §2），
+            // 事件只翻转纪元代数，下方引擎心跳去抖消费
+            pin::install_topology_watch();
+
             // 顺序关键：NSApplication 就绪后才能建 AppKit 壁纸窗口
             let (sm, first_run) = bootstrap();
             println!(
@@ -1078,14 +1110,31 @@ fn main() {
 
             cx.spawn(async move |cx| {
                 // 定时基准：150ms 一拍。各周期用拍数命名，不再出现裸魔数。
-                const MONITOR_SYNC_EVERY: u32 = 13; // 显示器热插拔检测 ≈2.0s
-                const AUTOPAUSE_OFFSET: u32 = 6; // 自动暂停检测，与同步错开半拍
+                const PATROL_EVERY: u32 = 33; // 稳态巡检（深收敛）≈5s：事件丢失/静默篡改的安全网
+                const AUTOPAUSE_EVERY: u32 = 13; // 自动暂停检测 ≈2.0s（全屏/电池/锁屏采样）
+                const AUTOPAUSE_OFFSET: u32 = 6; // 自动暂停检测，与巡检错开半拍
                 const TIME_TICK_EVERY: u32 = 7; // 挂钟脉冲 ≈1.05s
                 const DIAGNOSE_AT: [u32; 2] = [20, 40]; // 启动后诊断快照（3s/6s）
                 const UPDATE_FIRST_TICK: u32 = 100; // 更新首查 ≈启动后 15s（避开启动 I/O 风暴）
                 const UPDATE_AUTO_PROBE: u32 = 6000; // 更新探测节拍 ≈15min（模块内按 24h 真抑制）
+                                                     // 静默期 1.5s：显示握手（模式集/EDID/排布）通常 1–2s 内走完，
+                                                     // 首个采样要大概率落在终态上——300ms 时采到的是过渡几何
+                                                     //（实机伪影：开盖小窗、合盖超大图一闪）。陈旧期 4s 封顶。
+                const TOPOLOGY_QUIET: Duration = Duration::from_millis(1500);
+                const TOPOLOGY_MAX_WAIT: Duration = Duration::from_millis(4000);
+                const RECONFIRM_EVERY: u32 = 3; // commit 收敛：settle 突变轮后 ≈450ms
                 let mut tick: u32 = 0;
                 let mut last_update_gen: u64 = update::generation();
+                // 拓扑纪元消费状态：首/末事件时刻（去抖窗口）。事件驱动的收敛
+                // 触发，替代旧「2s 轮询发现拓扑变化」——轮询既有延迟（错误中间态
+                // 肉眼可见）又会采到重配序列的半程状态。
+                let mut last_epoch = pin::topology_epoch();
+                let mut topo_first: Option<Instant> = None;
+                let mut topo_last: Option<Instant> = None;
+                // 两段式提交的 commit 段调度：settle 轮（拓扑收敛）有突变时不
+                // 复显，等这一拍到期再收敛一次——枚举已稳定则统一点亮。过渡
+                // 几何（半程枚举）从构造上不可见。
+                let mut reconfirm_at: Option<u32> = None;
                 loop {
                     cx.background_executor()
                         .timer(Duration::from_millis(150))
@@ -1172,27 +1221,71 @@ fn main() {
                                 .diagnose_all(&format!("t{}", tick))
                         });
                     }
-                    if tick.is_multiple_of(MONITOR_SYNC_EVERY) {
+                    // 拓扑纪元：事件驱动的收敛触发。事件在静默期（300ms 无新事件）
+                    // 或陈旧期上限（2s，防事件连发饿死）到达时兑现——等重配序列
+                    // 走完再采样。收敛走两段式：settle 轮（拓扑/commit 轮）突变
+                    // 不复显，安排 commit 轮（≈450ms 后）在枚举稳定时统一点亮；
+                    // 巡检每 ≈5s 深收敛兜底（稳定语境，突变即复显）。
+                    let epoch = pin::topology_epoch();
+                    if epoch != last_epoch {
+                        last_epoch = epoch;
+                        let now = Instant::now();
+                        topo_first.get_or_insert(now);
+                        topo_last = Some(now);
+                        // 消失屏的熄窗由 30ms 快速观察器执行（本拍的对齐延迟
+                        // 会让残窗可见一闪）；此处只负责去抖计时。
+                    }
+                    let reconfirm_now = matches!(reconfirm_at, Some(t) if tick >= t);
+                    if reconfirm_now {
+                        reconfirm_at = None;
+                    }
+                    let patrol_due = tick.is_multiple_of(PATROL_EVERY);
+                    let topo_fire = topo_last
+                        .is_some_and(|l| Instant::now().duration_since(l) >= TOPOLOGY_QUIET)
+                        || topo_first
+                            .is_some_and(|f| Instant::now().duration_since(f) >= TOPOLOGY_MAX_WAIT);
+                    if patrol_due || topo_fire || reconfirm_now {
+                        let settling = topo_fire || reconfirm_now;
+                        let deep = patrol_due && !settling;
+                        topo_first = None;
+                        topo_last = None;
+                        let mut mutated = false;
                         cx.update(|cx| {
-                            // M1 Windows：explorer 重启自愈——TaskbarCreated 广播置位后，
-                            // 各会话壁纸窗口重走挂载阶梯 + 重建 webview（合成随 SetParent
-                            // 失效）。广播意味着 explorer 壳层已就绪（Progman 必在），
-                            // 重挂最差落到 Progman 兜底，无需额外重试节奏。
-                            #[cfg(target_os = "windows")]
-                            if pin::windows::take_remount_pending() {
-                                // 整窗重建；explorer 未就绪（BottomMost）时重新置位，下轮重试
-                                let ok = cx.global_mut::<engine::AppState>().sm.remount_all();
-                                if !ok {
-                                    pin::windows::rearm_remount();
-                                }
-                            }
-                            cx.global_mut::<engine::AppState>().sm.sync_monitors();
+                            let sm = &mut cx.global_mut::<engine::AppState>().sm;
+                            mutated = if deep {
+                                sm.patrol();
+                                false
+                            } else {
+                                sm.sync_monitors_settling()
+                            };
                         });
+                        if settling && mutated {
+                            reconfirm_at = Some(tick + RECONFIRM_EVERY);
+                        }
                         refresh_ui = true;
                     }
-                    // M5 数据桥（与显示器同步同节奏，错开半拍）：锁屏 + 全屏 + 电源态
+                    // M1 Windows：explorer 重启自愈——TaskbarCreated 广播置位后即刻
+                    // 重钉（原 2s 轮询取走，现在每拍检查，延迟 ≤150ms）。广播意味着
+                    // explorer 壳层已就绪（Progman 必在），重挂最差落到 Progman 兜底。
+                    // 各会话壁纸窗口重走挂载阶梯 + 重建 webview（合成随 SetParent 失效）；
+                    // explorer 未就绪（BottomMost）时重新置位，下拍重试。
+                    #[cfg(target_os = "windows")]
+                    if pin::windows::take_remount_pending() {
+                        let ok = cx.update(|cx| {
+                            let sm = &mut cx.global_mut::<engine::AppState>().sm;
+                            let ok = sm.remount_all();
+                            if ok {
+                                sm.sync_monitors(); // 重钉后对齐一轮（原同分支语义）
+                            }
+                            ok
+                        });
+                        if !ok {
+                            pin::windows::rearm_remount();
+                        }
+                    }
+                    // M5 数据桥（≈2s 节拍，错开半拍）：锁屏 + 全屏 + 电源态
                     // → 策略解析 → 自动暂停/降帧；有状态变化才刷新 UI
-                    if tick != 0 && tick % MONITOR_SYNC_EVERY == AUTOPAUSE_OFFSET {
+                    if tick != 0 && tick % AUTOPAUSE_EVERY == AUTOPAUSE_OFFSET {
                         let changed = cx.update(|cx| {
                             let snap = bridge::sample();
                             cx.global_mut::<engine::AppState>().sm.apply_autopause(
@@ -1272,6 +1365,27 @@ fn main() {
                             );
                             cx.update_global::<GessoState, _>(|g, _| merge_snapshot(g, next));
                             cx.refresh_windows();
+                        });
+                    }
+                }
+            })
+            .detach();
+
+            // 快速清扫观察器（30ms 级）：拓扑事件 → 立刻熄灭与现实脱节的
+            // 窗口（屏消失的残窗 + 几何过时的旧帧窗——合盖模式切换
+            // 1440p→1080p 时旧帧表现为「壁纸先放大再恢复」）。熄窗由桥接帧
+            // 兜底，几何收敛仍走主拍的 1.5s 去抖 + 延迟重申。
+            cx.spawn(async move |cx| {
+                let mut seen = pin::topology_epoch();
+                loop {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(30))
+                        .await;
+                    let epoch = pin::topology_epoch();
+                    if epoch != seen {
+                        seen = epoch;
+                        cx.update(|cx| {
+                            cx.global_mut::<engine::AppState>().sm.sweep_stale();
                         });
                     }
                 }

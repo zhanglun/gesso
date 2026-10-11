@@ -141,6 +141,9 @@ pub struct Settings {
     pub language: u32,
     /// 自动检查更新（真源 = core Settings.update_check）。
     pub update_check: bool,
+    /// 桌面桥接（真源 = core Settings.desktop_bridge）：重配期接管系统桌面
+    /// 显示静态帧，退出恢复原壁纸。
+    pub desktop_bridge: bool,
 }
 
 impl Default for Settings {
@@ -156,6 +159,7 @@ impl Default for Settings {
             weather_key: String::new(),
             language: 0,
             update_check: true,
+            desktop_bridge: true,
         }
     }
 }
@@ -185,6 +189,7 @@ impl Settings {
                 _ => gesso_core::config::Language::Auto,
             },
             update_check: self.update_check,
+            desktop_bridge: self.desktop_bridge,
         }
     }
 }
