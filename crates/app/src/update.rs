@@ -456,7 +456,7 @@ fn notify_update_available(release: &ReleaseInfo) {
     #[cfg(target_os = "windows")]
     {
         use tauri_winrt_notification::Toast;
-        if let Err(e) = Toast::new("Gesso").title("Gesso").text(&body).show() {
+        if let Err(e) = Toast::new("Gesso").title("Gesso").text1(&body).show() {
             println!("[update] 系统 toast 发送失败（便携版未注册 AUMID 时预期内）：{e}");
         }
     }
