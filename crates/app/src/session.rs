@@ -900,8 +900,11 @@ impl SessionManager {
         let n = TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // 视频诊断（GESSO_VIDEO_DIAG=1）：每 5s 读宿主页探针（rVFC/rAF/
         // dropped/currentTime）——上屏节奏的突发/停滞/丢帧一眼可见。
+        // 首次注入常驻 rAF 间隔收集器，之后每次探针排水统计：maxGap/g50
+        // 出现周期性大缺口（>50ms）= 渲染主线程被冻结帧 drawImage 卡住。
+        // 注意 ExecuteScript 不等 Promise（实测返回 "{}"），收集器必须落 window。
         if n.is_multiple_of(5) && video_diag_enabled() {
-            const PROBE: &str = "(function(){var v=document.getElementById('media');var q=(v&&v.getVideoPlaybackQuality)?v.getVideoPlaybackQuality():null;return JSON.stringify({vfc:window.__vfc|0,raf:window.__rafV|0,ct:v?v.currentTime:-1,drop:q?q.droppedVideoFrames:-1,tot:q?q.totalVideoFrames:-1,now:Math.round(performance.now())})})()";
+            const PROBE: &str = "(function(){if(!window.__gc){window.__gc=1;window.__g=[];window.__gl=0;var f=function(t){if(window.__gl){window.__g.push(t-window.__gl)}window.__gl=t;requestAnimationFrame(f)};requestAnimationFrame(f)}var g=window.__g,v=document.getElementById('media'),q=(v&&v.getVideoPlaybackQuality)?v.getVideoPlaybackQuality():null;var mx=0,c50=0;for(var i=0;i<g.length;i++){if(g[i]>mx)mx=g[i];if(g[i]>50)c50++}var out=JSON.stringify({vfc:window.__vfc|0,raf:window.__rafV|0,ct:v?v.currentTime:-1,drop:q?q.droppedVideoFrames:-1,tot:q?q.totalVideoFrames:-1,now:Math.round(performance.now()),maxGap:Math.round(mx),g50:c50,n:g.length});window.__g=[];return out})()";
             for (id, s) in self.sessions.iter_mut() {
                 if s.entry_id.is_empty() {
                     continue;
