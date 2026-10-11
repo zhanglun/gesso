@@ -72,7 +72,8 @@ docs/           工程文档 + design/（设计归档）
 - ✅ 协议已打通（`gesso://` 宿主页走统一副本、资源走 library、WE 源走 steam 只读直引；`bf3c294`）；WE video/web 零拷贝
 - ✅ 英文 i18n（中/英双文案包 + Auto，设置页即时切换）+ 远端网页壁纸（🔗 从 https URL 导入，iframe 直装，零本地拷贝）
 - ✅ 应用自更新（§4.7，2026-10-11）：GitHub Releases 检查（启动 +24h 节拍，`settings.update_check` 开关）→ 多层通知（系统通知 best-effort + 应用内 toast + 托盘 tooltip）→ 「软件更新」小窗（检查/下载进度/交付六态）；下载官方安装包交由系统安装，**不做静默自替换**；dev 钩子 `GESSO_UPDATE_MODAL=1`
-- ✅ V-PERF 视频卡顿排障闭环（2026-10-10）：视频字节流不走自定义 scheme（回环 HTTP 媒体服务，AVPlayer 原生管线）；**macOS 视频壁纸 = 原生 AVPlayerLayer（`pin::MacVideoWindow`），webview 只管 shader/html/图片**；帧率探针 `GESSO_VIDEO_DIAG=1`（rVFC/rAF 每 5s 采样）
+- ✅ V-PERF 视频卡顿排障闭环（2026-10-10）：视频字节流不走自定义 scheme（回环 HTTP 媒体服务，AVPlayer 原生管线）；**macOS 视频壁纸 = 原生 AVPlayerLayer（`pin::MacVideoWindow`）**；帧率探针 `GESSO_VIDEO_DIAG=1`（rVFC/rAF 每 5s 采样）
+- ✅ V-PERF-W Windows 视频根治（2026-10-11）：WebView2 windowed hosting 呈现交接层卡顿（三代构建/两种传输/三类素材全卡，本地播放器与 Edge 丝滑，页侧探针全绿）→ **Windows 视频壁纸 = 原生 MF SourceReader + flip-model swapchain 直挂 WorkerW（`pin::WinVideoWindow`）**，WebView2 双平台都只管 shader/html/图片；EOS 循环 = 每圈重建 SourceReader（seek 在 advanced VP 链路活锁，勿用）；双平台视频均无音频管线（静音契约天然成立）
 - ✅ 0.1.x 反馈修复（2026-10-10）：视频窗 2pt 外扩与媒体 ≤256MB 内存直供均为刻意行为（勿当 bug/泄漏清除），唤醒后显示器 ID 重编按几何平移（sync_monitors 内置守卫）；细节见工程笔记 §2 与 CHANGELOG
 - ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（根因：gpui img 固有宽高比撑高被裁，显式 `.aspect_ratio` 压制）；缩略图启动即生成 + spinner；清单解析失败 exit 78 保文件；锁屏自动暂停省电；移除冗余「查看详情」菜单项
 - ✅ **0.1.0 已发布**（2026-10-07）：GitHub Actions 自动打包发布（macOS dmg / Windows 便携 zip / checksums）；ad-hoc 签名未公证；发布流程见 `docs/RELEASE-CHECKLIST.md`，打包脚本在 `packaging/`
@@ -83,4 +84,5 @@ docs/           工程文档 + design/（设计归档）
 - WE **只由用户主动导入**（对话框选 `project.json`），绝不扫描磁盘/枚举 Steam。video/web 不拷入库，`source_dir` 指用户选中目录，经 `gesso://steam/<entry-id>/…` 以不可猜 entry id 为凭据只读直引（视频 Range 206、shim 内存注入）。
 - **Windows 壁纸窗口创建顺序 = 生死线**：必须先 `SetParent` 挂 WorkerW、**后**创建 WebView2——反序则窗口树全绿但整窗不渲染（DComp 视觉树创建时绑定宿主层级）；explorer 重启会连带销毁跨进程子窗口，重钉 = 整窗重建（`session::remount_all`）。
 - Windows 进程 DPI awareness 必须自己在 main() 顶部声明 PMv2（GPUI/wry 均不设置），否则 125%+ 缩放下与 WorkerW 无法像素对齐；`GPUI_DISABLE_DIRECT_COMPOSITION=1` 按 M1 配方设置。
+- 本机系统若被精简过（System32 缺 Windows.UI.Composition.dll 等 WinRT UI 运行时）：WinRT UI 类激活 E_ACCESSDENIED，勿选 WinRT 呈现路线；经典 dcomp.dll/DXGI/MF 完好可用（详见工程笔记「Windows 视频壁纸卡顿」行）。
 - Windows 侧 `gesso://` 走 WebView2 workaround（页面实际 origin `http://gesso.<host段>/`）：子资源 URL 由 `protocol::entry_url` 产出 workaround 形态，CSP 按 workaround 宿主枚举；协议回调收还原后的 gesso:// URI，路由不分平台。
