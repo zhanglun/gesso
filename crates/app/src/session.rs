@@ -447,7 +447,10 @@ impl SessionManager {
         let mut window = Self::build_window_only(&monitor, &entry)?;
         let url = Self::entry_host_url(&entry, fps);
         window.load(&url);
-        println!("[session] 宿主页 URL = {}", url);
+        // 原生视频窗忽略宿主页 URL（内容创建时定死，与 set_fps 跳过同款按 kind 判）
+        if entry.kind != gesso_core::WallpaperKind::Video {
+            println!("[session] 宿主页 URL = {}", url);
+        }
         Ok(Session {
             state: SessionState::Playing,
             monitor,
@@ -1437,7 +1440,7 @@ mod we_import_tests {
     }
 }
 
-/// 最小临时 HOME：设置 HOME 环境变量指向临时目录，drop 时清理。
+/// 最小临时 HOME：设置 HOME/USERPROFILE 环境变量指向临时目录，drop 时清理。
 #[cfg(test)]
 mod tempfile_lite {
     pub struct TempHome {
@@ -1451,10 +1454,14 @@ mod tempfile_lite {
             let path = std::env::temp_dir().join(format!("gesso-home-{}", suffix));
             let _ = std::fs::remove_dir_all(&path);
             std::fs::create_dir_all(&path).unwrap();
-            // ponytail: set_var 依赖测试单进程；并行测试只共享 HOME 变量值，
-            // 但各夹具路径已唯一，find_steam 读到的 HOME 是谁都能各自找到自己的文件。
+            // 只重定向 HOME 挡不住 Windows：config_dir() 在 Windows 读
+            // USERPROFILE，漏掉它测试会把夹具清单写进真实 library.json
+            //（实测事故：「My Web」混入用户库）。两个变量同指临时目录。
+            // ponytail: set_var 依赖测试单进程；并行测试只共享变量值，
+            // 但各夹具路径已唯一，find_steam 读到的是谁都能各自找到自己的文件。
             unsafe {
                 std::env::set_var("HOME", &path);
+                std::env::set_var("USERPROFILE", &path);
             }
             TempHome { path }
         }

@@ -579,11 +579,15 @@ mod tests {
     #[test]
     fn steam_route_injects_and_sandboxes() {
         let _env = crate::ENV_LOCK.lock().unwrap();
-        // 直接接管 HOME（已持 ENV_LOCK，无并行测试竞争）；结束时还原并清理
+        // 直接接管 HOME/USERPROFILE（已持 ENV_LOCK，无并行测试竞争）；结束时还原
+        // 并清理。USERPROFILE 必须一并接管：Windows 的 config_dir() 读它，
+        // 漏掉则下方 man.save() 会覆写真实 library.json。
         let old_home = std::env::var("HOME").unwrap_or_default();
+        let old_profile = std::env::var("USERPROFILE").unwrap_or_default();
         let thome = std::env::temp_dir().join(format!("gesso-home-{}", gesso_core::generate_id()));
         unsafe {
             std::env::set_var("HOME", &thome);
+            std::env::set_var("USERPROFILE", &thome);
         }
         let dir = thome.join("workshop/content/431960/777");
         std::fs::create_dir_all(&dir).unwrap();
@@ -659,6 +663,7 @@ mod tests {
 
         unsafe {
             std::env::set_var("HOME", old_home);
+            std::env::set_var("USERPROFILE", old_profile);
         }
         let _ = std::fs::remove_dir_all(&thome);
     }
