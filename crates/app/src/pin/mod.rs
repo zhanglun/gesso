@@ -100,6 +100,17 @@ pub fn create_wallpaper_window(
     #[cfg(target_os = "macos")]
     return macos::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
     #[cfg(target_os = "windows")]
+    if entry.kind == gesso_core::WallpaperKind::Video {
+        // Windows 视频同 macOS 立场：WebView2 呈现路径实测卡顿（三代构建/两种
+        // 传输/三类素材全卡 + 本地播放器/Edge 丝滑，2026-10-11 对照）→ 原生窗。
+        // MF SourceReader 走本地文件直读（file 路径 OS 页缓存命中，循环零磁盘
+        // 读），不与回环 HTTP 服务耦合——精简系统/服务失败零依赖（win15 实测）。
+        let rel = crate::encoding::entry_main_source(entry);
+        let path = std::path::Path::new(&entry.source_dir).join(&rel);
+        return windows::create_video_window(monitor, path.to_string_lossy().as_ref())
+            .map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
+    }
+    #[cfg(target_os = "windows")]
     {
         let _ = entry;
         windows::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>)

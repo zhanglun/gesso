@@ -31,14 +31,36 @@
 
 use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
-use windows::core::{w, BOOL, PCWSTR};
+use windows::core::{w, Interface as _, BOOL, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows::Win32::Graphics::Direct3D11::{
+    D3D11CreateDeviceAndSwapChain, ID3D11Texture2D, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION,
+};
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_MODE_SCALING_UNSPECIFIED,
+    DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
+};
+use windows::Win32::Graphics::Dxgi::{
+    IDXGISwapChain1, DXGI_PRESENT, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
+    DXGI_USAGE_RENDER_TARGET_OUTPUT,
+};
 use windows::Win32::Graphics::Gdi::{
     CreateSolidBrush, EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, DISPLAY_DEVICEW,
     HBRUSH, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
 };
+use windows::Win32::Media::MediaFoundation::{
+    IMFSample, MFCreateMediaType, MFCreateSourceReaderFromURL, MFShutdown, MFStartup,
+    MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_SOURCE_READERF_ENDOFSTREAM,
+    MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_VERSION,
+};
+use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows, FindWindowExW, FindWindowW,
@@ -760,6 +782,353 @@ impl Drop for WinWallpaperWindow {
             .retain(|h| *h != self.hwnd.0 as isize);
         println!("[pin] 壁纸窗口已销毁（{:x}）", self.hwnd.0 as isize);
     }
+}
+
+// ---------------------------------------------------------------------------
+// 原生视频壁纸窗（2026-10-11 立项，对标 macOS MacVideoWindow）
+//
+// 背景：WebView2 windowed hosting 的呈现路径（渲染进程合成器 → 跨进程纹理 →
+// DComp 子窗口 → DWM）实测所有构建/传输/素材全卡（同文件本地播放器与 Edge
+// 丝滑，页侧探针全绿）——病灶在呈现交接层，与 macOS 远端层树无锁相同病。
+// 解法同构：MF SourceReader 解码（BGRA 软件输出，内置转换器缩放到屏）→
+// flip-model swapchain 直挂 WorkerW 子窗口（Present(1) 锁 vsync，PTS 对齐
+// 墙钟）→ DWM 合成。与本地播放器同构（2 跳 vs 5 跳），对精简系统免疫
+// （win15 spike 2026-10-11 实测丝滑；不依赖被精简工具删除的 WinRT UI 运行时）。
+// ---------------------------------------------------------------------------
+
+pub struct WinVideoWindow {
+    hwnd: HWND,
+    mount: std::cell::Cell<MountKind>,
+    /// 渲染线程停止旗（Drop 置位 + join）
+    stop: Arc<AtomicBool>,
+    /// 暂停旗（全屏/电池/锁屏自动暂停 → 冻结当前帧，窗口常驻）
+    paused: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> Result<WinVideoWindow> {
+    ensure_pin_env();
+
+    let (mx, my, mw, mh) = (
+        monitor.frame.0 as i32,
+        monitor.frame.1 as i32,
+        monitor.frame.2.max(1.0) as i32,
+        monitor.frame.3.max(1.0) as i32,
+    );
+
+    // SAFETY: 模块句柄查询，无特殊前提
+    let hinstance = unsafe { GetModuleHandleW(PCWSTR::null()) }
+        .map(|m| HINSTANCE(m.0))
+        .map_err(|e| GessoError::UnsupportedPlatform(format!("GetModuleHandleW: {e}")))?;
+
+    // 与 webview 壁纸窗同一个类：HTTRANSPARENT 点击穿透白拿
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
+            WALLPAPER_CLASS,
+            PCWSTR::null(),
+            WS_POPUP,
+            mx,
+            my,
+            mw,
+            mh,
+            None,
+            None,
+            Some(hinstance),
+            None,
+        )
+        .map_err(|e| GessoError::UnsupportedPlatform(format!("CreateWindowExW(视频): {e}")))?
+    };
+
+    // 挂载在 swapchain 创建前（窗口层级是 DComp/DXGI 呈现的前提）
+    let frame = [mx, my, mw, mh];
+    let kind = mount(hwnd, &frame);
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOWNA);
+    }
+    LIVE_WALLPAPER_HWNDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(hwnd.0 as isize);
+    println!(
+        "[pin] 视频壁纸窗 {mx},{my} {mw}×{mh} → {kind:?}（{}）",
+        monitor.id
+    );
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let paused = Arc::new(AtomicBool::new(false));
+    let thread = {
+        let (stop, paused) = (stop.clone(), paused.clone());
+        let url = url.to_string();
+        // HWND 原始句柄值跨线程传递（重建于渲染线程内）
+        let hwnd_raw = hwnd.0 as isize;
+        Some(
+            std::thread::Builder::new()
+                .name("win-video".into())
+                .spawn(move || {
+                    video_render_thread(
+                        HWND(hwnd_raw as *mut core::ffi::c_void),
+                        url,
+                        mw,
+                        mh,
+                        stop,
+                        paused,
+                    )
+                })
+                .map_err(|e| GessoError::UnsupportedPlatform(format!("渲染线程: {e}")))?,
+        )
+    };
+
+    Ok(WinVideoWindow {
+        hwnd,
+        mount: std::cell::Cell::new(kind),
+        stop,
+        paused,
+        thread,
+    })
+}
+
+impl WallpaperWindow for WinVideoWindow {
+    /// 内容在创建时定死；换壁纸 = 整窗重建（assign 同路径）。
+    /// set_fps 热重载的宿主页 URL 在此静默忽略（视频无帧率杠杆）。
+    fn load(&mut self, _url: &str) {}
+
+    fn set_paused(&mut self, paused: bool) {
+        self.paused.store(paused, Ordering::Relaxed);
+    }
+
+    fn set_visible(&mut self, visible: bool) {
+        // 整窗隐藏 = 露出系统壁纸（本窗之下由 Explorer 绘制桌面）
+        unsafe {
+            let _ = ShowWindow(self.hwnd, if visible { SW_SHOWNA } else { SW_HIDE });
+        }
+    }
+
+    fn set_frame(&mut self, (x, y, w, h): (f64, f64, f64, f64)) {
+        let frame = [x as i32, y as i32, w as i32, h as i32];
+        let kind = mount(self.hwnd, &frame);
+        self.mount.set(kind);
+    }
+
+    fn reassert_pinning(&mut self, frame: (f64, f64, f64, f64)) {
+        // WorkerW 挂载层级由 mount() 保证，重配后重走一次挂载即重申
+        self.set_frame(frame);
+    }
+
+    /// 挂载是否落位（BottomMost = explorer 未就绪，调用方重试）
+    fn mount_ok(&self) -> bool {
+        self.mount.get() != MountKind::BottomMost
+    }
+
+    fn current_url(&self) -> String {
+        "mf://native-video".into()
+    }
+
+    fn diag(&self, tag: &str) {
+        println!(
+            "[diag {tag}] video hwnd={:x} paused={} mount={:?}",
+            self.hwnd.0 as isize,
+            self.paused.load(Ordering::Relaxed),
+            self.mount.get()
+        );
+    }
+}
+
+impl Drop for WinVideoWindow {
+    fn drop(&mut self) {
+        // 先停渲染线程再销毁窗口（Present 到已销毁窗口的 swapchain 会出错）
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+        // SAFETY: 窗口由本模块在同线程创建（会话创建/销毁全在引擎轮询线程）
+        unsafe {
+            if let Err(e) = DestroyWindow(self.hwnd) {
+                eprintln!("[pin] DestroyWindow(视频) 失败：{e}");
+            }
+        }
+        LIVE_WALLPAPER_HWNDS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|h| *h != self.hwnd.0 as isize);
+        println!("[pin] 视频壁纸窗已销毁（{:x}）", self.hwnd.0 as isize);
+    }
+}
+
+/// 渲染线程：MF 解码（独占 MTA 套间）→ UpdateSubresource → flip-model Present。
+/// D3D11 即时上下文非线程安全——只在生命期内由本线程独占使用；
+/// 窗口位置/显隐在主线程（会话层），只动窗口不动 D3D 对象。
+fn video_render_thread(
+    hwnd: HWND,
+    url: String,
+    sw: i32,
+    sh: i32,
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+) {
+    unsafe {
+        // MF 媒体管线偏好 MTA；D3D11/swapchain 的 Present 都在本线程
+        let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
+        if hr.is_err() {
+            eprintln!("[pin-video] CoInitializeEx 失败：0x{:08X}", hr.0);
+            return;
+        }
+        if let Err(e) = MFStartup(MF_VERSION, 0) {
+            eprintln!("[pin-video] MFStartup 失败：{e}");
+            return;
+        }
+        let r = video_render_loop(hwnd, &url, sw, sh, &stop, &paused);
+        if let Err(e) = r {
+            eprintln!("[pin-video] 渲染线程退出：{e} (0x{:08X})", e.code().0);
+        }
+        let _ = MFShutdown();
+    }
+}
+
+unsafe fn video_render_loop(
+    hwnd: HWND,
+    url: &str,
+    sw: i32,
+    sh: i32,
+    stop: &Arc<AtomicBool>,
+    paused: &Arc<AtomicBool>,
+) -> windows::core::Result<()> {
+    let desc = DXGI_SWAP_CHAIN_DESC {
+        BufferDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_MODE_DESC {
+            Width: sw as u32,
+            Height: sh as u32,
+            RefreshRate: DXGI_RATIONAL {
+                Numerator: 0,
+                Denominator: 0,
+            },
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            ScanlineOrdering: DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
+            Scaling: DXGI_MODE_SCALING_UNSPECIFIED,
+        },
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
+        BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        BufferCount: 2,
+        OutputWindow: hwnd,
+        Windowed: true.into(),
+        SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
+        Flags: 0,
+    };
+    let mut device = None;
+    let mut context = None;
+    let mut swapchain = None;
+    D3D11CreateDeviceAndSwapChain(
+        None,
+        D3D_DRIVER_TYPE_HARDWARE,
+        windows::Win32::Foundation::HMODULE::default(),
+        D3D11_CREATE_DEVICE_FLAG(0),
+        None,
+        D3D11_SDK_VERSION,
+        Some(&desc),
+        Some(&mut swapchain),
+        Some(&mut device),
+        None,
+        Some(&mut context),
+    )?;
+    let (device, context, swapchain) = (
+        device.unwrap(),
+        context.unwrap(),
+        swapchain.unwrap().cast::<IDXGISwapChain1>()?,
+    );
+    let _ = &device;
+
+    MFStartup(MF_VERSION, 0)?;
+    let wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
+    // 缩放到主屏分辨率需要高级视频处理（基础模式只允许解码器直出转换）
+    let mut attrs_opt: Option<windows::Win32::Media::MediaFoundation::IMFAttributes> = None;
+    windows::Win32::Media::MediaFoundation::MFCreateAttributes(&mut attrs_opt, 1)?;
+    let attrs = attrs_opt.unwrap();
+    attrs.SetUINT32(
+        &windows::Win32::Media::MediaFoundation::MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
+        1,
+    )?;
+    let reader = MFCreateSourceReaderFromURL(PCWSTR(wide.as_ptr()), &attrs)?;
+    reader.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)?;
+    reader.SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, true)?;
+    let mt = MFCreateMediaType()?;
+    mt.SetGUID(
+        &MF_MT_MAJOR_TYPE,
+        &windows::Win32::Media::MediaFoundation::MFMediaType_Video,
+    )?;
+    mt.SetGUID(
+        &MF_MT_SUBTYPE,
+        &windows::Win32::Media::MediaFoundation::MFVideoFormat_ARGB32,
+    )?;
+    mt.SetUINT64(&MF_MT_FRAME_SIZE, ((sw as u64) << 32) | sh as u64)?;
+    reader.SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, None, &mt)?;
+
+    let backbuffer: ID3D11Texture2D = swapchain.GetBuffer(0)?;
+    let mut qpf = 0i64;
+    let _ = QueryPerformanceFrequency(&mut qpf);
+    let mut first_ts: Option<i64> = None;
+    let mut first_qpc = 0i64;
+    let pv = PROPVARIANT::default();
+
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        // 暂停 = 冻结当前帧（flip-model 保留最后呈现帧），只挂起解码
+        if paused.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(50));
+            continue;
+        }
+        let mut flags = 0u32;
+        let mut ts = 0i64;
+        let mut sample: Option<IMFSample> = None;
+        reader.ReadSample(
+            MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+            0,
+            None,
+            Some(&mut flags),
+            Some(&mut ts),
+            Some(&mut sample),
+        )?;
+        if (flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 || sample.is_none() {
+            // 循环：回到起点并重定基时间戳（OS 页缓存命中，循环零磁盘读）
+            reader.SetCurrentPosition(&windows::core::GUID::zeroed(), &pv)?;
+            first_ts = None;
+            continue;
+        }
+        let sample = sample.unwrap();
+        let buffer = sample.ConvertToContiguousBuffer()?;
+        let mut data = std::ptr::null_mut::<u8>();
+        let mut max_len = 0u32;
+        let mut len = 0u32;
+        buffer.Lock(&mut data, Some(&mut max_len), Some(&mut len))?;
+
+        // PTS 节拍：内容时间轴对齐墙钟（QPC），早到才睡，迟到此帧即 present
+        let mut qpc = 0i64;
+        let _ = QueryPerformanceCounter(&mut qpc);
+        if first_ts.is_none() {
+            first_ts = Some(ts);
+            first_qpc = qpc;
+        }
+        let due = first_qpc + ((ts - first_ts.unwrap()) * qpf) / 10_000_000;
+        if due - qpc > qpf / 1000 {
+            let sleep_ms = ((due - qpc) * 1000 / qpf - 1).max(0);
+            std::thread::sleep(Duration::from_millis(sleep_ms as u64));
+            loop {
+                let mut n = 0i64;
+                let _ = QueryPerformanceCounter(&mut n);
+                if n >= due {
+                    break;
+                }
+            }
+        }
+
+        context.UpdateSubresource(&backbuffer, 0, None, data as *const _, sw as u32 * 4, 0);
+        let _ = buffer.Unlock();
+        swapchain.Present(1, DXGI_PRESENT(0)).ok()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
