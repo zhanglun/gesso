@@ -26,7 +26,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 
 1. **发布后反馈消化**：安装/首启问题归集进 issue，质量修补随 0.1.x 小版本滚动（发布全自动化在 `.github/workflows/release.yml`，打 tag 即出产物）。
 2. **Windows 多显示器实机验证**（实现已就位，等环境）。
-3. ~~**Windows 视频帧节奏实测**~~ → ✅ 2026-10-11 实测撞帧，**原生视频壁纸窗已落地**（`pin::WinVideoWindow`，见 M1-W）。实测：同文件本地播放器/Edge 丝滑而 Gesso 三代构建全卡（v0.1.0/e91e4bb/HEAD × gesso:///回环 HTTP × 4GB/133MB/样例），页侧探针（rVFC/rAF/maxGap=17ms）全绿 → 病灶锁定 WebView2 呈现交接层，与 macOS 同病同解。注：本机（Win10 Pro Workstations 22H2）System32 缺 Windows.UI.Composition.dll 等 WinRT UI 运行时（精简脚本所致），WinRT Compositor 激活 E_ACCESSDENIED——原生管线因此走经典 DXGI，对精简系统免疫。
+3. ~~**Windows 视频帧节奏实测**~~ → ✅ 2026-10-11 实测撞帧，**原生视频壁纸窗已落地**（`pin::WinVideoWindow`，见 M1-W）。诊断证据全文见工程笔记 §2「Windows 视频壁纸卡顿」行。
 4. **M7 Wallpaper Engine import II (scene)**（长期）。
 
 ### M5 — system data bridge（✅ 已完成）
@@ -54,7 +54,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 - ⬜ 多显示器实机验证（实现已就位：EnumDisplayMonitors 物理像素 + 各屏独立窗口；验证机单屏）。
 - ⬜ 点击穿透语义对齐：WM_NCHITTEST HTTRANSPARENT 只作用于本窗口，空白桌面点击会落入 WebView2 子窗口（技术方案 §6 视作可选交互增强，v1 接受）。
 - ~~⬜ M5 数据桥 Windows 侧~~ → ✅ Done（M5-W，2026-10-06 实机验证，见上）。
-- ✅ **原生视频壁纸窗**（2026-10-11，对标 macOS `MacVideoWindow`）：MF SourceReader（BGRA 内置转换器缩放到屏，需 `MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING`）→ flip-model swapchain 直挂 WorkerW 子窗口（`Present(1)` 锁 vsync + PTS 对齐墙钟），解码/呈现跑专职线程、窗口消息留在主线程；换壁纸 = 整窗重建、暂停 = 冻结帧、点击穿透复用 GessoWallpaper 类。WebView2 从此只管 shader/html/图片（与 macOS 分叉对齐）。真机验证：此前全构建卡顿的视频丝滑。
+- ✅ **原生视频壁纸窗**（2026-10-11，对标 macOS `MacVideoWindow`）：MF SourceReader 解码 → flip-model swapchain 直挂 WorkerW 子窗口（解码/呈现专职线程，窗口消息留主线程；换壁纸 = 整窗重建、暂停 = 冻结帧、点击穿透复用 GessoWallpaper 类）。MF SourceReader 的四个坑（高级视频处理属性/PROPVARIANT 路径/EOS 活锁/软件缩放烧核）见工程笔记 §2WebView2 从此只管 shader/html/图片（与 macOS 分叉对齐）。真机验证：此前全构建卡顿的视频丝滑。
 
 ### M4-W — 缩略图管线 Windows 接入（✅ 2026-10-06 实机验证）
 
