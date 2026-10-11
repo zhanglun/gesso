@@ -74,6 +74,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ 应用自更新（§4.7，2026-10-11）：GitHub Releases 检查（启动 +24h 节拍，`settings.update_check` 开关）→ 多层通知（系统通知 best-effort + 应用内 toast + 托盘 tooltip）→ 「软件更新」小窗（检查/下载进度/交付六态）；下载官方安装包交由系统安装，**不做静默自替换**；dev 钩子 `GESSO_UPDATE_MODAL=1`
 - ✅ V-PERF 视频卡顿排障闭环（2026-10-10）：视频字节流不走自定义 scheme（回环 HTTP 媒体服务，AVPlayer 原生管线）；**macOS 视频壁纸 = 原生 AVPlayerLayer（`pin::MacVideoWindow`）**；帧率探针 `GESSO_VIDEO_DIAG=1`（rVFC/rAF 每 5s 采样）
 - ✅ V-PERF-W Windows 视频根治（2026-10-11）：WebView2 呈现交接层卡顿（诊断证据见工程笔记 §2）→ **Windows 视频壁纸 = 原生 MF SourceReader + flip-model swapchain 直挂 WorkerW（`pin::WinVideoWindow`）**，WebView2 双平台都只管 shader/html/图片；EOS 循环 = 每圈重建 SourceReader（seek 在 advanced VP 链路活锁，勿用）；双平台视频均无音频管线（静音契约天然成立）
+- ✅ 多屏重配事件驱动收敛 + 桌面桥接（2026-10-11 macOS 实机）：显示器重配走 epoch 事件 + 两段式收敛（**勿改回轮询采样**——过渡几何会以小窗/放大帧上窗），30ms 清扫熄灭脱节窗口，可见窗必与当前拓扑一致；**桌面桥接（`desktop_bridge.rs`）运行期接管系统桌面为壁纸静帧**（勿当「改了用户壁纸」的 bug 清除——退出/取消指派/关开关即恢复，台账在 `desktop_bridge.json`）；机制见 ARCHITECTURE §2，四轮伪影根因链见工程笔记 §2
 - ✅ 0.1.x 反馈修复（2026-10-10）：视频窗 2pt 外扩与媒体 ≤256MB 内存直供均为刻意行为（勿当 bug/泄漏清除），唤醒后显示器 ID 重编按几何平移（sync_monitors 内置守卫）；细节见工程笔记 §2 与 CHANGELOG
 - ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（根因：gpui img 固有宽高比撑高被裁，显式 `.aspect_ratio` 压制）；缩略图启动即生成 + spinner；清单解析失败 exit 78 保文件；锁屏自动暂停省电；移除冗余「查看详情」菜单项
 - ✅ **0.1.0 已发布**（2026-10-07）：GitHub Actions 自动打包发布（macOS dmg / Windows 便携 zip / checksums）；ad-hoc 签名未公证；发布流程见 `docs/RELEASE-CHECKLIST.md`，打包脚本在 `packaging/`

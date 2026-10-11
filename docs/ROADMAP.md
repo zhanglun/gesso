@@ -19,13 +19,14 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ V-PERF 视频卡顿排障与分叉（2026-10-10 macOS 实机验证）：webview 减负（采集窗熄火/冻结帧降频/壁纸窗不透明）+ 视频媒体回环 HTTP 服务（自定义 scheme 碎片拉流 92 req/s → 原生管线一条流）+ macOS 视频壁纸原生 AVPlayerLayer 管线（webview 远端层树上屏无锁相，60fps 实测 53~56 波动 → 原生后顺滑）；帧率探针 GESSO_VIDEO_DIAG 入库
 ✅ 0.1.x 反馈修复批次（2026-10-10）：F11 三连修（诊断色删除 + 全屏检测前台 PID 匹配 + 冻结帧画布）、视频窗 2pt 外扩裁掉 AVPlayerLayer 边缘劣化带、唤醒显示器 ID 重编几何平移（副屏丢壁纸/幽灵窗，实测）、视频壁纸内存直供（循环零盘读，实测 3 遍整文件物理读增量 0）
 ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（库卡片/宿主页/显示器小样/原生视频；gpui img 固有宽高比坑见工程笔记 §2）、缩略图启动即生成 + 生成中 spinner、清单解析失败护栏（exit 78 保文件）、锁屏自动暂停省电（CGSessionCopyCurrentDictionary）、移除冗余「查看详情」菜单项
+✅ 多屏重配事件驱动收敛 + 桌面桥接（2026-10-11 macOS 实机四轮迭代）：唤醒/合盖开盖等重配从 2s 轮询改为 epoch 事件 + 两段式收敛（30ms 即时清扫熄灭脱节窗口、1.5s 去抖、跨采样稳定后原子施加），过渡几何从构造上不可见；桌面桥接把系统桌面接管为当前壁纸静帧兜住熄窗间隙（退出/取消指派恢复原壁纸，设置开关默认开 + 托盘逃生门）。机制见 ARCHITECTURE §2，四轮伪影根因链见工程笔记 §2
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 
 ## Next up, in priority order
 
 1. **发布后反馈消化**：安装/首启问题归集进 issue，质量修补随 0.1.x 小版本滚动（发布全自动化在 `.github/workflows/release.yml`，打 tag 即出产物）。
-2. **Windows 多显示器实机验证**（实现已就位，等环境）。
+2. **Windows 多显示器实机验证**（实现已就位，等环境；epoch 收敛/清扫/桌面桥接的 Windows 面随 2026-10-11 本轮新增，一并回归）。
 3. ~~**Windows 视频帧节奏实测**~~ → ✅ 2026-10-11 实测撞帧，**原生视频壁纸窗已落地**（`pin::WinVideoWindow`，见 M1-W）。诊断证据全文见工程笔记 §2「Windows 视频壁纸卡顿」行。
 4. **M7 Wallpaper Engine import II (scene)**（长期）。
 

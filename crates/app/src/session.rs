@@ -2,7 +2,8 @@
 //!
 //! 职责：读配置 → 枚举显示器 → 每个已配置显示器一个壁纸窗口会话；
 //! 状态机转移全部经 gesso_core::session::transfer（单一真源）；
-//! 显示器热插拔轮询 → diff 重建（v1 简化轮询，后续换平台通知）。
+//! 显示器拓扑事件驱动收敛（epoch 两段式，ARCHITECTURE §2）；退出/巡检/托盘
+//! 复用同一收敛器。
 
 use std::collections::BTreeMap;
 
