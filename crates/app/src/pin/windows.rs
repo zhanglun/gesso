@@ -53,11 +53,10 @@ use windows::Win32::Graphics::Gdi::{
     HBRUSH, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
 };
 use windows::Win32::Media::MediaFoundation::{
-    IMFSample, MFCreateMediaType, MFCreateSourceReaderFromURL, MFShutdown, MFStartup,
-    MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_SOURCE_READERF_ENDOFSTREAM,
+    IMFSample, IMFSourceReader, MFCreateMediaType, MFCreateSourceReaderFromURL, MFShutdown,
+    MFStartup, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_SOURCE_READERF_ENDOFSTREAM,
     MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_VERSION,
 };
-use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
@@ -866,14 +865,7 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> Result<WinVideoW
             std::thread::Builder::new()
                 .name("win-video".into())
                 .spawn(move || {
-                    video_render_thread(
-                        HWND(hwnd_raw as *mut core::ffi::c_void),
-                        url,
-                        mw,
-                        mh,
-                        stop,
-                        paused,
-                    )
+                    video_render_thread(HWND(hwnd_raw as *mut core::ffi::c_void), url, stop, paused)
                 })
                 .map_err(|e| GessoError::UnsupportedPlatform(format!("渲染线程: {e}")))?,
         )
@@ -958,14 +950,7 @@ impl Drop for WinVideoWindow {
 /// 渲染线程：MF 解码（独占 MTA 套间）→ UpdateSubresource → flip-model Present。
 /// D3D11 即时上下文非线程安全——只在生命期内由本线程独占使用；
 /// 窗口位置/显隐在主线程（会话层），只动窗口不动 D3D 对象。
-fn video_render_thread(
-    hwnd: HWND,
-    url: String,
-    sw: i32,
-    sh: i32,
-    stop: Arc<AtomicBool>,
-    paused: Arc<AtomicBool>,
-) {
+fn video_render_thread(hwnd: HWND, url: String, stop: Arc<AtomicBool>, paused: Arc<AtomicBool>) {
     unsafe {
         // MF 媒体管线偏好 MTA；D3D11/swapchain 的 Present 都在本线程
         let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -977,7 +962,7 @@ fn video_render_thread(
             eprintln!("[pin-video] MFStartup 失败：{e}");
             return;
         }
-        let r = video_render_loop(hwnd, &url, sw, sh, &stop, &paused);
+        let r = video_render_loop(hwnd, &url, &stop, &paused);
         if let Err(e) = r {
             eprintln!("[pin-video] 渲染线程退出：{e} (0x{:08X})", e.code().0);
         }
@@ -985,18 +970,54 @@ fn video_render_thread(
     }
 }
 
+/// 创建视频 SourceReader：仅视频流 + RGB32（基础色转，原生尺寸不缩放）。
+/// 本机实测（2026-10-11）：不带 MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING
+/// 时 SetCurrentMediaType 对 RGB 输出报 0xC00D36B4——高级视频处理属性必挂。
+unsafe fn create_video_reader(url: &str) -> windows::core::Result<IMFSourceReader> {
+    let wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut attrs_opt: Option<windows::Win32::Media::MediaFoundation::IMFAttributes> = None;
+    windows::Win32::Media::MediaFoundation::MFCreateAttributes(&mut attrs_opt, 1)?;
+    let attrs = attrs_opt.unwrap();
+    attrs.SetUINT32(
+        &windows::Win32::Media::MediaFoundation::MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
+        1,
+    )?;
+    let reader = MFCreateSourceReaderFromURL(PCWSTR(wide.as_ptr()), &attrs)?;
+    reader.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)?;
+    reader.SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, true)?;
+    let mt = MFCreateMediaType()?;
+    mt.SetGUID(
+        &MF_MT_MAJOR_TYPE,
+        &windows::Win32::Media::MediaFoundation::MFMediaType_Video,
+    )?;
+    mt.SetGUID(
+        &MF_MT_SUBTYPE,
+        &windows::Win32::Media::MediaFoundation::MFVideoFormat_RGB32,
+    )?;
+    reader.SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, None, &mt)?;
+    Ok(reader)
+}
+
 unsafe fn video_render_loop(
     hwnd: HWND,
     url: &str,
-    sw: i32,
-    sh: i32,
     stop: &Arc<AtomicBool>,
     paused: &Arc<AtomicBool>,
 ) -> windows::core::Result<()> {
+    MFStartup(MF_VERSION, 0)?;
+
+    // 首建 reader 探测原生帧尺寸 → swapchain 同尺寸（缩放交给 DWM，GPU 承担；
+    // MF 软件 VideoProcessor 缩放实测恒定烧 ~1 核，全程零缩放后消失）
+    let probe = create_video_reader(url)?;
+    let native = probe.GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32)?;
+    let packed = native.GetUINT64(&MF_MT_FRAME_SIZE)?;
+    let (nw, nh) = ((packed >> 32) as i32, (packed & 0xffff_ffff) as i32);
+    drop(probe);
+
     let desc = DXGI_SWAP_CHAIN_DESC {
         BufferDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_MODE_DESC {
-            Width: sw as u32,
-            Height: sh as u32,
+            Width: nw as u32,
+            Height: nh as u32,
             RefreshRate: DXGI_RATIONAL {
                 Numerator: 0,
                 Denominator: 0,
@@ -1039,94 +1060,97 @@ unsafe fn video_render_loop(
     );
     let _ = &device;
 
-    MFStartup(MF_VERSION, 0)?;
-    let wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
-    // 缩放到主屏分辨率需要高级视频处理（基础模式只允许解码器直出转换）
-    let mut attrs_opt: Option<windows::Win32::Media::MediaFoundation::IMFAttributes> = None;
-    windows::Win32::Media::MediaFoundation::MFCreateAttributes(&mut attrs_opt, 1)?;
-    let attrs = attrs_opt.unwrap();
-    attrs.SetUINT32(
-        &windows::Win32::Media::MediaFoundation::MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
-        1,
-    )?;
-    let reader = MFCreateSourceReaderFromURL(PCWSTR(wide.as_ptr()), &attrs)?;
-    reader.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)?;
-    reader.SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, true)?;
-    let mt = MFCreateMediaType()?;
-    mt.SetGUID(
-        &MF_MT_MAJOR_TYPE,
-        &windows::Win32::Media::MediaFoundation::MFMediaType_Video,
-    )?;
-    mt.SetGUID(
-        &MF_MT_SUBTYPE,
-        &windows::Win32::Media::MediaFoundation::MFVideoFormat_ARGB32,
-    )?;
-    mt.SetUINT64(&MF_MT_FRAME_SIZE, ((sw as u64) << 32) | sh as u64)?;
-    reader.SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, None, &mt)?;
-
     let backbuffer: ID3D11Texture2D = swapchain.GetBuffer(0)?;
     let mut qpf = 0i64;
     let _ = QueryPerformanceFrequency(&mut qpf);
-    let mut first_ts: Option<i64> = None;
-    let mut first_qpc = 0i64;
-    let pv = PROPVARIANT::default();
+    let mut loops = 0u64;
 
+    // 外层：每圈一个全新 SourceReader。EOS 后 SetCurrentPosition 回起点的
+    // 语义在 advanced VP 链路上不可靠（实测 ReadSample 恒 EOS，活锁 10M+
+    // 次刷爆日志）——重建 reader 一次性几十 ms、每数分钟一次，从架构上
+    // 消灭 seek/排空状态机。
     loop {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        // 暂停 = 冻结当前帧（flip-model 保留最后呈现帧），只挂起解码
         if paused.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(50));
             continue;
         }
-        let mut flags = 0u32;
-        let mut ts = 0i64;
-        let mut sample: Option<IMFSample> = None;
-        reader.ReadSample(
-            MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
-            0,
-            None,
-            Some(&mut flags),
-            Some(&mut ts),
-            Some(&mut sample),
-        )?;
-        if (flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 || sample.is_none() {
-            // 循环：回到起点并重定基时间戳（OS 页缓存命中，循环零磁盘读）
-            reader.SetCurrentPosition(&windows::core::GUID::zeroed(), &pv)?;
-            first_ts = None;
-            continue;
+        loops += 1;
+        if loops > 1 {
+            eprintln!("[pin-video] 第 {loops} 圈：重建 SourceReader 循环重播");
         }
-        let sample = sample.unwrap();
-        let buffer = sample.ConvertToContiguousBuffer()?;
-        let mut data = std::ptr::null_mut::<u8>();
-        let mut max_len = 0u32;
-        let mut len = 0u32;
-        buffer.Lock(&mut data, Some(&mut max_len), Some(&mut len))?;
+        let reader = create_video_reader(url)?;
+        // 每圈重定基 PTS（新 reader 从 0 起播）
+        let mut first_ts: Option<i64> = None;
+        let mut first_qpc = 0i64;
+        let mut none_streak = 0u32;
 
-        // PTS 节拍：内容时间轴对齐墙钟（QPC），早到才睡，迟到此帧即 present
-        let mut qpc = 0i64;
-        let _ = QueryPerformanceCounter(&mut qpc);
-        if first_ts.is_none() {
-            first_ts = Some(ts);
-            first_qpc = qpc;
-        }
-        let due = first_qpc + ((ts - first_ts.unwrap()) * qpf) / 10_000_000;
-        if due - qpc > qpf / 1000 {
-            let sleep_ms = ((due - qpc) * 1000 / qpf - 1).max(0);
-            std::thread::sleep(Duration::from_millis(sleep_ms as u64));
-            loop {
-                let mut n = 0i64;
-                let _ = QueryPerformanceCounter(&mut n);
-                if n >= due {
+        // 内层：单圈播放。EOS/排空超限 → break 回外层重建
+        loop {
+            if stop.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+            if paused.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+            let mut flags = 0u32;
+            let mut ts = 0i64;
+            let mut sample: Option<IMFSample> = None;
+            reader.ReadSample(
+                MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                0,
+                None,
+                Some(&mut flags),
+                Some(&mut ts),
+                Some(&mut sample),
+            )?;
+            if (flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 {
+                break;
+            }
+            let Some(sample) = sample else {
+                // seek/启动排空期的空采样：短暂等待；连发超限 = 管线异常，重建
+                none_streak += 1;
+                if none_streak >= 60 {
+                    eprintln!("[pin-video] 连续空采样 60 次，重建 SourceReader");
                     break;
                 }
-            }
-        }
+                std::thread::sleep(Duration::from_millis(8));
+                continue;
+            };
+            none_streak = 0;
+            let buffer = sample.ConvertToContiguousBuffer()?;
+            let mut data = std::ptr::null_mut::<u8>();
+            let mut max_len = 0u32;
+            let mut len = 0u32;
+            buffer.Lock(&mut data, Some(&mut max_len), Some(&mut len))?;
 
-        context.UpdateSubresource(&backbuffer, 0, None, data as *const _, sw as u32 * 4, 0);
-        let _ = buffer.Unlock();
-        swapchain.Present(1, DXGI_PRESENT(0)).ok()?;
+            // PTS 节拍：内容时间轴对齐墙钟（QPC），早到才睡，迟到此帧即 present
+            let mut qpc = 0i64;
+            let _ = QueryPerformanceCounter(&mut qpc);
+            if first_ts.is_none() {
+                first_ts = Some(ts);
+                first_qpc = qpc;
+            }
+            let due = first_qpc + ((ts - first_ts.unwrap()) * qpf) / 10_000_000;
+            if due - qpc > qpf / 1000 {
+                let sleep_ms = ((due - qpc) * 1000 / qpf - 1).max(0);
+                std::thread::sleep(Duration::from_millis(sleep_ms as u64));
+                loop {
+                    let mut n = 0i64;
+                    let _ = QueryPerformanceCounter(&mut n);
+                    if n >= due {
+                        break;
+                    }
+                }
+            }
+
+            context.UpdateSubresource(&backbuffer, 0, None, data as *const _, nw as u32 * 4, 0);
+            let _ = buffer.Unlock();
+            swapchain.Present(1, DXGI_PRESENT(0)).ok()?;
+        }
     }
     Ok(())
 }
