@@ -204,7 +204,7 @@ fn main() {
                 let mut q = MENU_ACTIONS.lock().unwrap();
                 std::mem::take(&mut *q)
             };
-            let _ = cx.update(|_cx| {
+            cx.update(|_cx| {
                 for a in actions {
                     match a {
                         "swap" => {

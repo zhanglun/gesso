@@ -237,7 +237,7 @@ pub fn is_locked() -> bool {
         }
         let key = CFStringCreateWithCString(
             std::ptr::null(),
-            b"CGSSessionScreenIsLocked\0".as_ptr() as *const c_char,
+            c"CGSSessionScreenIsLocked".as_ptr(),
             0x0800_0100,
         );
         let locked = !CFDictionaryGetValue(dict, key).is_null();

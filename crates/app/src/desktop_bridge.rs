@@ -156,7 +156,16 @@ impl DesktopBridge {
             WallpaperKind::Video => {
                 let src = crate::encoding::entry_main_source(entry);
                 let src = Path::new(&entry.source_dir).join(&src);
-                src.exists() && extract_video_first_frame(&src, out)
+                src.exists() && {
+                    #[cfg(target_os = "macos")]
+                    {
+                        extract_video_first_frame(&src, out)
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        false
+                    }
+                }
             }
             _ => {
                 let home = crate::encoding::thumb_home(entry);

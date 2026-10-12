@@ -2,7 +2,7 @@
 ; projects (lettura / pavo): per-user setup.exe, no admin, installs to
 ; %LOCALAPPDATA%\Gesso, Start-menu + desktop shortcuts, uninstaller entry
 ; in "Apps & features" (HKCU).
-; Version is injected by build_portable.ps1: makensis /DVERSION=0.1.0
+; Version is injected by build_portable.ps1: makensis /DVERSION=<workspace version>
 ; Keep literals ASCII: script files are read verbatim, locale-dependent
 ; codepages would garble non-ASCII text on some systems.
 

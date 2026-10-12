@@ -13,6 +13,10 @@
 //!    （2026-10-04 崩溃实证，同 thumb.rs v1 指纹）。
 //! 3. **全局串行**：同一时刻只有一个采集任务在跑（并发多 webview 是崩溃放大器）。
 
+#[cfg(target_os = "macos")]
+use std::rc::Rc;
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use gesso_core::WallpaperKind;
@@ -21,8 +25,6 @@ use gesso_core::WallpaperKind;
 // 非 macOS 平台由 capture_entry 兜底空转（Windows 采集随 M1 接入 WebView2）。
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "macos")]
-use std::sync::Arc;
 use std::time::Duration;
 #[cfg(target_os = "macos")]
 use std::time::Instant;
@@ -153,7 +155,7 @@ async fn snapshot(
     bg: &gpui_kit::gpui::BackgroundExecutor,
     wk: &WKWebView,
 ) -> Option<Retained<NSImage>> {
-    let cell: Arc<Mutex<Option<Retained<NSImage>>>> = Arc::new(Mutex::new(None));
+    let cell: Rc<Mutex<Option<Retained<NSImage>>>> = Rc::new(Mutex::new(None));
     {
         let cell = cell.clone();
         let block = RcBlock::<dyn Fn(*mut NSImage, *mut NSError)>::new(

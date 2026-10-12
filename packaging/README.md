@@ -23,7 +23,7 @@ packaging/
 │  └─ gesso.nsi              # 安装器脚本（NSIS 3，per-user 免管理员；与 Tauri 项目的
 │                            #   setup.exe 同形态；CI runner 预装 NSIS）
 └─ release-notes/
-   └─ v0.1.0.md              # GitHub Release 文案（下载/校验值/未签名首次打开）
+   └─ v0.1.1.md              # GitHub Release 文案（下载/校验值/未签名首次打开）
 ```
 
 ## macOS
@@ -78,7 +78,7 @@ packaging\windows\build_portable.ps1 -SkipBuild   # 复用已有 release，只�
 
 ## Release notes
 
-`release-notes/v0.1.0.md` 是 GitHub Release 的正式文案，已包含：
+`release-notes/v0.1.1.md` 是当前 GitHub Release 的正式文案，已包含：
 下载清单、两平台未签名首次打开说明、已知限制。CI 按 tag 名读取对应文件
 （`packaging/release-notes/<tag>.md`）；**SHA-256 不用手填**——CI 自动生成并附上
 `checksums.txt`。发新版本时复制一份改成对应 tag 名即可。

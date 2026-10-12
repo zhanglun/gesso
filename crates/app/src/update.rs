@@ -625,7 +625,6 @@ mod tests {
         assert!(r.notes.contains("竖版适配"));
         // 资产按本机平台挑选（§4.7 规则：macOS=dmg / Windows=setup.exe，arch
         // 命中优先）——期望值按 arch_tag() 动态推导，断言在双平台 CI 都成立
-        let arch = arch_tag();
         let (want_name, want_size, want_url): (&str, u64, &str) = if cfg!(target_os = "macos") {
             ("Gesso-0.2.0-arm64.dmg", 48000000, "https://x/arm64.dmg")
         } else {
