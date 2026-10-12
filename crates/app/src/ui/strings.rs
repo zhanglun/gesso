@@ -457,7 +457,7 @@ pub const EN: Texts = Texts {
     monitor_hover_note: "Hovering a library card highlights its display · Click a display to select and control it below",
     st_select_wallpaper: "Choose wallpaper",
     monitors_empty_title: "No displays detected",
-    edid_note_short: "ID from EDID · Settings follow the display and restore on reconnect",
+    edid_note_short: "ID from EDID · restores on reconnect",
     btn_change: "Change",
     btn_pause: "Pause",
     btn_resume: "Resume",

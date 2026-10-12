@@ -203,6 +203,7 @@ impl MonitorsView {
         let redetect = Button::new("btn-redetect")
             .label(BTN_REDETECT())
             .secondary()
+            .with_size(KitSize::Small) // 画布角落的次级动作，Small 与详情条控件同档（v1.1 反馈：Medium 头重脚轻）
             .icon(Icon::new(IconName::RefreshCw))
             .on_click(|_, window, cx| {
                 // 重新检测：走引擎动作队列（sync_monitors 幂等；API.md §1/§4）
@@ -708,7 +709,10 @@ impl MonitorsView {
             let authored = item.as_ref().is_some_and(|it| {
                 matches!(it.kind, super::data::Kind::Shader | super::data::Kind::Web)
             });
-            div().w(px(72.)).child(
+            div().w(px(112.)).child(
+                // 详情条控件统一 Small（§1.2 工艺基准；Medium 32px 在 12px 状态行旁头重脚轻）。
+                // 宽度按最长文案预留（EN "Stretch" ≈46px + 输入框左右 8px×2 + chevron
+                // 14px + justify_between 余量），不足即截断省略号（v1.1 反馈）
                 Select::new(s)
                     .with_size(KitSize::Small)
                     .appearance(true)
@@ -716,8 +720,8 @@ impl MonitorsView {
             )
         });
         let fps_select = self.fps_selects.get(sel).map(|s| {
-            div().w(px(96.)).child(
-                // 详情条控件统一 Small（§1.2 工艺基准；Medium 32px 在 12px 状态行旁头重脚轻）
+            div().w(px(108.)).child(
+                // 同 fit 下拉：108px 容 "60 fps"（Small 档固定开销 ≈60px，96px 曾出省略号）
                 Select::new(s).with_size(KitSize::Small).appearance(true),
             )
         });
@@ -726,7 +730,7 @@ impl MonitorsView {
             .flex_none()
             .h(px(STRIP_H))
             .px(px(16.))
-            .gap(px(14.))
+            .gap(px(10.)) // v1.1 反馈「底部太挤」：14→10，给控件区让 rhythm
             .items_center()
             .rounded(px(12.))
             .border_1()
