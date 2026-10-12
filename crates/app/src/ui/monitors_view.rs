@@ -233,10 +233,13 @@ impl MonitorsView {
             .into_any_element()
     }
 
-    /// 屏幕小像内的壁纸面层（contain 适配：竖版/超宽完整可见、与真实桌面一致；
-    /// 失效=灰底问号；加载中=渐变+指示）。
+    /// 屏幕小像内的壁纸面层：**跟随该屏填充模式**（与实际壁纸渲染同语义，
+    /// 切换经快照回灌即时联动——v1.1 反馈：此前恒 Contain，缩略图比例 ≠ 屏比例
+    /// 时上下/左右留白，和真实桌面效果脱节）。失效=灰底问号；加载中=渐变+指示。
+    /// shader/html 画布语义由内容作者控制，预览恒 Contain 看全貌。
     fn screen_surface(
         item: Option<&super::data::LibraryItem>,
+        fit: super::data::FitMode,
         ratio: f32,
         cx: &Context<Self>,
     ) -> AnyElement {
@@ -262,11 +265,21 @@ impl MonitorsView {
                 let source = gpui_kit::gpui::ImageSource::Resource(gpui_kit::gpui::Resource::Path(
                     std::path::PathBuf::from(path).into(),
                 ));
+                // 填充模式 → object-fit（与消费端同构：视频原生窗 / 图片 host 页）。
+                // shader/html 不适用填充，恒 Contain
+                let object_fit = match (item.kind, fit) {
+                    (super::data::Kind::Shader, _) | (super::data::Kind::Web, _) => {
+                        ObjectFit::Contain
+                    }
+                    (_, super::data::FitMode::Cover) => ObjectFit::Cover,
+                    (_, super::data::FitMode::Contain) => ObjectFit::Contain,
+                    (_, super::data::FitMode::Fill) => ObjectFit::Fill,
+                };
                 return gpui_kit::gpui::img(source)
                     .size_full()
                     // 与容器同比例，压制固有宽高比（否则竖图会被撑高裁切）
                     .aspect_ratio(ratio)
-                    .object_fit(ObjectFit::Contain)
+                    .object_fit(object_fit)
                     .rounded(px(MINI_INNER_R))
                     .into_any_element();
             }
@@ -480,7 +493,12 @@ impl MonitorsView {
                     .inset_0()
                     .rounded(px(MINI_INNER_R))
                     .overflow_hidden()
-                    .child(Self::screen_surface(item.as_ref(), geom.ratio, cx)),
+                    .child(Self::screen_surface(
+                        item.as_ref(),
+                        m.fit,
+                        geom.ratio,
+                        cx,
+                    )),
             )
             .when(assigned, |d| {
                 d.child(Self::status_chip(st_icon, st_label, dimmed))

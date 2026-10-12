@@ -191,7 +191,7 @@ svg{display:block}
 .screen-mini.glow,.screen-mini.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 10px 26px rgba(0,0,0,.22)}
 .screen-mini.drop-over{border-style:dashed;border-color:var(--accent)}
 .screen-mini .preview{position:absolute;inset:0}
-.screen-mini .preview canvas{position:absolute;inset:0;width:100%;height:100%}
+.screen-mini .preview canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .screen-mini .chip{
   position:absolute;top:8px;left:8px;z-index:2;display:inline-flex;align-items:center;gap:5px;
   padding:3px 9px;border-radius:999px;background:rgba(14,15,19,.55);
@@ -746,7 +746,11 @@ document.querySelector('.detail-strip .fps').onchange=e=>{
   MONOS[selectedMono].fps=parseInt(e.target.value,10)||60;renderMonitors();
 };
 document.querySelector('.detail-strip .fit').onchange=e=>{
-  MONOS[selectedMono].fit=e.target.value;renderMonitors();
+  MONOS[selectedMono].fit=e.target.value;
+  /* 预览跟随填充模式（§4.4 2026-10-12 v1.1：预览 = 实际效果，即时联动） */
+  const cv=document.querySelector('#mt-'+selectedMono+' canvas');
+  if(cv){cv.style.objectFit={'填充':'cover','适应':'contain','拉伸':'fill'}[e.target.value]||'cover';}
+  renderMonitors();
 };
 document.querySelector('.detail-strip [data-assign]').onclick=()=>{switchView('library');toast('在壁纸库双击即设为主显示器');};
 document.getElementById('btn-redetect').onclick=()=>{document.getElementById('new-mono').classList.add('visible');toast('已重新检测显示器');};
