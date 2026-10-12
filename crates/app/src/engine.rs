@@ -97,6 +97,11 @@ pub enum EngineAction {
     Remove { entry_id: String },
     /// 单显示器帧率上限（SessionManager::set_fps，§4.4）。
     SetMonitorFps { monitor_id: String, fps: u8 },
+    /// 单显示器填充模式（SessionManager::set_fit，§4.4 填充下拉，2026-10-12）。
+    SetMonitorFit {
+        monitor_id: String,
+        fit: gesso_core::Fit,
+    },
     /// 检查应用更新（§4.7；update 模块后台线程执行，open_modal = 兑现时开小窗）。
     UpdateCheck { open_modal: bool },
     /// 下载可用更新的安装包（仅 Available 态受理；进度经状态代数回灌）。

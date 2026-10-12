@@ -255,6 +255,15 @@
   }
 
   // ============ 分派 ============
+  // 填充模式（§4.4 填充下拉，2026-10-12）：spec.fit → object-fit。视频/图片消费；
+  // shader/html 画布铺满由内容作者控制，不适用。采集路径恒传 contain（全帧
+  // 语义钉死，卡片预览看全貌），因此默认值也是 contain——spec.fit 缺失时行为
+  // 与 0.1.1 及之前完全一致。
+  var objectFit = { cover: "cover", contain: "contain", fill: "fill" }[spec.fit] || "contain";
+  v.style.objectFit = objectFit;
+  img.style.objectFit = objectFit;
+  // 兜底冻结帧与主视频同 fit：合成层掉线时露出的画面取景与视频一致
+  document.getElementById("freeze").style.objectFit = objectFit;
   if (spec.kind === "video") {
     v.src = spec.source; v.play().catch(function () {});
     // 诊断探针（引擎 GESSO_VIDEO_DIAG=1 时每 5s 读取）：vfc=已合成视频帧计数
@@ -267,7 +276,7 @@
     // F11/调度桌面切换期间 AVPlayerLayer 会短暂退出合成，露页面底色（曾因此
     // 露调试绿底）。在视频下垫一块低频刷新的冻结帧画布：合成层掉线时看到的
     // 是壁纸最后一帧而非黑底。画布随视频原生宽高（长边封顶 1920 省内存），
-    // 覆盖几何交给 object-fit: cover。
+    // 覆盖几何与主视频同 object-fit（见分派段 spec.fit）。
     const fz = document.getElementById("freeze");
     const fx = fz.getContext("2d");
     v.addEventListener("loadedmetadata", function () {

@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use gesso_core::{
-    transfer, AppConfig, ContentSpec, LibraryEntry, PausePolicy, SessionEvent, SessionState,
+    transfer, AppConfig, ContentSpec, Fit, LibraryEntry, PausePolicy, SessionEvent, SessionState,
     WallpaperKind,
 };
 
@@ -218,24 +218,25 @@ impl SessionManager {
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))] // 仅 Windows 重挂载路径
     pub fn remount_all(&mut self) -> bool {
         // 先提取重建计划（避免 sessions/library 交叉借用），再逐个整窗重建
-        let plans: Vec<(String, MonitorInfo, LibraryEntry, u8)> = self
+        let plans: Vec<(String, MonitorInfo, LibraryEntry, u8, Fit)> = self
             .sessions
             .iter()
             .filter_map(|(mid, s)| {
                 let entry = self.library.iter().find(|e| e.id == s.entry_id).cloned()?;
                 let fps = self.fps_for(mid);
-                Some((mid.clone(), s.monitor.clone(), entry, fps))
+                let fit = self.fit_for(mid);
+                Some((mid.clone(), s.monitor.clone(), entry, fps, fit))
             })
             .collect();
         let mut all_ok = true;
-        for (mid, monitor, entry, fps) in plans {
+        for (mid, monitor, entry, fps, fit) in plans {
             let Some(s) = self.sessions.get_mut(&mid) else {
                 continue;
             };
             s.window = None; // 旧窗口多半已被 explorer 连带销毁；Drop 容忍 DestroyWindow 失败
-            match Self::build_window_only(&monitor, &entry) {
+            match Self::build_window_only(&monitor, &entry, fit) {
                 Ok(mut w) => {
-                    w.load(&Self::entry_host_url(&entry, fps));
+                    w.load(&Self::entry_host_url(&entry, fps, fit));
                     all_ok &= w.mount_ok();
                     s.window = Some(w);
                     s.applied_frame = Some(monitor.frame);
@@ -567,7 +568,8 @@ impl SessionManager {
             };
             let title = entry.title.clone();
             let fps = self.fps_for(&m.id);
-            match Self::build_session(m.clone(), entry.clone(), fps) {
+            let fit = self.fit_for(&m.id);
+            match Self::build_session(m.clone(), entry.clone(), fps, fit) {
                 Ok(s) => {
                     println!(
                         "[session] {} ← {}（{}，frame=({:.0},{:.0},{:.0}×{:.0})）",
@@ -610,7 +612,7 @@ impl SessionManager {
     }
 
     /// ContentSpec 构建（assign / set_fps / build_session 共用同一套字段映射）。
-    pub(crate) fn content_spec(entry: &LibraryEntry, fps: u8) -> ContentSpec {
+    pub(crate) fn content_spec(entry: &LibraryEntry, fps: u8, fit: Fit) -> ContentSpec {
         // 远端网页条目：source 就是 https URL 本身（宿主页 iframe 直装）；
         // 本地/WE 条目走 entry_main_source → gesso:// 资源 URL
         let main_source = match &entry.source_url {
@@ -618,7 +620,7 @@ impl SessionManager {
                 return ContentSpec {
                     kind: entry.kind,
                     source: url.clone(),
-                    fit: gesso_core::Fit::Cover,
+                    fit,
                     fps_cap: fps,
                     audio: gesso_core::AudioPolicy::Muted,
                     meta: gesso_core::SpecMeta {
@@ -638,7 +640,7 @@ impl SessionManager {
             } else {
                 crate::protocol::entry_url(entry, &main_source)
             },
-            fit: gesso_core::Fit::Cover,
+            fit,
             fps_cap: fps,
             audio: gesso_core::AudioPolicy::Muted,
             meta: gesso_core::SpecMeta {
@@ -651,8 +653,8 @@ impl SessionManager {
     /// 宿主页 URL：条目自包含 host 拷贝 + spec。
     /// shader 额外携带 code=（base64url 源码）：file:// 页面里 fetch/XHR 被
     /// WKWebView 拦截，查询参数不受限，源码随 URL 直达宿主页。
-    pub(crate) fn entry_host_url(entry: &LibraryEntry, fps: u8) -> String {
-        let spec = Self::content_spec(entry, fps);
+    pub(crate) fn entry_host_url(entry: &LibraryEntry, fps: u8, fit: Fit) -> String {
+        let spec = Self::content_spec(entry, fps, fit);
         let mut url = format!(
             "{}?spec={}",
             Self::ensure_entry_host(entry),
@@ -679,13 +681,24 @@ impl SessionManager {
             .unwrap_or(self.config.settings.fps_cap_default)
     }
 
+    /// 会话填充模式 = 显示器覆盖值 → 默认 Cover（§4.4 填充下拉，2026-10-12；
+    /// UI 快照与窗口构建共用同一解析）
+    pub(crate) fn fit_for(&self, monitor_id: &str) -> Fit {
+        self.config
+            .monitor_fit
+            .get(monitor_id)
+            .copied()
+            .unwrap_or(Fit::Cover)
+    }
+
     fn build_session(
         monitor: MonitorInfo,
         entry: LibraryEntry,
         fps: u8,
+        fit: Fit,
     ) -> gesso_core::Result<Session> {
-        let mut window = Self::build_window_only(&monitor, &entry)?;
-        let url = Self::entry_host_url(&entry, fps);
+        let mut window = Self::build_window_only(&monitor, &entry, fit)?;
+        let url = Self::entry_host_url(&entry, fps, fit);
         window.load(&url);
         // 原生视频窗忽略宿主页 URL（内容创建时定死，与 set_fps 跳过同款按 kind 判）
         if entry.kind != gesso_core::WallpaperKind::Video {
@@ -765,6 +778,7 @@ impl SessionManager {
         // 先在不可变阶段提取全部所需数据，再进入可变操作
         let entry = self.library.iter().find(|e| e.id == entry_id).cloned();
         let fps = self.fps_for(monitor_id);
+        let fit = self.fit_for(monitor_id);
         self.config
             .monitors
             .insert(monitor_id.into(), entry_id.into());
@@ -776,11 +790,11 @@ impl SessionManager {
                 s.entry_id = entry_id.into();
                 // 先建新窗再熄旧窗：构建失败保留旧壁纸（不变黑屏）；换窗前
                 // 显式 orderOut——AppKit 延迟 dealloc 的幽灵窗隐患与拆除同源
-                if let Ok(mut w) = Self::build_window_only(&s.monitor, &entry) {
+                if let Ok(mut w) = Self::build_window_only(&s.monitor, &entry, fit) {
                     if let Some(old) = s.window.as_mut() {
                         old.set_visible(false);
                     }
-                    w.load(&Self::entry_host_url(&entry, fps));
+                    w.load(&Self::entry_host_url(&entry, fps, fit));
                     s.window = Some(w);
                     s.applied_frame = Some(s.monitor.frame);
                     s.state = transfer(s.state, SessionEvent::Loaded);
@@ -806,8 +820,9 @@ impl SessionManager {
     fn build_window_only(
         monitor: &MonitorInfo,
         entry: &LibraryEntry,
+        fit: Fit,
     ) -> gesso_core::Result<Box<dyn WallpaperWindow>> {
-        pin::create_wallpaper_window(monitor, entry)
+        pin::create_wallpaper_window(monitor, entry, fit)
     }
 
     /// 设置更新（设置页全部即时生效：写内存 + 落盘，§4.5）
@@ -853,7 +868,7 @@ impl SessionManager {
             let _ = self.save_config();
             return;
         }
-        let url = Self::entry_host_url(&entry, fps);
+        let url = Self::entry_host_url(&entry, fps, self.fit_for(monitor_id));
         // 落配置
         self.config.monitor_fps.insert(monitor_id.into(), fps);
         let _ = self.save_config();
@@ -864,6 +879,51 @@ impl SessionManager {
             }
         }
         println!("[session] {monitor_id} 帧率上限 = {fps} fps（热重载）");
+    }
+
+    /// 单显示器填充模式（§4.4 填充下拉，2026-10-12）：写配置 + 按类型即时生效——
+    /// 视频 = 原生窗活切换（macOS gravity / Windows 渲染线程原子量，不重建窗）；
+    /// 图片 = 热重载宿主页（object-fit 随 spec 生效，同 set_fps 路径）；
+    /// shader/html 由内容作者控制画布语义，fit 不适用（UI 置灰），只落配置。
+    pub fn set_fit(&mut self, monitor_id: &str, fit: Fit) {
+        self.config.monitor_fit.insert(monitor_id.into(), fit);
+        let _ = self.save_config();
+        let Some(entry_id) = self.config.monitors.get(monitor_id) else {
+            return;
+        };
+        let Some(entry) = self
+            .library
+            .iter()
+            .find(|e| e.id == *entry_id)
+            .cloned()
+        else {
+            return;
+        };
+        // 图片的热重载 URL 先于窗口可变借用构建（fps_for 需要不可变借 self）
+        let reload_url = match entry.kind {
+            WallpaperKind::Image => {
+                Some(Self::entry_host_url(&entry, self.fps_for(monitor_id), fit))
+            }
+            _ => None,
+        };
+        let window = self
+            .sessions
+            .get_mut(monitor_id)
+            .and_then(|s| s.window.as_mut());
+        match entry.kind {
+            WallpaperKind::Video => {
+                if let Some(w) = window {
+                    w.set_fit(fit);
+                }
+            }
+            WallpaperKind::Image => {
+                if let (Some(w), Some(url)) = (window, reload_url) {
+                    w.load(&url);
+                }
+            }
+            _ => {}
+        }
+        println!("[session] {monitor_id} 填充模式 = {fit:?}");
     }
 
     /// 从库移除条目：清单 + 显示器映射 + 会话一并拆除。目录清理（§7 移除语义,

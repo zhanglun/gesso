@@ -127,7 +127,10 @@ fn spawn_capture_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: Wallp
                     .iter()
                     // 采集队列键 = 缩略图家目录（本地/WE = source_dir；远端 = 库内 <id>/）
                     .find(|e| encoding::thumb_home(e) == dir)
-                    .map(|e| session::SessionManager::entry_host_url(e, 60))
+                    // 采集恒按适应（Contain）全帧语义——卡片预览看全貌，不随壁纸
+                    // 填充模式走（§4.4 2026-10-12；Windows 抽帧 drawImage 读像素
+                    // 不吃 CSS，macOS 快照吃——统一钉死保证帧契约同构）
+                    .map(|e| session::SessionManager::entry_host_url(e, 60, gesso_core::Fit::Contain))
             });
             let written = match url {
                 Some(url) => {
@@ -458,6 +461,7 @@ fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) ->
                     _ => ui::data::PlayState::UserPaused,
                 },
                 fps: sm.fps_for(&m.id) as u32,
+                fit: ui::data::FitMode::from_core(sm.fit_for(&m.id)),
                 real_id: m.id.clone(),
             }
         })
@@ -728,6 +732,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
             println!("[engine] {monitor_id} fps = {fps}");
             sm.set_fps(&monitor_id, fps);
+        }
+        engine::EngineAction::SetMonitorFit { monitor_id, fit } => {
+            println!("[engine] {monitor_id} fit = {fit:?}");
+            sm.set_fit(&monitor_id, fit);
         }
         engine::EngineAction::FocusMainWindow => out.focus_main = true,
         // 软件更新（§4.7）：检查/下载在 update 模块自有线程执行（阻塞 IO），

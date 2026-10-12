@@ -30,23 +30,28 @@
 //! 子资源 URL（spec.source）由 `protocol::entry_url` 引擎侧直接产出 workaround 形态。
 
 use std::num::NonZero;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use windows::core::{w, Interface as _, BOOL, PCWSTR};
+use windows::core::{w, Interface as _, BOOL, PCSTR, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDeviceAndSwapChain, ID3D11Texture2D, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION,
+    D3D11CreateDeviceAndSwapChain, ID3D11Buffer, ID3D11PixelShader, ID3D11RenderTargetView,
+    ID3D11SamplerState, ID3D11ShaderResourceView, ID3D11Texture2D, ID3D11VertexShader,
+    D3D11_BIND_CONSTANT_BUFFER, D3D11_BIND_SHADER_RESOURCE, D3D11_BUFFER_DESC,
+    D3D11_COMPARISON_NEVER, D3D11_CREATE_DEVICE_FLAG, D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+    D3D11_SAMPLER_DESC, D3D11_SDK_VERSION, D3D11_TEXTURE_ADDRESS_CLAMP, D3D11_TEXTURE2D_DESC,
+    D3D11_USAGE_DEFAULT, D3D11_VIEWPORT,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_MODE_SCALING_UNSPECIFIED,
+    DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_MODE_SCALING_UNSPECIFIED,
     DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::{
-    IDXGISwapChain1, DXGI_PRESENT, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-    DXGI_USAGE_RENDER_TARGET_OUTPUT,
+    IDXGISwapChain1, DXGI_PRESENT, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_FLAG,
+    DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_USAGE_RENDER_TARGET_OUTPUT,
 };
 use windows::Win32::Graphics::Gdi::{
     CreateSolidBrush, EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, DISPLAY_DEVICEW,
@@ -63,11 +68,11 @@ use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerforma
 use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows, FindWindowExW, FindWindowW,
-    GetWindowRect, IsWindowVisible, RegisterClassW, RegisterWindowMessageW, SendMessageTimeoutW,
-    SetLayeredWindowAttributes, SetParent, SetWindowPos, ShowWindow, HTTRANSPARENT, HWND_BOTTOM,
-    LWA_ALPHA, MONITORINFOF_PRIMARY, SMTO_NORMAL, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA,
-    WINDOW_EX_STYLE, WM_DISPLAYCHANGE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
+    GetClientRect, GetWindowRect, IsWindowVisible, RegisterClassW, RegisterWindowMessageW,
+    SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowPos, ShowWindow,
+    HTTRANSPARENT, HWND_BOTTOM, LWA_ALPHA, MONITORINFOF_PRIMARY, SMTO_NORMAL, SWP_NOACTIVATE,
+    SW_HIDE, SW_SHOWNA, WINDOW_EX_STYLE, WM_DISPLAYCHANGE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
 };
 
 use super::{MonitorInfo, WallpaperWindow};
@@ -820,10 +825,17 @@ pub struct WinVideoWindow {
     stop: Arc<AtomicBool>,
     /// 暂停旗（全屏/电池/锁屏自动暂停 → 冻结当前帧，窗口常驻）
     paused: Arc<AtomicBool>,
+    /// 填充模式（§4.4 填充下拉，2026-10-12）：0=Cover 1=Contain 2=Fill。
+    /// 渲染线程每帧读取，活切换不重建窗。
+    fit: Arc<AtomicU8>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
-pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> Result<WinVideoWindow> {
+pub fn create_video_window(
+    monitor: &MonitorInfo,
+    url: &str,
+    fit: gesso_core::Fit,
+) -> Result<WinVideoWindow> {
     ensure_pin_env();
 
     let (mx, my, mw, mh) = (
@@ -874,8 +886,9 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> Result<WinVideoW
 
     let stop = Arc::new(AtomicBool::new(false));
     let paused = Arc::new(AtomicBool::new(false));
+    let fit_code = Arc::new(AtomicU8::new(fit_code(fit)));
     let thread = {
-        let (stop, paused) = (stop.clone(), paused.clone());
+        let (stop, paused, fit_code) = (stop.clone(), paused.clone(), fit_code.clone());
         let url = url.to_string();
         // HWND 原始句柄值跨线程传递（重建于渲染线程内）
         let hwnd_raw = hwnd.0 as isize;
@@ -883,7 +896,13 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> Result<WinVideoW
             std::thread::Builder::new()
                 .name("win-video".into())
                 .spawn(move || {
-                    video_render_thread(HWND(hwnd_raw as *mut core::ffi::c_void), url, stop, paused)
+                    video_render_thread(
+                        HWND(hwnd_raw as *mut core::ffi::c_void),
+                        url,
+                        stop,
+                        paused,
+                        fit_code,
+                    )
                 })
                 .map_err(|e| GessoError::UnsupportedPlatform(format!("渲染线程: {e}")))?,
         )
@@ -894,8 +913,18 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> Result<WinVideoW
         mount: std::cell::Cell::new(kind),
         stop,
         paused,
+        fit: fit_code,
         thread,
     })
+}
+
+/// Fit → 渲染线程原子量（spec::Fit 序列化顺序无关，此处为本模块内契约）。
+fn fit_code(fit: gesso_core::Fit) -> u8 {
+    match fit {
+        gesso_core::Fit::Cover => 0,
+        gesso_core::Fit::Contain => 1,
+        gesso_core::Fit::Fill => 2,
+    }
 }
 
 impl WallpaperWindow for WinVideoWindow {
@@ -905,6 +934,10 @@ impl WallpaperWindow for WinVideoWindow {
 
     fn set_paused(&mut self, paused: bool) {
         self.paused.store(paused, Ordering::Relaxed);
+    }
+
+    fn set_fit(&mut self, fit: gesso_core::Fit) {
+        self.fit.store(fit_code(fit), Ordering::Relaxed);
     }
 
     fn set_visible(&mut self, visible: bool) {
@@ -965,10 +998,17 @@ impl Drop for WinVideoWindow {
     }
 }
 
-/// 渲染线程：MF 解码（独占 MTA 套间）→ UpdateSubresource → flip-model Present。
+/// 渲染线程：MF 解码（独占 MTA 套间）→ UpdateSubresource（帧纹理）→
+/// quad 上屏 → flip-model Present。
 /// D3D11 即时上下文非线程安全——只在生命期内由本线程独占使用；
 /// 窗口位置/显隐在主线程（会话层），只动窗口不动 D3D 对象。
-fn video_render_thread(hwnd: HWND, url: String, stop: Arc<AtomicBool>, paused: Arc<AtomicBool>) {
+fn video_render_thread(
+    hwnd: HWND,
+    url: String,
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    fit: Arc<AtomicU8>,
+) {
     unsafe {
         // MF 媒体管线偏好 MTA；D3D11/swapchain 的 Present 都在本线程
         let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -980,7 +1020,7 @@ fn video_render_thread(hwnd: HWND, url: String, stop: Arc<AtomicBool>, paused: A
             eprintln!("[pin-video] MFStartup 失败：{e}");
             return;
         }
-        let r = video_render_loop(hwnd, &url, &stop, &paused);
+        let r = video_render_loop(hwnd, &url, &stop, &paused, &fit);
         if let Err(e) = r {
             eprintln!("[pin-video] 渲染线程退出：{e} (0x{:08X})", e.code().0);
         }
@@ -1021,21 +1061,29 @@ unsafe fn video_render_loop(
     url: &str,
     stop: &Arc<AtomicBool>,
     paused: &Arc<AtomicBool>,
+    fit: &Arc<AtomicU8>,
 ) -> windows::core::Result<()> {
     MFStartup(MF_VERSION, 0)?;
 
-    // 首建 reader 探测原生帧尺寸 → swapchain 同尺寸（缩放交给 DWM，GPU 承担；
-    // MF 软件 VideoProcessor 缩放实测恒定烧 ~1 核，全程零缩放后消失）
+    // 首建 reader 探测原生帧尺寸（帧纹理同尺寸，解码保持零缩放——MF 软件
+    // VideoProcessor 缩放实测恒定烧 ~1 核；上屏缩放由本 quad 管线 GPU 承担）
     let probe = create_video_reader(url)?;
     let native = probe.GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32)?;
     let packed = native.GetUINT64(&MF_MT_FRAME_SIZE)?;
     let (nw, nh) = ((packed >> 32) as i32, (packed & 0xffff_ffff) as i32);
     drop(probe);
 
+    // swapchain = 窗口客户区（物理像素）。此前按视频帧尺寸建、整缓冲交给
+    // DWM 拉伸——那条路不辨长宽比，比例不合 = 变形（§4.4 填充下拉的引入
+    // 动机）。改本管线上屏后 swapchain 必须与窗口同尺寸；几何变化由主循环
+    // 的客户区检查 + ResizeBuffers 追赶（set_frame 只动窗口不重建管线）。
+    let mut rc = RECT::default();
+    GetClientRect(hwnd, &mut rc)?;
+    let (cw0, ch0) = ((rc.right - rc.left).max(1), (rc.bottom - rc.top).max(1));
     let desc = DXGI_SWAP_CHAIN_DESC {
         BufferDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_MODE_DESC {
-            Width: nw as u32,
-            Height: nh as u32,
+            Width: cw0 as u32,
+            Height: ch0 as u32,
             RefreshRate: DXGI_RATIONAL {
                 Numerator: 0,
                 Denominator: 0,
@@ -1076,9 +1124,70 @@ unsafe fn video_render_loop(
         context.unwrap(),
         swapchain.unwrap().cast::<IDXGISwapChain1>()?,
     );
-    let _ = &device;
 
-    let backbuffer: ID3D11Texture2D = swapchain.GetBuffer(0)?;
+    // quad 管线：全屏大三角着色器 + 帧纹理 SRV + 线性采样 + fit 常量缓冲
+    let vs_code = compile_shader(VIDEO_VS, windows::core::s!("vsMain"), windows::core::s!("vs_5_0"))?;
+    let ps_code = compile_shader(VIDEO_PS, windows::core::s!("psMain"), windows::core::s!("ps_5_0"))?;
+    let mut vs = None;
+    device.CreateVertexShader(blob_bytes(&vs_code), None, Some(&mut vs))?;
+    let mut ps = None;
+    device.CreatePixelShader(blob_bytes(&ps_code), None, Some(&mut ps))?;
+    let (vs, ps) = (vs.unwrap(), ps.unwrap());
+
+    let frame_desc = D3D11_TEXTURE2D_DESC {
+        Width: nw as u32,
+        Height: nh as u32,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+        CPUAccessFlags: 0,
+        MiscFlags: 0,
+    };
+    let mut frame_tex: Option<ID3D11Texture2D> = None;
+    device.CreateTexture2D(&frame_desc, None, Some(&mut frame_tex))?;
+    let frame_tex = frame_tex.unwrap();
+    let mut srv = None;
+    device.CreateShaderResourceView(&frame_tex, None, Some(&mut srv))?;
+    let srv = srv.unwrap();
+    let sampler_desc = D3D11_SAMPLER_DESC {
+        Filter: D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+        AddressU: D3D11_TEXTURE_ADDRESS_CLAMP,
+        AddressV: D3D11_TEXTURE_ADDRESS_CLAMP,
+        AddressW: D3D11_TEXTURE_ADDRESS_CLAMP,
+        MipLODBias: 0.0,
+        MaxAnisotropy: 1,
+        ComparisonFunc: D3D11_COMPARISON_NEVER,
+        BorderColor: [0.0; 4],
+        MinLOD: 0.0,
+        MaxLOD: f32::MAX,
+    };
+    let mut sampler = None;
+    device.CreateSamplerState(&sampler_desc, Some(&mut sampler))?;
+    let sampler = sampler.unwrap();
+    let cbuf_desc = D3D11_BUFFER_DESC {
+        ByteWidth: 16, // 4×f32（HLSL cbuffer 16 字节对齐）
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
+        CPUAccessFlags: 0,
+        MiscFlags: 0,
+        StructureByteStride: 0,
+    };
+    let mut cbuf: Option<ID3D11Buffer> = None;
+    device.CreateBuffer(&cbuf_desc, None, Some(&mut cbuf))?;
+    let cbuf = cbuf.unwrap();
+
+    let mut backbuffer: Option<ID3D11Texture2D> = Some(swapchain.GetBuffer(0)?);
+    let mut rtv: Option<ID3D11RenderTargetView> = None;
+    device.CreateRenderTargetView(backbuffer.as_ref().unwrap(), None, Some(&mut rtv))?;
+
+    // 变更检测基线：fit=MAX/尺寸=0 强制首帧装配常量与视口
+    let (mut cur_fit, mut cur_w, mut cur_h) = (u8::MAX, 0i32, 0i32);
     let mut qpf = 0i64;
     let _ = QueryPerformanceFrequency(&mut qpf);
     let mut loops = 0u64;
@@ -1095,6 +1204,43 @@ unsafe fn video_render_loop(
             std::thread::sleep(Duration::from_millis(50));
             continue;
         }
+        // 几何/填充变更检测（每圈一次）：窗口客户区 vs swapchain、fit 原子量
+        // vs 基线。暂停期不检查不重绘 = 冻结契约不变，切换在恢复播放时生效。
+        let f = fit.load(Ordering::Relaxed);
+        let _ = GetClientRect(hwnd, &mut rc);
+        let (cw, ch) = ((rc.right - rc.left).max(1), (rc.bottom - rc.top).max(1));
+        if f != cur_fit || (cw, ch) != (cur_w, cur_h) {
+            if (cw, ch) != (cur_w, cur_h) {
+                // 先释放缓冲全部引用再 ResizeBuffers（D3D 硬性前提）
+                rtv = None;
+                backbuffer = None;
+                swapchain.ResizeBuffers(
+                    0,
+                    cw as u32,
+                    ch as u32,
+                    DXGI_FORMAT_UNKNOWN,
+                    DXGI_SWAP_CHAIN_FLAG(0),
+                )?;
+                backbuffer = Some(swapchain.GetBuffer(0)?);
+                let mut view = None;
+                device.CreateRenderTargetView(backbuffer.as_ref().unwrap(), None, Some(&mut view))?;
+                rtv = view;
+            }
+            let consts = fit_constants(f.min(2), nw, nh, cw, ch);
+            context.UpdateSubresource(&cbuf, 0, None, consts.as_ptr().cast(), 0, 0);
+            cur_fit = f;
+            cur_w = cw;
+            cur_h = ch;
+        }
+        let rtv_ref = rtv.as_ref().expect("rtv 随 swapchain 装配");
+        let viewport = D3D11_VIEWPORT {
+            TopLeftX: 0.0,
+            TopLeftY: 0.0,
+            Width: cur_w as f32,
+            Height: cur_h as f32,
+            MinDepth: 0.0,
+            MaxDepth: 1.0,
+        };
         loops += 1;
         if loops > 1 {
             eprintln!("[pin-video] 第 {loops} 圈：重建 SourceReader 循环重播");
@@ -1165,12 +1311,110 @@ unsafe fn video_render_loop(
                 }
             }
 
-            context.UpdateSubresource(&backbuffer, 0, None, data as *const _, nw as u32 * 4, 0);
+            context.UpdateSubresource(&frame_tex, 0, None, data as *const _, nw as u32 * 4, 0);
             let _ = buffer.Unlock();
+            // 黑底清屏（contain 留边可见）→ quad 绘制 → vsync Present。
+            // 每帧成本较 0.1.1 只多一次全屏 draw + clear，Present(1)/PTS 节拍不动。
+            context.OMSetRenderTargets(Some(&[Some(rtv_ref.clone())]), None);
+            context.RSSetViewports(Some(&[viewport]));
+            context.ClearRenderTargetView(rtv_ref, &[0.0, 0.0, 0.0, 1.0]);
+            context.VSSetShader(&vs, None);
+            context.PSSetShader(&ps, None);
+            context.PSSetSamplers(0, Some(&[Some(sampler.clone())]));
+            context.PSSetShaderResources(0, Some(&[Some(srv.clone())]));
+            context.Draw(3, 0);
             swapchain.Present(1, DXGI_PRESENT(0)).ok()?;
         }
     }
     Ok(())
+}
+
+// 填充模式 quad 着色器（§4.4 填充下拉，2026-10-12）：VS 用 SV_VertexID 生成
+// 全屏大三角（免顶点缓冲）；PS 按常量 (scale, offset) 把画布 UV 逆变换到源帧
+// UV 采样，越界落黑 = contain 留边。cover 裁切与 fill 拉伸是同一数学的退化情形。
+const VIDEO_VS: &str = r#"
+void vsMain(uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEXCOORD0) {
+  float2 p = float2((id << 1) & 2, id & 2);
+  uv = p;
+  pos = float4(p * float2(2.0, 2.0) - float2(1.0, 1.0), 0.0, 1.0);
+}
+"#;
+
+const VIDEO_PS: &str = r#"
+Texture2D src : register(t0);
+SamplerState samp : register(s0);
+cbuffer fit : register(b0) {
+  float2 scale;
+  float2 offset;
+};
+float4 psMain(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
+  float2 tuv = (uv - offset) / scale;
+  if (tuv.x < 0.0 || tuv.y < 0.0 || tuv.x > 1.0 || tuv.y > 1.0) {
+    return float4(0.0, 0.0, 0.0, 1.0);
+  }
+  return src.Sample(samp, tuv);
+}
+"#;
+
+/// 填充模式常量（画布 UV 空间）：画入矩形占画布的比例 (dw, dh) 与居中偏移。
+/// cover = max 比例（≥1，居中裁切）；contain = min 比例（≤1，居中留边）；
+/// fill = 恒等铺满。编码 0=Cover 1=Contain 2=Fill（与 fit_code 同一契约）。
+fn fit_constants(fit: u8, fw: i32, fh: i32, cw: i32, ch: i32) -> [f32; 4] {
+    let (fw, fh) = (fw.max(1) as f32, fh.max(1) as f32);
+    let (cw, ch) = (cw.max(1) as f32, ch.max(1) as f32);
+    let (dw, dh) = match fit {
+        1 => {
+            let s = (cw / fw).min(ch / fh);
+            (fw * s / cw, fh * s / ch)
+        }
+        0 => {
+            let s = (cw / fw).max(ch / fh);
+            (fw * s / cw, fh * s / ch)
+        }
+        _ => (1.0, 1.0),
+    };
+    [dw, dh, (1.0 - dw) / 2.0, (1.0 - dh) / 2.0]
+}
+
+/// d3dcompiler_47 运行时编译（OS 内建组件；入口 C ABI 手写绑定——本文件的
+/// Windows 侧代码在 macOS 上不可编译验证，依赖面越小越稳）。
+unsafe fn compile_shader(
+    src: &str,
+    entry: PCSTR,
+    target: PCSTR,
+) -> windows::core::Result<windows::Win32::Graphics::Direct3D::ID3DBlob> {
+    use windows::Win32::Graphics::Direct3D::ID3DBlob;
+    let mut blob: Option<ID3DBlob> = None;
+    let mut err: Option<ID3DBlob> = None;
+    let hr = windows::Win32::Graphics::Direct3D::Fxc::D3DCompile(
+        src.as_ptr().cast(),
+        src.len(),
+        PCSTR::null(),
+        None,
+        None,
+        entry,
+        target,
+        0,
+        0,
+        &mut blob,
+        Some(&mut err),
+    );
+    if let Err(e) = hr {
+        let msg = err
+            .map(|b| {
+                let (p, n) = (b.GetBufferPointer(), b.GetBufferSize());
+                String::from_utf8_lossy(std::slice::from_raw_parts(p.cast::<u8>(), n)).into_owned()
+            })
+            .unwrap_or_default();
+        eprintln!("[pin-video] 着色器编译失败：{msg}");
+        return Err(e);
+    }
+    Ok(blob.expect("D3DCompile 成功必产出 blob"))
+}
+
+/// 编译产物 → 字节码切片（CreateVertexShader/CreatePixelShader 入参）。
+unsafe fn blob_bytes(blob: &windows::Win32::Graphics::Direct3D::ID3DBlob) -> &[u8] {
+    std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize())
 }
 
 #[cfg(test)]

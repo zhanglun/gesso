@@ -304,9 +304,24 @@ pub struct MacVideoWindow {
     _window: Retained<NSWindow>,
     _looper: Retained<objc2_av_foundation::AVPlayerLooper>,
     player: Retained<objc2_av_foundation::AVQueuePlayer>,
+    layer: Retained<objc2_av_foundation::AVPlayerLayer>,
 }
 
-pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Result<MacVideoWindow> {
+/// 填充模式 → AVLayerVideoGravity（§4.4 填充下拉，2026-10-12）。
+/// Fill = 无视比例铺满（变形）；Cover = 等比裁切铺满；Contain = 信箱完整显示。
+pub fn video_gravity(fit: gesso_core::Fit) -> &'static str {
+    match fit {
+        gesso_core::Fit::Cover => "AVLayerVideoGravityResizeAspectFill",
+        gesso_core::Fit::Contain => "AVLayerVideoGravityResizeAspect",
+        gesso_core::Fit::Fill => "AVLayerVideoGravityResize",
+    }
+}
+
+pub fn create_video_window(
+    monitor: &MonitorInfo,
+    url: &str,
+    fit: gesso_core::Fit,
+) -> gesso_core::Result<MacVideoWindow> {
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
     let window = make_pin_window(mtm);
@@ -315,17 +330,14 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Resu
 
     let content = window.contentView().expect("contentView 缺失");
     // SAFETY: 主线程；AVFoundation 家族方法按文档语义调用
-    let (player, looper) = unsafe {
+    let (player, looper, layer) = unsafe {
         use objc2_av_foundation::{AVPlayerItem, AVPlayerLayer, AVPlayerLooper, AVQueuePlayer};
         use objc2_foundation::{NSArray, NSString};
         let player = AVQueuePlayer::queuePlayerWithItems(&NSArray::new(), mtm);
         let layer = AVPlayerLayer::playerLayerWithPlayer(Some(&player));
-        // 适配（contain）语义：与宿主页 object-fit:contain 一致。比例吻合的素材
-        // 两种模式渲染相同（满屏）；不吻合的信箱显示——壁纸窗纯黑底，黑边隐形，
-        // 竖版/超宽素材不再被裁切成中间切片
-        layer.setVideoGravity(&objc2_foundation::NSString::from_str(
-            "AVLayerVideoGravityResizeAspect",
-        ));
+        // 适配语义 = 填充下拉（§4.4，默认 Cover 裁切铺满；2026-10-12 前恒为
+        // contain——比例吻合的素材各模式渲染相同，不吻合时按用户选择裁切/信箱/变形）
+        layer.setVideoGravity(&objc2_foundation::NSString::from_str(video_gravity(fit)));
         content.setWantsLayer(true);
         content.setLayer(Some(&layer));
         // 媒体 URL：http:// 回环（内存直供）或 file:// 回落，均为完整 URL 形态
@@ -335,7 +347,7 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Resu
         let looper = AVPlayerLooper::playerLooperWithPlayer_templateItem(&player, &item);
         player.setMuted(true); // AudioPolicy::Muted（技术方案 §5.1）
         player.play();
-        (player, looper)
+        (player, looper, layer)
     };
     // 与 webview 窗同一纪律：创建保持隐藏，几何落位由会话收敛器统一复显
     //（AVPlayer 在不可见窗口中照常解码，点亮即有画面）
@@ -344,6 +356,7 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Resu
         _window: window,
         _looper: looper,
         player,
+        layer,
     })
 }
 
@@ -360,6 +373,14 @@ impl WallpaperWindow for MacVideoWindow {
             } else {
                 self.player.play();
             }
+        }
+    }
+
+    fn set_fit(&mut self, fit: gesso_core::Fit) {
+        // SAFETY: 主线程（会话层在主循环调用）；gravity 切换即时生效不重建窗
+        unsafe {
+            self.layer
+                .setVideoGravity(&objc2_foundation::NSString::from_str(video_gravity(fit)));
         }
     }
 

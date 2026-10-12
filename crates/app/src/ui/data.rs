@@ -105,6 +105,49 @@ pub struct MonitorEntry {
     pub wallpaper: Option<SharedString>,
     pub state: PlayState,
     pub fps: u32,
+    /// 填充模式（详情条下拉；真源 = core Fit，快照回灌）。
+    pub fit: FitMode,
+}
+
+/// 填充模式（§4.4 详情条下拉，2026-10-12；真源 = core Fit 三态）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum FitMode {
+    /// 填充（cover）：等比放大裁切铺满，无黑边——默认。
+    #[default]
+    Cover,
+    /// 适应（contain）：完整显示不裁切，比例不合留边。
+    Contain,
+    /// 拉伸（fill）：无视比例铺满，比例不合变形。
+    Fill,
+}
+
+impl FitMode {
+    /// 下拉选项（文案唯一出处 = strings）。
+    pub fn label(self) -> &'static str {
+        match self {
+            FitMode::Cover => super::strings::FIT_COVER(),
+            FitMode::Contain => super::strings::FIT_CONTAIN(),
+            FitMode::Fill => super::strings::FIT_FILL(),
+        }
+    }
+
+    /// core Fit → UI 投影（快照回灌唯一映射点）。
+    pub fn from_core(fit: gesso_core::Fit) -> Self {
+        match fit {
+            gesso_core::Fit::Cover => FitMode::Cover,
+            gesso_core::Fit::Contain => FitMode::Contain,
+            gesso_core::Fit::Fill => FitMode::Fill,
+        }
+    }
+
+    /// UI 投影 → core Fit（动作入队唯一映射点）。
+    pub fn to_core(self) -> gesso_core::Fit {
+        match self {
+            FitMode::Cover => gesso_core::Fit::Cover,
+            FitMode::Contain => gesso_core::Fit::Contain,
+            FitMode::Fill => gesso_core::Fit::Fill,
+        }
+    }
 }
 
 /// 全屏/电池时的策略（设置页下拉）。

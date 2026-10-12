@@ -6,6 +6,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Added
 
+- **填充模式（§4.4 填充下拉）**：显示器页详情条新增填充下拉——填充（cover，默认）/ 适应（contain）/ 拉伸（fill），按屏持久化、切换即时生效。此前壁纸本体硬编码 contain（比例不合留黑边），且 Windows 原生视频 swapchain 按帧尺寸建、整缓冲交 DWM 拉伸（比例不合变形）——双平台语义不一致。现默认与 WE / 系统桌面习惯对齐（裁切铺满）：macOS 视频窗映射 AVLayerVideoGravity 三态活切换；Windows 视频渲染引入全屏 quad 管线（swapchain 改窗口客户区尺寸 + UV 常量采样，几何/填充变更逐圈追赶，Present(1)/PTS 节拍不变）；图片经 spec.fit 直达宿主页 object-fit；shader/html 由内容作者控制画布语义，下拉置灰。采集管线恒按适应全帧语义钉死，缩略图契约不变。
+
 ### Changed
 
 ### Fixed

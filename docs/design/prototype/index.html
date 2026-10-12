@@ -435,6 +435,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           <div class="acts">
             <button class="btn secondary" data-assign="0">更换</button>
             <button class="btn secondary" id="mtg-0" data-toggle="0">暂停</button>
+            <select class="sel fit" data-fit="0" title="填充：裁切铺满（默认） · 适应：完整显示留边 · 拉伸：无视比例铺满"><option>填充</option><option>适应</option><option>拉伸</option></select>
             <select class="sel num fps" data-fps="0"><option>60 fps</option><option>30 fps</option><option>15 fps</option><option>5 fps</option></select>
           </div>
         </div>
@@ -498,7 +499,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 <script>
 /* ================== 数据（演示素材，规格 §7 诚实标注） ================== */
-const MONOS=[{name:'主显示器',short:'主屏',paused:false,pausedBy:null,res:'1512×982',fps:60},{name:'副显示器',short:'副屏',paused:false,pausedBy:'full',res:'1920×1080',fps:30}];
+const MONOS=[{name:'主显示器',short:'主屏',paused:false,pausedBy:null,res:'1512×982',fps:60,fit:'填充'},{name:'副显示器',short:'副屏',paused:false,pausedBy:'full',res:'1920×1080',fps:30,fit:'填充'}];
 MONOS[1].paused=true;
 const LIB=[
   {id:'nebula',   name:'Nebula Drift',  type:'视频',  we:false, meta:'4K · 12s',   assign:0, kind:'nebula',  desc:'缓慢漂移的星云（演示视频）'},
@@ -714,13 +715,18 @@ function renderDetail(){
   const st=document.getElementById('ds-st');
   const tg=document.querySelector('.detail-strip [data-toggle]');
   const fps=document.querySelector('.detail-strip .fps');
+  const fit=document.querySelector('.detail-strip .fit');
   fps.value=m.fps+' fps';
   if(!w){
     st.className='st';st.innerHTML='<span style="color:var(--text-2)">未指派</span>';
-    tg.style.display='none';fps.style.display='none';
+    tg.style.display='none';fps.style.display='none';fit.style.display='none';
     return;
   }
-  tg.style.display='';fps.style.display='';
+  tg.style.display='';fps.style.display='';fit.style.display='';
+  /* 填充下拉（§4.4 2026-10-12）：视频/图片/动图可调；shader/网页由内容作者控制 → 置灰 */
+  fit.value=m.fit||'填充';
+  fit.disabled=['Shader','网页'].includes(w.type);
+  fit.title=fit.disabled?'该类型由内容自身决定填充':'填充：裁切铺满（默认） · 适应：完整显示留边 · 拉伸：无视比例铺满';
   const run=m.paused;
   const ic=run?(m.pausedBy==='full'?I.full:m.pausedBy==='batt'?I.batt:I.pause):I.play;
   const txt=run?(m.pausedBy==='full'?'全屏应用中':m.pausedBy==='batt'?'电池省电':'已暂停'):'播放中';
@@ -738,6 +744,9 @@ document.querySelector('.detail-strip [data-toggle]').onclick=()=>{
 };
 document.querySelector('.detail-strip .fps').onchange=e=>{
   MONOS[selectedMono].fps=parseInt(e.target.value,10)||60;renderMonitors();
+};
+document.querySelector('.detail-strip .fit').onchange=e=>{
+  MONOS[selectedMono].fit=e.target.value;renderMonitors();
 };
 document.querySelector('.detail-strip [data-assign]').onclick=()=>{switchView('library');toast('在壁纸库双击即设为主显示器');};
 document.getElementById('btn-redetect').onclick=()=>{document.getElementById('new-mono').classList.add('visible');toast('已重新检测显示器');};

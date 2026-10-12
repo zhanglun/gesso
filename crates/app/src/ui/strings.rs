@@ -81,6 +81,10 @@ pub struct Texts {
     pub set_fullscreen: &'static str,
     pub set_fullscreen_desc: &'static str,
     pub set_battery: &'static str,
+    /// 填充模式（§4.4 详情条下拉，2026-10-12）。
+    pub fit_cover: &'static str,
+    pub fit_contain: &'static str,
+    pub fit_fill: &'static str,
     pub set_idle_downclock: &'static str,
     pub set_idle_desc: &'static str,
     pub set_autolaunch: &'static str,
@@ -230,6 +234,10 @@ pub const ZH: Texts = Texts {
     policy_pause: "暂停",
     policy_downclock: "降帧至 5 fps",
     policy_ignore: "忽略",
+
+    fit_cover: "填充",
+    fit_contain: "适应",
+    fit_fill: "拉伸",
 
     tray_pause_all: "暂停全部壁纸",
     tray_random: "随机换一张",
@@ -382,6 +390,10 @@ pub const EN: Texts = Texts {
     policy_pause: "Pause",
     policy_downclock: "Downclock to 5 fps",
     policy_ignore: "Ignore",
+
+    fit_cover: "Fill",
+    fit_contain: "Fit",
+    fit_fill: "Stretch",
 
     tray_pause_all: "Pause all wallpapers",
     tray_random: "Shuffle",
@@ -566,6 +578,7 @@ accessors! {
     kind_video => KIND_VIDEO, kind_gif => KIND_GIF, kind_photo => KIND_PHOTO,
     kind_shader => KIND_SHADER, kind_web => KIND_WEB,
     policy_pause => POLICY_PAUSE, policy_downclock => POLICY_DOWNCLOCK, policy_ignore => POLICY_IGNORE,
+    fit_cover => FIT_COVER, fit_contain => FIT_CONTAIN, fit_fill => FIT_FILL,
     tray_pause_all => TRAY_PAUSE_ALL, tray_random => TRAY_RANDOM,
     tray_main_window => TRAY_MAIN_WINDOW, tray_autostart => TRAY_AUTOSTART, tray_quit => TRAY_QUIT,
     mon_main => MON_MAIN, mon_main_short => MON_MAIN_SHORT, meta_builtin => META_BUILTIN,

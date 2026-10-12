@@ -64,9 +64,18 @@ struct MiniGeom {
 pub struct MonitorsView {
     /// 每块屏一个帧率下拉（§4.4：FPS 下拉 60/30/15/5）。
     fps_selects: Vec<Entity<SelectState<SearchableVec<String>>>>,
+    /// 每块屏一个填充下拉（§4.4 填充下拉 2026-10-12：填充/适应/拉伸）。
+    fit_selects: Vec<Entity<SelectState<SearchableVec<String>>>>,
     /// 详情条展示的屏；None = 跟随主屏。
     selected: Option<usize>,
 }
+
+/// 填充下拉选项（顺序 = FitMode 投影序；label 唯一出处 = strings）。
+const FIT_MODES: [super::data::FitMode; 3] = [
+    super::data::FitMode::Cover,
+    super::data::FitMode::Contain,
+    super::data::FitMode::Fill,
+];
 
 impl MonitorsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -115,8 +124,46 @@ impl MonitorsView {
                 entity
             })
             .collect();
+        let fit_selects = monitors_snapshot
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let items = SearchableVec::new(FIT_MODES.map(|f| f.label().to_string()).to_vec());
+                let selected = FIT_MODES.iter().position(|f| *f == m.fit).unwrap_or(0);
+                let entity = cx
+                    .new(|cx| SelectState::new(items, Some(IndexPath::new(selected)), window, cx));
+                // 真 UI 控件（§4.4 填充下拉）：确认即入队引擎动作——视频活切换
+                // （原生窗 set_fit）、图片热重载宿主页；只改本地投影会漂移（同
+                // SetMonitorFps 的教训）
+                let real_id = m.real_id.clone();
+                cx.subscribe(
+                    &entity,
+                    move |_, _, event: &SelectEvent<SearchableVec<String>>, cx| {
+                        if let SelectEvent::Confirm(Some(v)) = event {
+                            if let Some(fit) = FIT_MODES.iter().find(|f| f.label() == v).copied() {
+                                cx.update_global::<GessoState, _>(|g, _| {
+                                    if let Some(m) = g.monitors.get_mut(i) {
+                                        m.fit = fit;
+                                    }
+                                });
+                                crate::engine::enqueue(
+                                    crate::engine::EngineAction::SetMonitorFit {
+                                        monitor_id: real_id.clone(),
+                                        fit: fit.to_core(),
+                                    },
+                                );
+                                cx.notify();
+                            }
+                        }
+                    },
+                )
+                .detach();
+                entity
+            })
+            .collect();
         MonitorsView {
             fps_selects,
+            fit_selects,
             selected: None,
         }
     }
@@ -655,6 +702,19 @@ impl MonitorsView {
         // 更换：跳库页并带上当前壁纸作为上下文
         let change_ctx = m.wallpaper.clone();
         let toggle_real_id = m.real_id.clone();
+        // 填充下拉（§4.4 2026-10-12）：仅视频/图片类可调；shader/网页画布语义
+        // 由内容作者控制 → 置灰（配置仍保留，切换指派后语义恢复）
+        let fit_select = self.fit_selects.get(sel).map(|s| {
+            let authored = item.as_ref().is_some_and(|it| {
+                matches!(it.kind, super::data::Kind::Shader | super::data::Kind::Web)
+            });
+            div().w(px(72.)).child(
+                Select::new(s)
+                    .with_size(KitSize::Small)
+                    .appearance(true)
+                    .disabled(authored),
+            )
+        });
         let fps_select = self.fps_selects.get(sel).map(|s| {
             div().w(px(96.)).child(
                 // 详情条控件统一 Small（§1.2 工艺基准；Medium 32px 在 12px 状态行旁头重脚轻）
@@ -767,6 +827,7 @@ impl MonitorsView {
                                     }
                                 }),
                         )
+                        .children(fit_select)
                         .children(fps_select)
                 }
             })
