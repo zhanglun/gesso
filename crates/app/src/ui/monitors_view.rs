@@ -68,6 +68,10 @@ pub struct MonitorsView {
     fit_selects: Vec<Entity<SelectState<SearchableVec<String>>>>,
     /// 详情条展示的屏；None = 跟随主屏。
     selected: Option<usize>,
+    /// 小像自身悬停（视图本地，按屏索引）。不进 GessoState——悬停小像曾把
+    /// 壁纸 ID 写进 g.hovered（库卡悬停的跨页指认字段），同壁纸指派多屏时
+    /// hover 一块、全部同壁纸小像一起描边，且点击换选后旧屏描边不退（v1.1 反馈）。
+    mini_hover: Option<usize>,
 }
 
 /// 填充下拉选项（顺序 = FitMode 投影序；label 唯一出处 = strings）。
@@ -165,6 +169,7 @@ impl MonitorsView {
             fps_selects,
             fit_selects,
             selected: None,
+            mini_hover: None,
         }
     }
 
@@ -399,8 +404,14 @@ impl MonitorsView {
             .and_then(|wid| state(cx).library.iter().find(|it| &it.id == wid))
             .cloned();
         let assigned = item.is_some();
-        // 描边只在显式点选时出现——默认跟随主屏不描边（持续蓝框 = 视觉噪音）
+        // 描边只在显式点选时出现——默认跟随主屏不描边（持续蓝框 = 视觉噪音）。
+        // 描边语义只有两个：glow（库卡悬停 → 对应小像，按壁纸 ID 跨页指认）与
+        // 选中；小像自身 hover = 仅投影抬升（原型 .screen-mini:hover 契约），
+        // 状态源是本视图的 mini_hover（按屏索引）——此前小像 hover 把壁纸 ID
+        // 写进 g.hovered（glow 的字段），同壁纸指派多屏时 hover 一块全部点亮、
+        // 点击换选后旧屏描边不退（v1.1 反馈）
         let is_selected = self.selected == Some(i);
+        let is_hovered = self.mini_hover == Some(i);
 
         // 状态胶囊（§5 状态矩阵投影；与托盘角标一致）
         let (st_icon, st_label, dimmed) = match (&item, m.state) {
@@ -413,7 +424,6 @@ impl MonitorsView {
 
         // 拖放底色（拖拽库卡片到屏上放手 = 指派）
         let (dz_accent, dz_accent_soft) = (t.accent, t.accent_soft);
-        let wallpaper = m.wallpaper.clone();
 
         div()
             .id(SharedString::from(format!("screen-{i}")))
@@ -431,7 +441,7 @@ impl MonitorsView {
                 t.hairline2
             })
             .when(assigned, |d| d.shadow_md())
-            .when(glow, |d| d.shadow_lg())
+            .when(glow || is_hovered, |d| d.shadow_lg())
             .when(!assigned, |d| d.border_dashed().bg(t.panel).shadow_none())
             .drag_over::<CardDrag>(move |s, _, _, _| {
                 s.border_color(dz_accent).border_dashed().bg(dz_accent_soft)
@@ -440,18 +450,15 @@ impl MonitorsView {
                 super::library_view::assign_from_drop(&drag.item_id, i, window, cx);
             })
             .on_hover({
-                // 悬停小像 → 描边库页对应卡片（in-window 版 signature #1）
-                let wallpaper = wallpaper.clone();
-                cx.listener(move |_, hovering: &bool, window, cx| {
-                    update(window, cx, |g| {
-                        g.hovered = if *hovering {
-                            wallpaper.clone()
-                        } else if g.hovered == wallpaper {
-                            None
-                        } else {
-                            g.hovered.clone()
-                        };
-                    });
+                // 悬停小像 = 仅投影抬升（视图本地态；描边语义见上）。不写
+                // g.hovered——那是库卡悬停的跨页指认字段，小像写入会串扰描边、
+                // 切库页时残留卡片悬停态
+                cx.listener(move |this, hovering: &bool, _, cx| {
+                    let next = if *hovering { Some(i) } else { None };
+                    if this.mini_hover != next {
+                        this.mini_hover = next;
+                        cx.notify();
+                    }
                 })
             })
             .on_click(cx.listener(move |this, _, window, cx| {
