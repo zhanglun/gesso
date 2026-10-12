@@ -22,6 +22,8 @@
 //! 崩溃对账路径上多屏同指派一张壁纸时逐屏原值无法消歧（恢复为同一张）；
 //! 硬杀时离线的屏其存储的桌面偏好仍是桥接图，无法远程修复。
 
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
