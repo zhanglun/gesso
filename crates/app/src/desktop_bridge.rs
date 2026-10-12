@@ -21,6 +21,13 @@
 //! 已知边界（设计取舍，如实入档）：SIGKILL/断电来不及恢复，残留到下次启动；
 //! 崩溃对账路径上多屏同指派一张壁纸时逐屏原值无法消歧（恢复为同一张）；
 //! 硬杀时离线的屏其存储的桌面偏好仍是桥接图，无法远程修复。
+//!
+//! **台账原值可能死掉**（2026-10-12 实测）：壁纸轮换工具（如 pavo：10 分钟
+//! 轮换 + 7 天清缓存）会在接管期间删掉被记录的原值文件——恢复时
+//! `setDesktopImageURL` 对死路径必然失败（NSCocoaErrorDomain Code=4）且
+//! 「永不覆盖」纪律会让死记录永续。两道自愈：acquire 时死记录视同无记录
+//! （当前是活用户壁纸则重记）；restore 时死原值回退系统默认桌面
+//! `DefaultDesktop.heic`（跨版本稳定的系统间接引用）。
 
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
@@ -53,16 +60,40 @@ fn path_stem(p: &str) -> &str {
         .unwrap_or("")
 }
 
+/// 系统默认桌面图：跨版本稳定的系统间接引用（Sonoma+ 壁纸代理也认它），
+/// 作死原值的回退恢复目标。
+#[cfg(target_os = "macos")]
+const SYSTEM_DEFAULT_DESKTOP: &str = "/System/Library/CoreServices/DefaultDesktop.heic";
+
+/// 恢复目标决议：台账原值文件仍在 → 原值；已消失（轮换工具清理/用户删除）
+/// → 回退系统默认桌面；默认也不在 → None（无恢复目标，落日志留台账）。
+fn restore_target(original: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+    if exists(original) {
+        return Some(original.to_string());
+    }
+    #[cfg(target_os = "macos")]
+    return exists(SYSTEM_DEFAULT_DESKTOP).then(|| SYSTEM_DEFAULT_DESKTOP.to_string());
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 /// acquire 后台账应持有的原值；None = 读不到现状且无记录，无法保证可恢复，
 /// 跳过接管。规则见模块注释「acquire 三态」——核心是**首次记录定原值，
 /// 之后永不覆盖**（重入/换壁纸/多屏同指派/用户手改都不改写）。
+/// 例外：已记录的原值文件已不存在（`original_alive` 判否）→ 视同无记录，
+/// 有活值则重记——死路径恢复必然失败，抱着只会把死记录永续。
 fn acquire_original(
     current: Option<&str>,
     entry_id: &str,
     bridge_dir: &Path,
     ledger: &Ledger,
+    original_alive: impl Fn(&str) -> bool,
 ) -> Option<String> {
-    let known = ledger.entries.get(entry_id).cloned();
+    let known = ledger
+        .entries
+        .get(entry_id)
+        .cloned()
+        .filter(|p| original_alive(p));
     match current {
         None => known,
         Some(c) if is_bridge_path(bridge_dir, c) => {
@@ -206,9 +237,13 @@ impl DesktopBridge {
             .and_then(|u| u.path())
             .map(|p| p.to_string());
         // 原值判定先于任何写入；无法保证可恢复（读不到且无记录）则不接管
-        let Some(original) =
-            acquire_original(current.as_deref(), &entry.id, &self.dir, &self.ledger)
-        else {
+        let Some(original) = acquire_original(
+            current.as_deref(),
+            &entry.id,
+            &self.dir,
+            &self.ledger,
+            |p| Path::new(p).exists(),
+        ) else {
             println!(
                 "[bridge] {} 原壁纸不可读且无记录，跳过接管（安全优先）",
                 entry.id
@@ -255,6 +290,9 @@ impl DesktopBridge {
         let ws = objc2_app_kit::NSWorkspace::sharedWorkspace();
         let screens = crate::pin::macos::screens();
         let mut restored: BTreeSet<String> = BTreeSet::new();
+        // 第①步实际发起过恢复（成功或失败，失败必落日志）的条目——第②步
+        // 对它们保持沉默，不再打出「疑似用户已改」的误导消息
+        let mut attempted: BTreeSet<String> = BTreeSet::new();
         // ① 内容扫描：桌面图仍是我们的桥接图 → 恢复（用户手改过的屏 URL
         //    已不是我们的 → 自然跳过，绝不覆盖，评审 B2）
         for (info, screen) in &screens {
@@ -276,21 +314,35 @@ impl DesktopBridge {
                 println!("[bridge] 桥接图无台账记录（硬杀丢台账），无法恢复：{url}");
                 continue;
             };
-            let orig_url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(&original));
+            attempted.insert(stem.clone());
+            let Some(target) = restore_target(&original, |p| Path::new(p).exists()) else {
+                println!(
+                    "[bridge] {stem} 原壁纸已不存在（{original}）且无系统默认桌面可回退，留台账待对账"
+                );
+                continue;
+            };
+            if target != original {
+                println!("[bridge] {stem} 原壁纸已消失（{original}），回退系统默认桌面");
+            }
+            let orig_url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(&target));
             let empty = objc2_foundation::NSDictionary::new();
-            // SAFETY: 主线程，存活 screen，orig 指向台账记录的有效文件
-            let ok =
-                unsafe { ws.setDesktopImageURL_forScreen_options_error(&orig_url, screen, &empty) }
-                    .is_ok();
-            if ok {
-                println!("[bridge] {} 恢复系统壁纸 → {original}", info.id);
-                restored.insert(stem);
+            // SAFETY: 主线程，存活 screen，target 指向已确认存在的文件
+            match unsafe { ws.setDesktopImageURL_forScreen_options_error(&orig_url, screen, &empty) }
+            {
+                Ok(()) => {
+                    println!("[bridge] {} 恢复系统壁纸 → {target}", info.id);
+                    restored.insert(stem);
+                }
+                Err(e) => println!("[bridge] {} 恢复失败（{target}）：{e:?}", info.id),
             }
         }
         // ② 绑定兜底：本进程刚写入（LAG_WINDOW 内）但读回滞后的屏——
         //    按显示器 ID 直接恢复；窗口外读不到我们的图视为用户已改，不动
         for (monitor_id, (entry_id, at)) in self.last_set.clone() {
-            if only.is_some_and(|o| entry_id != o) || restored.contains(&entry_id) {
+            if only.is_some_and(|o| entry_id != o)
+                || restored.contains(&entry_id)
+                || attempted.contains(&entry_id)
+            {
                 continue;
             }
             let recent = at.elapsed() < LAG_WINDOW;
@@ -304,7 +356,13 @@ impl DesktopBridge {
                 println!("[bridge] {monitor_id} 桌面图非桥接帧（疑似用户已改），跳过恢复");
                 continue;
             }
-            let orig_url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(&original));
+            let Some(target) = restore_target(&original, |p| Path::new(p).exists()) else {
+                println!(
+                    "[bridge] {entry_id} 原壁纸已不存在（{original}）且无系统默认桌面可回退，留台账待对账"
+                );
+                continue;
+            };
+            let orig_url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(&target));
             let empty = objc2_foundation::NSDictionary::new();
             // SAFETY: 同上
             let ok =
@@ -312,7 +370,7 @@ impl DesktopBridge {
                     .is_ok();
             if ok {
                 println!(
-                    "[bridge] {monitor_id} 读回滞后兜底恢复（{}）→ {original}",
+                    "[bridge] {monitor_id} 读回滞后兜底恢复（{}）→ {target}",
                     info.id
                 );
                 restored.insert(entry_id);
@@ -485,39 +543,83 @@ mod tests {
         let user_wp = "/Users/u/Pictures/wall.jpg";
         let e1_img = "/cfg/bridge/e1.png";
         let e2_img = "/cfg/bridge/e2.png";
+        let alive = |_: &str| true;
 
         // 首接管用户壁纸 → 记录
         assert_eq!(
-            acquire_original(Some(user_wp), "e1", dir, &Ledger::default()),
+            acquire_original(Some(user_wp), "e1", dir, &Ledger::default(), alive),
             Some(user_wp.to_string())
         );
         // 重入（已是本条目桥接图）→ 保持已有记录
         let l = ledger(&[("e1", user_wp)]);
         assert_eq!(
-            acquire_original(Some(e1_img), "e1", dir, &l),
+            acquire_original(Some(e1_img), "e1", dir, &l, alive),
             Some(user_wp.to_string())
         );
         // 同屏换壁纸（屏上还是旧条目 e1 的桥接图，接管新条目 e2）→ 继承
         // e1 记录的原值
         assert_eq!(
-            acquire_original(Some(e1_img), "e2", dir, &l),
+            acquire_original(Some(e1_img), "e2", dir, &l, alive),
             Some(user_wp.to_string())
         );
         // 屏上是本条目桥接图但台账无记录（硬杀丢台账）→ 无法保证可恢复，
         // 跳过接管（安全优先）
-        assert_eq!(acquire_original(Some(e2_img), "e2", dir, &l), None);
+        assert_eq!(acquire_original(Some(e2_img), "e2", dir, &l, alive), None);
         // 已有记录时永不覆盖（多屏同指派第二次 acquire / 用户手改后重放）
         let other_user_wp = "/Users/u/Pictures/other.jpg";
         assert_eq!(
-            acquire_original(Some(other_user_wp), "e1", dir, &l),
+            acquire_original(Some(other_user_wp), "e1", dir, &l, alive),
             Some(user_wp.to_string())
         );
         // 读不到当前桌面且有记录 → 沿用；无记录 → 跳过接管（安全优先）
         assert_eq!(
-            acquire_original(None, "e1", dir, &l),
+            acquire_original(None, "e1", dir, &l, alive),
             Some(user_wp.to_string())
         );
-        assert_eq!(acquire_original(None, "e2", dir, &l), None);
+        assert_eq!(acquire_original(None, "e2", dir, &l, alive), None);
+    }
+
+    #[test]
+    fn acquire_original_dead_record_refreshes() {
+        let dir = Path::new("/cfg/bridge");
+        let dead = "/Users/u/Pictures/gone.jpg";
+        let live = "/Users/u/Pictures/fresh.jpg";
+        let l = ledger(&[("e1", dead)]);
+        let alive = |p: &str| p == live;
+
+        // 台账原值文件已消失（轮换工具清缓存）+ 当前是活用户壁纸 → 重记当前
+        assert_eq!(
+            acquire_original(Some(live), "e1", dir, &l, alive),
+            Some(live.to_string())
+        );
+        // 记录存活时永不覆盖语义不变（原值文件还在）
+        let all_alive = |_: &str| true;
+        assert_eq!(
+            acquire_original(Some(live), "e1", dir, &l, all_alive),
+            Some(dead.to_string())
+        );
+        // 当前读不到 + 记录已死 → 无可恢复保证，跳过接管（安全优先）
+        assert_eq!(acquire_original(None, "e1", dir, &l, alive), None);
+        // 屏上是我们的桥接图（重入）+ 记录已死且无继承 → 跳过接管
+        let bridge_img = "/cfg/bridge/e1.png";
+        assert_eq!(acquire_original(Some(bridge_img), "e1", dir, &l, alive), None);
+    }
+
+    #[test]
+    fn restore_target_falls_back_to_system_default() {
+        let default = "/System/Library/CoreServices/DefaultDesktop.heic";
+        // 原值在 → 原值
+        assert_eq!(
+            restore_target("/u/wall.jpg", |p| p != default),
+            Some("/u/wall.jpg".to_string())
+        );
+        // 原值死 + 默认在 → 回退默认
+        assert_eq!(
+            restore_target("/u/gone.jpg", |p| p == default),
+            Some(default.to_string())
+        );
+        // 原值死 + 默认也不在 → 无恢复目标
+        assert_eq!(restore_target("/u/gone.jpg", |_| false), None);
     }
 
     #[test]
