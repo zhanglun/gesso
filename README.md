@@ -5,7 +5,7 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 
 [AGENTS.md](AGENTS.md)（AI 会话指南） · [简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [FAQ](docs/FAQ.md) · [Contributing](CONTRIBUTING.md)
 
-> **Status: v0.1.1 release candidate** — release assets are prepared; the `v0.1.1` tag has not been pushed yet. (macOS dmg / Windows installer + portable zip, unsigned).
+> **Status: v0.1.1 released (2026-10-12)** — [GitHub Releases](https://github.com/zhanglun/gesso/releases) (macOS dmg / Windows installer + portable zip, unsigned).
 > macOS and Windows are working (Windows verified on single-display hardware). Everything below is verified on real hardware unless marked otherwise.
 
 ---
@@ -96,7 +96,7 @@ Key rule: **wallpaper windows are native windows we own, not GPUI windows.** GPU
 | Doc | Contents |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers, window model, pinning parameters, content pipeline, state machine, security |
-| [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | Architecture rules, 15 verified pitfalls, key paths, commands |
+| [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | Architecture rules, the verified pitfall ledger, key paths, commands |
 | [crates/app/API.md](crates/app/API.md) | The interface UI code uses to talk to the engine |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones, current status, known gaps |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local development & debugging guide (logs, diagnostics, troubleshooting) |

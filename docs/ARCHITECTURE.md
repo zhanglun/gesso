@@ -99,8 +99,8 @@ Pure function `transfer(state, event)`; every transition is unit-tested. Session
 
 ## 5. Engine ↔ UI data flow
 
-- **Writes**: UI/tray enqueue `EngineAction` (`Assign`, `PauseOne`, `PauseAll`, `Import`, `UpdateSettings`, `SetAutostart`, `CycleMain`, `SyncMonitors`, `FocusMainWindow`). One poller (150 ms) executes them against the `SessionManager` — single writer, no UI-side optimistic updates (a failed assign must run the engine's fallback path).
-- **Reads**: `snapshot_ui(&sm)` projects engine state into the UI global after any action and on monitor changes (~2 s diff poll for hot-plug).
+- **Writes**: UI/tray enqueue `EngineAction` — the authoritative action set lives in [API.md](../crates/app/API.md) (assign / pause / import / settings / update-check and friends). One poller (150 ms) executes them against the `SessionManager` — single writer, no UI-side optimistic updates (a failed assign must run the engine's fallback path).
+- **Reads**: `snapshot_ui(&sm)` projects engine state into the UI global after any action and on topology changes (epoch-driven convergence — see §2).
 - Menu/tray events arrive on handlers without GPUI context — everything funnels through the queue. (Toggling booleans in handlers must use `fetch_xor`, not `swap(true)`: see pitfalls.)
 
 ## 6. Security model
@@ -117,5 +117,5 @@ Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from
 ## 8. Where the deeper history lives
 
 - `SPIKE-REPORT.md` — the three feasibility spikes and 14 API facts extracted from them.
-- `docs/ENGINEERING-NOTES.md` — binding rules + the pitfall ledger (~20 entries).
+- `docs/ENGINEERING-NOTES.md` — binding rules + the pitfall ledger (§2, continuously appended).
 - Design archive (interaction spec, visual tokens, prototype) is maintained alongside the project author; the repo carries its engineering conclusions.

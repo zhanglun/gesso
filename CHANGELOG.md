@@ -10,7 +10,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Fixed
 
-## [0.1.1] - 2026-10-11
+## [0.1.1] - 2026-10-12
 
 ### Fixed
 
@@ -32,6 +32,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 - **桌面桥接（重配过渡无缝化，默认开启）**：Gesso 在屏期间把系统桌面壁纸接管为当前壁纸的静态帧，显示器重配时由静态帧兜底；退出、取消指派、关闭设置开关或使用托盘逃生门时恢复原壁纸。台账按条目保存，用户手动更换壁纸时不覆盖用户选择，硬杀残留由下次启动对账。
 - **应用自更新（§4.7 软件更新）**：启动后与每 24 小时静默检查 GitHub Releases，设置页和托盘支持手动检查，提供检查、发现、下载、完成、失败等状态和多层通知；更新下载官方安装包后交由系统安装，不做静默自替换。debug 构建提供 `GESSO_UPDATE_MODAL=1` 与 `GESSO_UPDATE_AUTO_DL=1` 验证钩子。
+- 帧率诊断开关 `GESSO_VIDEO_DIAG=1`（双平台）：每 5 秒打印视频上屏帧数、页面渲染节拍和丢帧数，播放类问题先量化再动手。
 
 ### Changed
 
@@ -42,10 +43,6 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - 缩略图启动即开始生成（此前要等 30 秒），生成中显示 spinner，重试耗尽退回类型图标，不假装在加载。
 - 关闭管理窗口改为隐藏进托盘（回归设计规格）；release 构建改 GUI 子系统，双击不再弹终端黑窗。
 - 移除「查看详情」菜单项：它只是把卡片上已有的三条信息再弹一次 toast。
-
-### Added
-
-- 帧率诊断开关 `GESSO_VIDEO_DIAG=1`（双平台）：每 5 秒打印视频上屏帧数、页面渲染节拍和丢帧数，播放类问题先量化再动手。
 
 ## [0.1.0] - 2026-10-07
 

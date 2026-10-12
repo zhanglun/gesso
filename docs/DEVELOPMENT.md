@@ -25,7 +25,7 @@
 ```bash
 cargo build -p gesso-app                  # 构建
 cargo run   -p gesso-app                  # 运行（托盘 + 管理窗口 + 壁纸）
-cargo test  -p gesso-core -p gesso-app    # 单测（core 20 项 + app 31 项）
+cargo test  -p gesso-core -p gesso-app    # 单测（core + app 全量）
 cargo clippy -p gesso-core --all-targets -- -D warnings
 cargo fmt -p gesso-core
 pkill -f "target/debug/gesso"             # 退出（有单实例锁）
@@ -56,14 +56,14 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 1. **截图权限**：系统设置 → 隐私与安全性 → 屏幕录制 → 给终端授权。未授权时 `screencapture` 只拍到桌面壁纸，像素判读全部失真（本项目踩过的最大的坑）。
 2. **验证窗口存在**：`osascript -e 'tell application "System Events" to tell process "gesso" to get {position, size, name} of every window'`
 3. **别用裁剪截图测像素**——窗口可能不在你以为的位置（曾因此误判三轮）。要么用 `screencapture -R x,y,w,h` 精确到窗口区域，要么直接看屏幕。
-4. **区分"加载失败"与"播放失败"**：宿主页内置诊断色——红=媒体错误、绿=播放中、蓝=已加载但暂停、品红=调用过 pause、橙=resume。颜色即状态。
+4. **区分“加载失败”与“播放失败”**：看 `[session]` / `[protocol]` 日志与 `GESSO_VIDEO_DIAG=1` 帧率探针。宿主页调试底色已于 0.1.1 移除（它正是 F11 绿屏的根因，教训见工程笔记 §2，勿再引入）。
 5. **运动判据**：间隔 1.5s 截两帧比 sha256——相同=静止（视频没播），不同=在播。注意测试图源（testsrc2）本身大部分区域是暗色，均值接近系统壁纸，**别用均值下结论**。
 
 ### 3.2 壁纸窗口挂载诊断（DIAG）
 
 `pin/macos.rs::create` 与会话轮询内置了真值打印：窗口 level / visible / occluded / frame、contentView 与每个 subview 的 frame、webview 当前 URL。排查"窗口在不在、webview 挂没挂、几何对不对"直接看 `[diag]` 行。
 
-已钉死的事实：level 必须是 `-2147483604`（图标层下缘之下）；窗口 `origin.y` 会被 GPUI 坐标换算压到 `-30`——当前由 `session` 轮询里的 webview 偏移补偿（见 `force/补偿` 逻辑与 ENGINEERING-NOTES §2 的 swap 教训）。
+已钉死的事实：level 必须是 `-2147483604`（图标层下缘之下）。壁纸窗口是纯 AppKit 窗口（非 GPUI），几何由 session 的 epoch 收敛施加（见 ARCHITECTURE §2）。
 
 ### 3.3 探针页技巧
 
@@ -79,7 +79,7 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 ### 3.5 宿主页调试
 
 宿主页没有 devtools 入口（v1），调试手段：
-- 页面状态写进**背景色**（§3.1 的诊断色即此思路）；
+- ~~页面状态写进背景色~~（诊断色已于 0.1.1 移除——F11 绿屏根因，勿再引入）；
 - `evaluate_script` 从 Rust 侧注入探针：`wv.evaluate_script("document.title = JSON.stringify(window.__gesso_state)")` 后读窗口标题；
 - 视频/媒体问题先查 MIME（`protocol.rs::mime_of`）与相对路径——webview 按扩展名判定类型。
 
@@ -87,11 +87,11 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 
 | 症状 | 根因 | 处置 |
 |------|------|------|
-| 桌面纯白 | 宿主页加载失败（协议/URL 非法） | 看 `[protocol]` 日志；检查路径编码（空格！） |
+| 桌面纯白 | 宿主页加载失败（协议/URL 非法） | 看 `[protocol]` 日志；资源经 gesso:// 路由，路径由 handler 内部解析 |
 | 桌面显示系统壁纸（静止） | webview 未挂载 / 页面透明 | `[diag]` 看 subview 数量与 frame；查创建顺序（§4.1 顺序陷阱） |
 | 壁纸不动（有画面） | 自动播放被策略拦截 / 视频解码失败 | 确认 `with_autoplay(true)`；看宿主页诊断色 |
 | 图标点不动 | 穿透标志丢失 | 查 `setIgnoresMouseEvents(true)` 是否生效 |
-| 顶部菜单栏带露馅 | 窗口 `origin.y` 被 GPUI 压到 -30 | 确认几何补偿逻辑在轮询中生效（M2 记录） |
+| 顶部菜单栏带露馅 | 窗口几何未按全屏 frame（含菜单栏带）施加 | 看 `[diag]` 行 frame；托盘「重新检测显示器」（走 epoch 收敛） |
 | explorer/ Finder 重启后壁纸消失 | 重钉逻辑未触发 | 查 `TaskbarCreated`（Win）/ 空间通知（mac）监听 |
 | 双实例叠影 | 单实例锁被 `GESSO_LOCK` 绕过 | `pkill -f gesso` 清场后重跑 |
 
@@ -101,8 +101,7 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 cargo build --release -p gesso-app
 ```
 
-- macOS：`target/release/gesso` 单文件即可运行；.app 打包与 DMG 是 M3 后续（见技术方案 §11）。
-- Windows：`GPUI_DISABLE_DIRECT_COMPOSITION=1` 环境变量是 WebView2 渲染的前提（gpui-kit 官方示例同款要求），打包脚本需写入。
+打包与发布已自动化：`packaging/macos/build_dmg.sh`、`packaging/windows/build_portable.ps1` + NSIS 安装包；推 `v*` tag 由 `.github/workflows/release.yml` 出产物（见 docs/RELEASE-CHECKLIST.md），本地也可直接跑这两个脚本。Windows 的 `GPUI_DISABLE_DIRECT_COMPOSITION=1` 由 `main()` 自行设置，无需手工配置。
 
 ## 6. 相关文档
 

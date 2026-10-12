@@ -9,12 +9,12 @@ Gesso：跨平台（Windows/macOS）动态壁纸引擎——视频/动图/Shader
 
 ## 必读文档（按顺序）
 
-1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 5 条架构规则 + 25 条实测踩坑，改代码前先读。
+1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 架构规则 + 实测踩坑台账（§2 随修随记），改代码前先读。
 2. **[crates/app/API.md](crates/app/API.md)** —— UI 层唯一允许调用的引擎接口。
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** —— 分层、窗口模型、贴壁参数、状态机。
 4. **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 当前进度与已知缺口。
-5. **[docs/design/](docs/design/)** —— 设计归档：交互规格（界面与交互设计.md，已冻结 v1.0）、视觉 token（DESIGN.md）、**可点击 HTML 原型**（prototype/index.html，视觉契约）、完整工程方案（技术方案.md，14 章）+ 5 张架构/流程图。
-6. **[docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)** —— 0.1 发布操作清单（打包/签名/公证/发布）。
+5. **[docs/design/](docs/design/)** —— 设计归档：交互规格（界面与交互设计.md，已冻结 v1.0）、视觉 token（DESIGN.md）、**可点击 HTML 原型**（prototype/index.html，视觉契约）、完整工程方案（技术方案.md，14 章）+ 6 张架构/流程图。
+6. **[docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)** —— 发布操作清单与流水记录（产物不签名/不公证，流程已自动化）。
 
 ## 硬性规则（历史事故的浓缩，全文见工程笔记 §1–§2）
 
@@ -78,6 +78,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ 0.1.x 反馈修复（2026-10-10）：视频窗 2pt 外扩与媒体 ≤256MB 内存直供均为刻意行为（勿当 bug/泄漏清除），唤醒后显示器 ID 重编按几何平移（sync_monitors 内置守卫）；细节见工程笔记 §2 与 CHANGELOG
 - ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（根因：gpui img 固有宽高比撑高被裁，显式 `.aspect_ratio` 压制）；缩略图启动即生成 + spinner；清单解析失败 exit 78 保文件；锁屏自动暂停省电；移除冗余「查看详情」菜单项
 - ✅ **0.1.0 已发布**（2026-10-07）：GitHub Actions 自动打包发布（macOS dmg / Windows 便携 zip / checksums）；ad-hoc 签名未公证；发布流程见 `docs/RELEASE-CHECKLIST.md`，打包脚本在 `packaging/`
+- ✅ **0.1.1 已发布**（2026-10-12）：反馈修复版——Windows 启动闪退（#2）、双平台视频原生管线、epoch 多屏收敛、桌面桥接、应用自更新等（全量见 CHANGELOG）；产物新增 Windows 安装包（NSIS）
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 

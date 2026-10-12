@@ -34,7 +34,7 @@ Gesso 0.1.1 修复版本的发布清单。按顺序执行；每条都是可勾�
 - [x] `cargo fmt --all --check` 通过。
 - [x] `cargo clippy -p gesso-core --all-targets -- -D warnings` 通过。
 - [x] `cargo test -p gesso-core -p gesso-app`：全绿。
-- [ ] CI 在 `macos-latest` + `windows-latest` 全绿（待 GitHub Actions 检查）。
+- [x] CI 在 `macos-latest` + `windows-latest` 全绿（[run 38194624529](https://github.com/zhanglun/gesso/actions/runs/38194624529)，2026-10-12）。
 - [x] 无遗留调试代码（grep `diag` / `println!` / 临时代码块）。
 - [x] 无大文件 / 临时产物入库（`thumb*.png`、`/tmp` 夹具、`*.bundle`）。
 
@@ -67,7 +67,7 @@ Gesso 0.1.1 修复版本的发布清单。按顺序执行；每条都是可勾�
   - [x] 新建空的 `[Unreleased]`（`Added/Changed/Fixed` 子标题）。
   - [x] "Known limitations" 与 ROADMAP 现状一致。
 - [x] 更新 README 状态行（如"early development"→"0.1 stable/beta"）。
-- [ ] 发布收口提交：`chore(release): 0.1.1`（**先不打 tag**，产物验证后再打）。
+- [x] 发布收口提交：`chore(release): 0.1.1`（`2b50eb2` + `74996ee` Windows 构建修复）。
 
 ## 阶段 4 & 5 — 两平台打包脚本（CI 调用，本地也能跑）
 
@@ -95,39 +95,46 @@ packaging\windows\build_portable.ps1   # 打成 Gesso-<version>-x64-portable.zip
 
 ## 阶段 6 — 触发 CI 发布
 
-- [ ] **（推荐先干跑）** Actions 页手动触发 **Release** workflow（`workflow_dispatch`）：
-      只跑两平台打包并上传为构建 artifact，**不创建 Release**。确认两平台都能打包成功。
+- [x] **（推荐先干跑）** Actions 页手动触发 **Release** workflow（`workflow_dispatch`）：
+      只跑两平台打包并上传为构建 artifact，**不创建 Release**。确认两平台都能打包成功
+      （[run 38195110710](https://github.com/zhanglun/gesso/actions/runs/38195110710)，2026-10-12，三产物齐全）。
 - [x] 确认 release notes 文件就位：`packaging/release-notes/v0.1.1.md`
       （workflow 按 tag 名 `body_path: packaging/release-notes/<tag>.md` 读取）。
-- [ ] 打 tag 并推送（**最后的发布动作；当前暂不执行**）:
+- [x] 打 tag 并推送（2026-10-12，`v0.1.1` → `74996ee`）：
   ```bash
   git tag -a v0.1.1 -m "Release 0.1.1"
   git push origin v0.1.1
   ```
-- [ ] CI 自动：matrix 打包 → 汇总生成 `checksums.txt` → 创建 Release（标题=tag、notes=对应 md）
+- [x] CI 自动：matrix 打包 → 汇总生成 `checksums.txt` → 创建 Release（标题=tag、notes=对应 md）
       并上传 `.dmg` + `.zip` + `.exe` + `checksums.txt`。
-- [ ] 在 Actions 页确认 `release.yml` 三个 job（两平台 build + release）全绿。
-- [ ] 正式发布：确认 0.1.1 Release 为正式版本。
-- [ ] 发布后从 **Release 页面下载产物**（非本地构建）在干净机器上各装一遍。
+- [x] 在 Actions 页确认 `release.yml` 三个 job（两平台 build + release）全绿
+      （[run 38196885084](https://github.com/zhanglun/gesso/actions/runs/38196885084)）。
+- [x] 正式发布：确认 0.1.1 Release 为正式版本
+      （https://github.com/zhanglun/gesso/releases/tag/v0.1.1，2026-10-12T02:47Z）。
+- [ ] 发布后从 **Release 页面下载产物**（非本地构建）在干净机器上各装一遍。（未完成，待办）
 
 ## 阶段 7 — 发布后
 
 - [ ] 验证下载安装的产物真实可用（关键，防"本机构建能跑、发布产物缺资源"）。
-- [ ] README 双语已更新状态行 + Releases 下载链接（版本徽章暂未加）。
+- [x] README 双语已更新状态行 + Releases 下载链接（版本徽章暂未加）。
 - [ ] 公告渠道（release post / 社区）。
 - [ ] 开启 0.2 规划：把发布后反馈整理进 ROADMAP。
 - [x] 确认本地无遗留临时产物（历史改写备份已删；/tmp 测试残留已清）。
 
 ---
 
-## 当前状态（0.1.1 尚未打 tag）
+## 当前状态（v0.1.1 已发布，2026-10-12）
 
-发布自动化就绪情况：
+发布已完成：tag `v0.1.1` → [release run 38196885084](https://github.com/zhanglun/gesso/actions/runs/38196885084) 三 job 全绿 →
+[Release v0.1.1](https://github.com/zhanglun/gesso/releases/tag/v0.1.1) 附 `.dmg` / `.zip` / `.exe` / `checksums.txt`。
 
-1. ✅ **Release workflow**：`.github/workflows/release.yml`（tag 触发，matrix 两平台，自动发 Release）。
-2. ✅ **打包脚本**：macOS `build_app.sh`/`build_dmg.sh`、Windows `build_portable.ps1`。
-3. ✅ **release notes**：`packaging/release-notes/v0.1.1.md`；校验值由 CI 生成 `checksums.txt`。
-4. ✅ workflow 已过 `actionlint`；macOS 脚本本地验证，Windows 脚本靠 `workflow_dispatch` 干跑首次验证。
+剩余待办（阶段 7）：① Release 产物干净机安装验证；② 公告渠道；③ 0.2 规划。
 
-> 原则：0.1.1 先保证“两平台能下载、安装、跑起来”；不做签名/公证，
+发布自动化（下个版本直接复用）：
+
+1. ✅ **Release workflow**：`.github/workflows/release.yml`（tag 触发，matrix 两平台，自动发 Release；`workflow_dispatch` 干跑不发布）。
+2. ✅ **打包脚本**：macOS `build_app.sh`/`build_dmg.sh`、Windows `build_portable.ps1` + NSIS 安装包。
+3. ✅ **release notes**：`packaging/release-notes/<tag>.md`；校验值由 CI 生成 `checksums.txt`。
+
+> 原则：0.1.x 先保证“两平台能下载、安装、跑起来”；不做签名/公证，
 > 通用二进制/安装器非必需。未签名产物在 release notes 写清打开方式即可。

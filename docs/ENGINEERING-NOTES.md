@@ -89,11 +89,11 @@
 壁纸素材库   ~/Library/Application Support/Gesso/library/<条目id>/index.<ext>
 库清单       ~/Library/Application Support/Gesso/library/library.json
 配置         ~/Library/Application Support/Gesso/config.json   （monitors: {cg-id → 条目id}）
-宿主页源      crates/app/assets/host/index.html（每次启动同步进条目目录）
+宿主页源      crates/app/assets/host/index.html（统一副本经 gesso://host 提供，不拷入条目目录）
 内置样例      crates/app/assets/samples/testsrc.mp4
 运行日志      stdout：./target/debug/gesso 2>&1 | tee /tmp/gesso.log
 ```
-宿主页契约：URL query `spec=`（urlencoded JSON `ContentSpec`）；暴露 `window.__gesso.{pause,resume}` 供引擎经 `evaluate_script` 调用（暂停 = JS 层停帧，窗口常驻）。
+宿主页契约：URL query `spec=`（urlencoded JSON `ContentSpec`）；Rust 侧命令经 `HostCommand`（`host_cmd.rs` 单点序列化）驱动 `window.__gesso.{pause,resume,setFps,tick,mouse,…}`（暂停 = JS 层停帧，窗口常驻）。
 
 ## 4. 常用命令
 

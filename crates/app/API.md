@@ -106,6 +106,6 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 | `gesso://` 自定义协议 | **已打通**（lb-wry ≥0.53，`bf3c294`）：宿主页走 `gesso://host`，条目资源走 `gesso://library/<entry>/…`；视频支持 Range(206)（惰性切片 + 开放范围 512KB 部分响应，M4-W）。零拷贝直引已上线（`gesso://steam/<entry-id>`，M6） |
 | 壁纸窗口 | 纯 AppKit 非 GPUI 窗口（M1.5 定稿），UI 无法也不应嵌入它 |
 | 渲染器 | 四类全部生效：video / image（gif/webp/jpg/jpeg/png/avif）/ shader（WebGL2 + Shadertoy 子集）/ html（沙箱 iframe）；静态图 Direct 直引源文件，其余类型有真实采集的静态 + hover 帧 |
-| 显示器热插拔 | 2s 轮询 diff（平台通知未接，候选 M5+） |
+| 显示器重配 | epoch 事件驱动收敛（2026-10-11 定稿）：平台拓扑事件 + 1.5s 去抖 + 两段式提交，机制见 ARCHITECTURE §2 |
 | 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；**自动暂停事件源已接（M5）**：全屏 CGWindowList 轮询 + 电池 IOKit，经 `apply_autopause` 驱动；光标 feed 与空闲降帧已接（M5）：NSEvent 位置 + HID 按键/空闲，纯轮询无需授权 |
 | 导入 I/O 失败反馈 | 引擎侧仅日志；UI 预检（扩展名）已给红字/气泡，拷贝失败暂静默 |

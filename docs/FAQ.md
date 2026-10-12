@@ -2,7 +2,7 @@
 
 ## 支持哪些系统？
 
-macOS（已验证）与 Windows（进行中，需要真机验证贴壁）。**v1 不做 Linux**：KDE（Plasma 壁纸插件）、GNOME Shell（无官方嵌入点）、X11（root window）与 Wayland 各需一套独立的桌面集成路径，投入产出比最低。架构上 `pin/` 是平台 trait，将来添加 Linux 后端不需要动引擎其余部分。
+macOS（已验证，多屏）与 Windows（已验证，单屏；多屏待实机验证）。**v1 不做 Linux**：KDE（Plasma 壁纸插件）、GNOME Shell（无官方嵌入点）、X11（root window）与 Wayland 各需一套独立的桌面集成路径，投入产出比最低。架构上 `pin/` 是平台 trait，将来添加 Linux 后端不需要动引擎其余部分。
 
 ## 构建 macOS 版真的不需要 Xcode 吗？
 
