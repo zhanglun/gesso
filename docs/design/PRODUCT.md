@@ -9,7 +9,7 @@ desktop (Windows / macOS · GPUI)
 
 ## Stack
 
-GPUI 0.2（Rust，管理 UI + 应用壳）+ wry webview（壁纸渲染层）+ gesso-core（纯领域逻辑 crate）。完整技术方案见 [技术方案.md](技术方案.md) §2/§3.4。
+GPUI（gpui-kit 通道，Rust，管理 UI + 应用壳）+ lb-wry webview（壁纸渲染层；视频走原生管线）+ gesso-core（纯领域逻辑 crate）。完整技术方案见 [技术方案.md](技术方案.md) §2/§3.4。
 
 ## Users
 

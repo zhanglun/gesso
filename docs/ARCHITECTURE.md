@@ -105,7 +105,7 @@ Pure function `transfer(state, event)`; every transition is unit-tested. Session
 
 ## 6. Security model
 
-Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from wallpaper windows, per-entry directories with random unguessable IDs, network-local content only. Read-only `gesso://` scheme is live: `host` serves the shared host page, `library/<id>/…` serves entry files with traversal protection, CSP header injection, CORS for cross-origin subresources, and Range(206) for video. Details and reporting: [SECURITY.md](../SECURITY.md).
+Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from wallpaper windows, per-entry directories with random unguessable IDs, local content plus user-imported `https://` URLs (remote web wallpapers — nothing is fetched beyond what the user assigns). Read-only `gesso://` scheme is live: `host` serves the shared host page, `library/<id>/…` serves entry files with traversal protection, CSP header injection, CORS for cross-origin subresources, and Range(206) for video. Details and reporting: [SECURITY.md](../SECURITY.md).
 
 ## 7. Performance notes
 

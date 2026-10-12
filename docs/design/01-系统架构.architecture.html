@@ -5025,12 +5025,12 @@
         <!-- Connection paths (before components for correct z-order) -->
         <path data-edge-from="tray" data-edge-to="session" data-edge-label="直接调用" data-edge-key="0" data-edge-id="tray-session" data-composition-points="160,104;160,220" d="M 160 104 L 160 220" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="session" data-edge-to="library" data-edge-label="取 ContentSpec" data-edge-key="1" data-edge-id="session-library" data-composition-points="250,252;290,252;290,72;330,72" d="M 250 252 L 282 252 Q 290 252 290 244 L 290 80 Q 290 72 298 72 L 330 72" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="library" data-edge-to="host" data-edge-label="wallpaper:// 只读" data-edge-key="2" data-edge-id="library-host" data-composition-points="520,72;540,72;540,252;560,252" d="M 520 72 L 532 72 Q 540 72 540 80 L 540 244 Q 540 252 548 252 L 560 252" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="library" data-edge-to="host" data-edge-label="gesso:// 只读" data-edge-key="2" data-edge-id="library-host" data-composition-points="520,72;540,72;540,252;560,252" d="M 520 72 L 532 72 Q 540 72 540 80 L 540 244 Q 540 252 548 252 L 560 252" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="bridge" data-edge-to="host" data-edge-label="bridge:// 事件" data-edge-key="3" data-edge-id="bridge-host" data-composition-points="790,72;770,72;770,252;750,252" d="M 790 72 L 778 72 Q 770 72 770 80 L 770 244 Q 770 252 762 252 L 750 252" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="session" data-edge-to="pin" data-edge-label="SetParent / 压层" data-edge-key="4" data-edge-id="session-pin" data-composition-points="160,284;160,400" d="M 160 284 L 160 400" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="host" data-edge-to="webview" data-edge-label="video / WebGL2" data-edge-key="5" data-edge-id="host-webview" data-composition-points="655,284;655,400" d="M 655 284 L 655 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="weadapter" data-edge-to="library" data-edge-label="导入" data-edge-key="6" data-edge-id="weadapter-library" data-composition-points="970,252;1015,252;1015,470;425,470;425,104" d="M 970 252 L 1007 252 Q 1015 252 1015 260 L 1015 462 Q 1015 470 1007 470 L 433 470 Q 425 470 425 462 L 425 104" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="weadapter" data-edge-to="workshop" data-edge-label="扫描 / 只读引用" data-edge-key="7" data-edge-id="weadapter-workshop" data-composition-points="880,284;880,400" d="M 880 284 L 880 400" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="weadapter" data-edge-to="workshop" data-edge-label="用户导入 / 只读引用" data-edge-key="7" data-edge-id="weadapter-workshop" data-composition-points="880,284;880,400" d="M 880 284 L 880 400" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- Components -->
         <g id="node-tray" data-node-id="tray" data-node-label="托盘 + 管理窗口" tabindex="0" role="button" aria-label="Focus 托盘 + 管理窗口, GPUI 原生 UI, Gesso 应用进程（GPUI）" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="GPUI 原生 UI" data-node-context="Gesso 应用进程（GPUI）">
@@ -5157,9 +5157,9 @@
           <rect x="251.4" y="150" width="77.2" height="14" rx="3" class="c-mask"/>
           <text x="290" y="160" class="t-muted" font-size="8" text-anchor="middle">取 ContentSpec</text>
         </g>
-        <g data-detail="context" data-edge-from="library" data-edge-to="host" data-edge-label="wallpaper:// 只读" data-edge-key="2" data-edge-id="library-host">
+        <g data-detail="context" data-edge-from="library" data-edge-to="host" data-edge-label="gesso:// 只读" data-edge-key="2" data-edge-id="library-host">
           <rect x="494.2" y="150" width="91.6" height="14" rx="3" class="c-mask"/>
-          <text x="540" y="160" class="t-muted" font-size="8" text-anchor="middle">wallpaper:// 只读</text>
+          <text x="540" y="160" class="t-muted" font-size="8" text-anchor="middle">gesso:// 只读</text>
         </g>
         <g data-detail="context" data-edge-from="bridge" data-edge-to="host" data-edge-label="bridge:// 事件" data-edge-key="3" data-edge-id="bridge-host">
           <rect x="731.4" y="140" width="77.2" height="14" rx="3" class="c-mask"/>
@@ -5177,9 +5177,9 @@
           <rect x="685" y="476" width="30" height="14" rx="3" class="c-mask"/>
           <text x="700" y="486" class="t-muted" font-size="8" text-anchor="middle">导入</text>
         </g>
-        <g data-detail="context" data-edge-from="weadapter" data-edge-to="workshop" data-edge-label="扫描 / 只读引用" data-edge-key="7" data-edge-id="weadapter-workshop">
+        <g data-detail="context" data-edge-from="weadapter" data-edge-to="workshop" data-edge-label="用户导入 / 只读引用" data-edge-key="7" data-edge-id="weadapter-workshop">
           <rect x="839" y="326" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="880" y="336" class="t-muted" font-size="8" text-anchor="middle">扫描 / 只读引用</text>
+          <text x="880" y="336" class="t-muted" font-size="8" text-anchor="middle">用户导入 / 只读引用</text>
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
@@ -5412,7 +5412,7 @@
         </div>
         <ul>
           <li>&bull; 壁纸窗口零 IPC，仅接收事件</li>
-          <li>&bull; wallpaper:// 自定义只读协议</li>
+          <li>&bull; gesso:// 自定义只读协议</li>
           <li>&bull; Workshop 目录只读引用，不做再分发</li>
         </ul>
       </div>

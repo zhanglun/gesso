@@ -37,7 +37,7 @@ pkill -f "target/debug/gesso"             # 退出（有单实例锁）
 cargo run -p gesso-app 2>&1 | tee /tmp/gesso.log
 ```
 
-日志关键行前缀：`[boot]`（启动/首启）、`[session]`（会话创建/恢复/URL）、`[tray]`（托盘动作）、`[diag]`（窗口与 webview 几何真值）、`[M1.5]`（压层参考实现）。
+日志关键行前缀：`[boot]`（启动/首启）、`[session]`（会话创建/恢复/URL）、`[bridge]`（系统桥采样）、`[diag]`（窗口与 webview 几何真值）、`[update]`（软件更新）、`[protocol]`（协议/媒体服务）。
 
 **开发期多实例**：默认单实例锁会拒绝第二个实例。需要并排对比时：
 
@@ -74,7 +74,7 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 ### 3.4 托盘与菜单
 
 - 托盘左键（无菜单时）与右键菜单项都会进 `EngineAction` 队列；菜单文案**不能**在轮询里动态修改（muda handler 要求 `Send`）——需要动态文案时改用「动作 → 快照回灌」模式。
-- `PredefinedMenuItem::quit` 在 GPUI 循环下不可靠，退出请走自定义菜单项 + `cx.quit()`。
+- `PredefinedMenuItem::quit` 在 GPUI 循环下不可靠；退出**只走** `engine::enqueue(EngineAction::Quit)`——引擎线程先拆全部壁纸会话、还原桌面再退出（`cx.quit()` / `process::exit` 会跳过窗口销毁，桌面留黑底）。
 
 ### 3.5 宿主页调试
 

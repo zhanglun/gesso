@@ -43,8 +43,8 @@ macOS（已验证，多屏）与 Windows（已验证，单屏；多屏待实机�
 ## 怎么卸载？
 
 1. 退出应用（托盘 → 退出）；
-2. 删除 `~/Library/Application Support/Gesso/`（macOS）；
-3. 如开启过开机自启：系统设置 → 通用 → 登录项 里移除 Gesso。
+2. 删除 `~/Library/Application Support/Gesso/`（macOS）或 `%USERPROFILE%\.gesso\`（Windows）；
+3. 如开启过开机自启：macOS 系统设置 → 通用 → 登录项；Windows 设置 → 应用 → 启动，移除 Gesso。
 
 ## 我想写一个 HTML 壁纸，契约是什么？
 

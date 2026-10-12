@@ -104,4 +104,4 @@ AVFoundation（含其 objc2 崩溃面）。
 - ~~HTML thumbnails use the gradient placeholder~~ → Done (`372b4c4`): html captures live frames via the same persistent-window capture pipeline as shader/video.
 - HTML wallpapers: iframe navigation policy — external/top navigation, popups and forms stay sandbox-blocked; the frame may only embed `gesso`-scheme (self-contained, offline) sub-frames. Same-origin external `.js`/`.css` and local `fetch()` work (`allow-same-origin` + CSP `connect-src gesso:`; verified via a kitchen-sink fixture). `fps_cap` is advisory for the html kind. Hover previews use a two-phase cycle — preload all 16 frames behind a spinner, then play at a fixed 125 ms/frame (`c6bd3ce`).
 - ~~i18n English pass pending~~ → Done: Auto / 简体中文 / English, selector in Settings ▸ Startup, live-apply + persisted.
-- Tray polish: dynamic menu copy (muda handlers are `Send`-only — menu handle can't be mutated from the poller) and precise quick-panel positioning relative to the tray icon (retina coordinate conversion).
+- Tray polish: dynamic menu copy (muda handlers are `Send`-only — menu handle can't be mutated from the poller).（quick-panel 定位一项随 2026-10-03 撤销快速面板一并作废）

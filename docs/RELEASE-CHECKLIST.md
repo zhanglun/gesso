@@ -8,8 +8,8 @@ Gesso 0.1.1 修复版本的发布清单。按顺序执行；每条都是可勾�
 >
 > 目标产物：
 > - **macOS**：`Gesso-<version>-arm64.dmg`（Windows 同构脚本本地也可跑）
-> - **Windows**：`Gesso-<version>-x64-portable.zip`
-> - 一个 GitHub Release（`.dmg` + `.zip` + `checksums.txt` + notes）
+> - **Windows**：`Gesso-<version>-x64-portable.zip` + `Gesso-<version>-x64-setup.exe`（NSIS 安装包）
+> - 一个 GitHub Release（`.dmg` + `.zip` + `.exe` + `checksums.txt` + notes）
 
 ---
 

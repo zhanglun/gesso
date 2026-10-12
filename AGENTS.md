@@ -53,7 +53,7 @@ crates/app      应用：
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
   ├─ update.rs    应用自更新（§4.7：GitHub Releases 检查/下载/交付；状态真源在模块全局，代数计数回灌）
-  ├─ ui/          管理窗口 UI（gpui-kit；we_view.rs 工坊窗）
+  ├─ ui/          管理窗口 UI（gpui-kit；strings.rs 双语包；update_view.rs 更新小窗）
   └─ assets/      宿主页（host/index.html）/ 预置壁纸（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）
 docs/           工程文档 + design/（设计归档）
 ```

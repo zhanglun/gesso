@@ -332,7 +332,7 @@ select.sel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 <!--
 THESIS: 界面越安静，壁纸越出彩——跟随系统的中性双主题工具，画面里唯一的高饱和是壁纸预览本身。
 OWN-WORLD: 双主题语义 token（见 DESIGN.md）；单一强调色只做主操作/选中/状态；系统字体栈固定阶梯；卡片 12–16px 圆角；hairline 分隔；危险红只表真故障。
-STORY: 用户两击换壁纸（托盘快速面板）；拖卡片到显示器投放层即指派；悬停卡片点亮目标显示器；失败永远回退静态图，桌面不开天窗。
+STORY: 用户两击换壁纸（托盘菜单）；拖卡片到显示器投放层即指派；悬停卡片点亮目标显示器；失败永远回退静态图，桌面不开天窗。
 FIRST VIEWPORT: 880×600 管理窗口，壁纸库网格为默认页：工具条（筛选段+搜索+导入/扫描）→ 16:9 预览卡网格 → 状态条；托盘固定右下。
 FORM: 轻量工具三页签形态；规格 v1.0 已冻结（2026-02，用户确认）；方向为用户指定（跟随系统双主题）。
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
@@ -366,6 +366,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           <button aria-pressed="true" data-f="全部">全部</button>
           <button aria-pressed="false" data-f="视频">视频</button>
           <button aria-pressed="false" data-f="动图">动图</button>
+          <button aria-pressed="false" data-f="图片">图片</button>
           <button aria-pressed="false" data-f="Shader">Shader</button>
           <button aria-pressed="false" data-f="网页">网页</button>
           <button aria-pressed="false" data-f="WE">WE</button>
@@ -380,10 +381,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           导入
           <svg width="10" height="10" viewBox="0 0 14 14" fill="none" style="margin-left:2px;opacity:.7"><path d="m3.5 5.5 3.5 4 3.5-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <button class="btn secondary" id="btn-scan">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1.5 4.5v6a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-6M5 4.5 7 2l2 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          扫描工坊
-        </button>
+        <!-- 2026-10 移除「扫描工坊」钮：WE 只由用户主动导入，绝不扫描 -->
       </div>
       <div class="grid-scroll">
         <div class="wall-grid" id="grid"></div>
@@ -451,12 +449,14 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           <div class="set-row"><div><div class="label">默认帧率上限</div></div><select class="sel num"><option>60 fps</option><option>30 fps</option><option>15 fps</option></select></div>
           <div class="set-row"><div><div class="label">全屏应用时</div><div class="desc">前台应用进入全屏后自动暂停对应显示器</div></div><select class="sel"><option>暂停</option><option>降帧至 5 fps</option><option>忽略</option></select></div>
           <div class="set-row"><div><div class="label">使用电池时</div></div><select class="sel"><option>暂停</option><option>降帧至 5 fps</option><option>忽略</option></select></div>
-          <div class="set-row"><div><div class="label">空闲时自动降帧</div><div class="desc">光标不在该显示器且无音频时，帧率减半</div></div><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label></div>
+          <div class="set-row"><div><div class="label">空闲时自动降帧</div><div class="desc">5 分钟无输入后降至 5 fps</div></div><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label></div>
+          <div class="set-row"><div><div class="label">桌面桥接</div><div class="desc">重配过渡用壁纸静帧接管系统桌面，关闭即恢复</div></div><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label></div>
         </div>
         <div class="set-group">
           <h3>启动</h3>
           <div class="set-row"><div><div class="label">开机自启</div></div><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label></div>
           <div class="set-row"><div><div class="label">启动后</div></div><select class="sel"><option>恢复上次</option><option>随机一张</option></select></div>
+          <div class="set-row"><div><div class="label">语言</div></div><select class="sel"><option>跟随系统</option><option>简体中文</option><option>English</option></select></div>
         </div>
         <div class="set-group">
           <h3>联动<span style="font-weight:400;color:var(--text-2);font-size:12px;margin-left:6px">实验</span></h3>
@@ -479,12 +479,15 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <div class="mi" role="menuitem" id="tm-cycle">随机换一张</div>
     <div class="sep"></div>
     <div class="mi" role="menuitem" id="tm-main">管理窗口…</div>
+    <div class="mi" role="menuitem" id="tm-update">检查更新…</div>
     <div class="sep"></div>
     <div class="mi" role="menuitem" id="tm-auto">开机自启 <span style="margin-left:auto;color:var(--accent)">✓</span></div>
     <div class="sep"></div>
+    <div class="mi" role="menuitem" id="tm-restore">恢复系统壁纸</div>
+    <div class="sep"></div>
     <div class="mi" role="menuitem" id="tm-quit" style="color:var(--danger)">退出 Gesso</div>
   </div>
-  <button class="tray-btn" id="tray-btn" title="Gesso 托盘（左键：快速面板）">
+  <button class="tray-btn" id="tray-btn" title="Gesso 托盘（左/右键：菜单）">
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="3" width="16" height="12" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M6 18h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M14 12v3M6 12v3" stroke="currentColor" stroke-width="1.6"/></svg>
   </button>
 </div>
@@ -756,7 +759,7 @@ btnImport.onclick=e=>{
   ctx.style.left=Math.min(r.right-200,innerWidth-210)+'px';
   ctx.style.top=(r.bottom+6)+'px';
 };
-document.getElementById('btn-scan').onclick=()=>{toast('扫描 Steam 工坊：找到 2 个可导入项（演示）');};
+/* 2026-10 移除「扫描工坊」按钮及其绑定：WE 只由用户主动导入，绝不扫描 */
 
 /* ================== 托盘（2026-10-03：原生菜单示意） ================== */
 function renderTray(){

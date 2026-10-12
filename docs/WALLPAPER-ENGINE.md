@@ -4,9 +4,9 @@
 
 ## 目标
 
-在**用户本机已安装 Wallpaper Engine 并已订阅素材**的前提下，把这些素材作为壁纸来源之一。这从来不是"内置 WE 素材库"，而是"读取你已经拥有的东西"。
+把用户**主动指定**的 Wallpaper Engine 素材目录作为壁纸来源之一。这从来不是“内置 WE 素材库”，而是“读取你已经拥有的东西”——唯一的准入事实是用户通过导入对话框自己选中条目的 `project.json`（典型来源：本机已订阅的创意工坊内容落盘目录）。Gesso **不检测也不依赖 Wallpaper Engine / Steam 是否安装**：不扫描磁盘、不枚举工坊、不解析 Steam 配置。
 
-## 类型支持矩阵（计划）
+## 类型支持矩阵
 
 | WE `type` | 内容形态 | 方案 | 里程碑 |
 |---|---|---|---|
@@ -17,7 +17,7 @@
 
 ## 素材从哪来
 
-Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/431960/<workshopid>/`（`431960` = Wallpaper Engine 的 AppID），每个目录含 `project.json`（`title` / `type` / `file` 等）。
+Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/431960/<workshopid>/`（`431960` = Wallpaper Engine 的 AppID），每个目录含 `project.json`（`title` / `type` / `file` 等）。用户在导入对话框里自行浏览到该目录；Gesso 不枚举这个路径。
 
 ## 实现备忘（M6）
 
@@ -28,7 +28,7 @@ Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/4319
 ## 法律边界（硬约束）
 
 - **只读本机已订阅内容**；不做下载器、不做素材再分发、不把素材打进 release。
-- 不关联、不破解 Steam；用户无 WE 时此功能不可用即可。
+- 不关联、不破解 Steam，也不检测 WE/Steam 安装状态；没有素材目录就没有条目，不提供任何获取通路。
 - GPL 边界：解包工具链（`depkg`/`repkg`/`PyPKGer`）均为 GPL。集成方式二选一——
   1. **子进程调用** `depkg-cli`（进程边界隔离 GPL，主程序保持宽松许可，当前倾向）；
   2. 接受整个项目 GPL-3.0。
