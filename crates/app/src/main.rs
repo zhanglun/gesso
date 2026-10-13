@@ -615,7 +615,7 @@ fn install_tray_menu_handler() {
             }
             "cycle" => engine::enqueue(EngineAction::CycleMain),
             "main" => engine::enqueue(EngineAction::FocusMainWindow),
-            // 逃生门：全量恢复系统壁纸（重新指派壁纸会按设置再次接管）
+            // 逃生门：清全部指派并拆窗，桌面即用户自己的壁纸
             "restore-wallpaper" => engine::enqueue(EngineAction::RestoreSystemWallpaper),
             // 「检查更新…」：动作带开窗意图（托盘线程不能直接开 GPUI 窗口，
             // 主循环兑现）；检查本身在 update 模块后台线程
@@ -773,9 +773,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         // 拆会话 → 通知 shell 重绘露出原壁纸 → 退进程（此前托盘线程直接
         // process::exit，Drop 全跳过，桌面留黑底）。
         engine::EngineAction::Quit => {
-            // 持有档：等桌面换图沉降完成（读回确认）才拆窗退出——否则窗口
-            // 消失后用户盯着桌面，先看 5–16s 滞留的旧静帧再变系统壁纸
-            // 秒退优先：未沉降的桌面换图由代理在退出后自行完成
+            // 退出只拆壁纸窗（运行时不接管系统桌面，无桌面恢复动作）
             app.sm.teardown_for_quit();
             #[cfg(target_os = "windows")]
             pin::windows::restore_desktop();
