@@ -318,6 +318,10 @@ fn bootstrap() -> (session::SessionManager, bool) {
         sm.config().monitors.values().cloned().collect();
     let bridge_on = sm.config().settings.desktop_bridge;
     desktop_bridge::reconcile(&active, bridge_on);
+    // 视频桥接帧后台预生成：指派路径从此只认现成帧，主线程永不解码视频
+    if bridge_on {
+        desktop_bridge::preseed_video_frames(sm.library());
+    }
 
     // 开发验证钩子（仅 debug 构建）：GESSO_DEV_URL=<https 地址> 启动即导入并指派
     // 主屏，用于无头验证远端网页链路（跨域 iframe 装载/缩略图），如

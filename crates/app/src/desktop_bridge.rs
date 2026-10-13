@@ -226,9 +226,12 @@ impl DesktopBridge {
     }
 
     /// 静帧供给（按类型分派，对齐 ThumbStrategy 的表驱动思路）：
-    /// 视频 = AVAssetImageGenerator 首帧全分辨率；图片 = 源文件拷贝（刻意的
-    /// 拷贝——绝不把用户文件路径写进系统设置）；shader/html = 现成缩略图档
-    /// （过渡零点几秒内肉眼难辨，全分辨率快照留后续）。
+    /// 视频 = **绝不在此同步解码**——全分辨率首帧提取秒级，曾在指派路径
+    /// 主线程同步执行（2026-10-13 反馈：随机换一张/首次指派新条目必冻
+    /// 结），现改由 `preseed_video_frames` 启动后台预生成，此处只认现成
+    /// 文件，缺失则跳过接管（该次过渡退回无桥接行为，不冻结）；
+    /// 图片 = 源文件拷贝（刻意的拷贝——绝不把用户文件路径写进系统设置）；
+    /// shader/html = 现成缩略图档（过渡零点几秒内肉眼难辨）。
     fn produce_frame(&self, entry: &LibraryEntry, out: &Path) -> bool {
         // 桥接目录可能尚不存在（首次 acquire 早于任何 save() 的 create_dir_all）
         let _ = std::fs::create_dir_all(&self.dir);
@@ -239,18 +242,10 @@ impl DesktopBridge {
                 src.exists() && std::fs::copy(&src, out).is_ok()
             }
             WallpaperKind::Video => {
-                let src = crate::encoding::entry_main_source(entry);
-                let src = Path::new(&entry.source_dir).join(&src);
-                src.exists() && {
-                    #[cfg(target_os = "macos")]
-                    {
-                        extract_video_first_frame(&src, out)
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        false
-                    }
-                }
+                // 同步解码已移除：只认预生成/历史缓存的现成帧（主线程永不
+                // 解码视频）；缺失则上层跳过接管。见 preseed_video_frames。
+                let _ = out;
+                false
             }
             _ => {
                 let home = crate::encoding::thumb_home(entry);
@@ -324,7 +319,14 @@ impl DesktopBridge {
         }
         let path = self.static_path(entry);
         if !path.exists() && !self.produce_frame(entry, &path) {
-            println!("[bridge] {} 桥接帧产出失败，跳过接管", entry.id);
+            if entry.kind == WallpaperKind::Video {
+                println!(
+                    "[bridge] {} 视频帧未就绪（启动预生成中，稍后指派自动恢复接管），本次跳过",
+                    entry.id
+                );
+            } else {
+                println!("[bridge] {} 桥接帧产出失败，跳过接管", entry.id);
+            }
             return;
         }
         let url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(
@@ -639,6 +641,52 @@ pub fn takeovers_older_than(min_hold: std::time::Duration) -> Vec<String> {
     {
         let _ = min_hold;
         Vec::new()
+    }
+}
+
+/// 视频桥接帧启动预生成（后台线程，串行）：把库里缺帧的视频条目逐个
+/// 解出全分辨率首帧（`.tmp` → rename 原子落盘）。指派路径从此只认现成
+/// 文件（produce_frame 视频分支恒 false）——主线程永不解码视频，根治
+/// 「随机换一张/首次指派新条目冻结」（2026-10-13 反馈：全分辨率首帧
+/// 解码秒级，曾同步跑在引擎主线程）。不持锁、不改状态：产出即文件，
+/// acquire 只做 path.exists() 检查，天然无竞态。预生成完成前的指派
+/// 优雅降级（该次无桥接，退回显示用户壁纸）。
+pub fn preseed_video_frames(library: &[LibraryEntry]) {
+    #[cfg(target_os = "macos")]
+    {
+        let b = global().lock().expect("桌面桥接");
+        let jobs: Vec<(PathBuf, PathBuf)> = library
+            .iter()
+            .filter(|e| e.kind == WallpaperKind::Video)
+            .filter_map(|e| {
+                let out = b.static_path(e);
+                (!out.exists()).then(|| {
+                    let src = Path::new(&e.source_dir).join(crate::encoding::entry_main_source(e));
+                    (src, out)
+                })
+            })
+            .filter(|(src, _)| src.exists())
+            .collect();
+        drop(b);
+        if jobs.is_empty() {
+            return;
+        }
+        println!("[bridge] 预生成 {} 个视频桥接帧（后台）", jobs.len());
+        std::thread::spawn(move || {
+            for (src, out) in jobs {
+                let tmp = out.with_extension("png.tmp");
+                if extract_video_first_frame(&src, &tmp) {
+                    let _ = std::fs::rename(&tmp, &out);
+                } else {
+                    let _ = std::fs::remove_file(&tmp);
+                }
+            }
+            println!("[bridge] 视频桥接帧预生成完成");
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = library;
     }
 }
 
