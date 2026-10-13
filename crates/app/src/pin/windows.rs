@@ -38,8 +38,7 @@ use windows::core::{w, Interface as _, BOOL, PCSTR, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDeviceAndSwapChain, ID3D11Buffer, ID3D11PixelShader, ID3D11RenderTargetView,
-    ID3D11SamplerState, ID3D11ShaderResourceView, ID3D11Texture2D, ID3D11VertexShader,
+    D3D11CreateDeviceAndSwapChain, ID3D11Buffer, ID3D11RenderTargetView, ID3D11Texture2D,
     D3D11_BIND_CONSTANT_BUFFER, D3D11_BIND_SHADER_RESOURCE, D3D11_BUFFER_DESC,
     D3D11_COMPARISON_NEVER, D3D11_CREATE_DEVICE_FLAG, D3D11_FILTER_MIN_MAG_MIP_LINEAR,
     D3D11_SAMPLER_DESC, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_TEXTURE_ADDRESS_CLAMP,
@@ -1219,9 +1218,10 @@ unsafe fn video_render_loop(
         let (cw, ch) = ((rc.right - rc.left).max(1), (rc.bottom - rc.top).max(1));
         if f != cur_fit || (cw, ch) != (cur_w, cur_h) {
             if (cw, ch) != (cur_w, cur_h) {
-                // 先释放缓冲全部引用再 ResizeBuffers（D3D 硬性前提）
-                rtv = None;
-                backbuffer = None;
+                // 先释放缓冲全部引用再 ResizeBuffers（D3D 硬性前提）——take()
+                // 读取旧值并立即 drop，比置 None 多一次读、语义同为即时释放
+                drop(rtv.take());
+                drop(backbuffer.take());
                 swapchain.ResizeBuffers(
                     0,
                     cw as u32,
