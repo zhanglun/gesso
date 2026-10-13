@@ -677,8 +677,13 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             sm.cycle_main();
         }
         engine::EngineAction::RestoreSystemWallpaper => {
-            let n = desktop_bridge::restore_all();
-            println!("[ui] 恢复系统壁纸：{n} 屏已还原");
+            // 逃生门语义（2026-10-12 升级）：释放桌面所有权——清指派 + 拆全
+            // 部壁纸窗 + 桥接全量恢复。只恢复桌面图不可见（窗还盖在上面），
+            // 用户侧必须看到壁纸回来才算数；重新指派壁纸会按设置再次接管。
+            let n = app.sm.release_all();
+            #[cfg(target_os = "windows")]
+            pin::windows::restore_desktop();
+            println!("[ui] 恢复系统壁纸：壁纸会话已全部释放，{n} 屏系统桌面图已还原");
         }
         engine::EngineAction::Import { path } => {
             // 选中 WE 的 project.json → 转 WE 整目录导入
@@ -761,7 +766,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         // 拆会话 → 通知 shell 重绘露出原壁纸 → 退进程（此前托盘线程直接
         // process::exit，Drop 全跳过，桌面留黑底）。
         engine::EngineAction::Quit => {
-            app.sm.teardown_all();
+            // 持有档：等桌面换图沉降完成（读回确认）才拆窗退出——否则窗口
+            // 消失后用户盯着桌面，先看 5–16s 滞留的旧静帧再变系统壁纸
+            // 秒退优先：未沉降的桌面换图由代理在退出后自行完成
+            app.sm.teardown_for_quit();
             #[cfg(target_os = "windows")]
             pin::windows::restore_desktop();
             std::process::exit(0);
@@ -1162,6 +1170,24 @@ fn main() {
                             |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<u64>().ok());
                         if env_secs("GESSO_QUIT_AFTER_SECS").is_some_and(|n| elapsed >= n) {
                             engine::enqueue(engine::EngineAction::Quit);
+                        }
+                        // 模拟托盘「恢复系统壁纸」点击（release_all 全链路，
+                        // 进程存活——与 Quit 的差别正是幽灵窗/残窗问题的试金石）
+                        // 与「随机换一张」点击（无会话回退主显示器路径）。
+                        // 二者不终止进程，用旗标保证只入队一次
+                        static SIM_RESTORE_FIRED: std::sync::atomic::AtomicBool =
+                            std::sync::atomic::AtomicBool::new(false);
+                        if env_secs("GESSO_RESTORE_AFTER_SECS").is_some_and(|n| elapsed >= n)
+                            && !SIM_RESTORE_FIRED.swap(true, std::sync::atomic::Ordering::SeqCst)
+                        {
+                            engine::enqueue(engine::EngineAction::RestoreSystemWallpaper);
+                        }
+                        static SIM_CYCLE_FIRED: std::sync::atomic::AtomicBool =
+                            std::sync::atomic::AtomicBool::new(false);
+                        if env_secs("GESSO_CYCLE_AFTER_SECS").is_some_and(|n| elapsed >= n)
+                            && !SIM_CYCLE_FIRED.swap(true, std::sync::atomic::Ordering::SeqCst)
+                        {
+                            engine::enqueue(engine::EngineAction::CycleMain);
                         }
                         if env_secs("GESSO_PANIC_AFTER_SECS").is_some_and(|n| elapsed >= n) {
                             panic!("GESSO_PANIC_AFTER_SECS 模拟异常退出（壁纸播放中 panic）");

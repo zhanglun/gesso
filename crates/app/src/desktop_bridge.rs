@@ -1,11 +1,16 @@
-//! 桌面桥接（Desktop Bridge）：Gesso 在屏期间，系统桌面壁纸 = 当前壁纸的
-//! 静态帧；释放所有权时恢复用户原壁纸。
+//! 桌面桥接（Desktop Bridge）：指派壁纸时**临时**接管系统桌面为该壁纸的
+//! 静态帧（约 5 秒，覆盖建窗/加载黑隙），随后在背后自动还原用户原壁纸并
+//! 释放所有权——稳态下系统桌面永远是用户自己的壁纸，退出/恢复零成本
+//! （详见末段「静帧是临时覆盖」）。
 //!
-//! 动机：显示器重配（唤醒/合盖开盖/插拔/改分辨率）走两段式提交，抑制窗口
-//! （≈0.5–1s）露出的底是系统桌面壁纸——把它提前设为当前壁纸的静帧，过渡即
-//! 无缝（2026-10-11 spike 实测：过渡期显示的正是当前按屏设置的系统桌面图；
-//! 注意 macOS 26 上 `osascript System Events` 设壁纸已失效，必须走
-//! `NSWorkspace.setDesktopImageURL`）。
+//! 历史与动机：10-11 设计为常驻接管——显示器重配（唤醒/合盖开盖/插拔/
+//! 改分辨率）走两段式提交，抑制窗口（≈0.5–1s）露出的底是系统桌面壁纸，
+//! 预设为当前壁纸静帧可让过渡无缝（spike 实测有效；macOS 26 上
+//! `osascript System Events` 设壁纸已失效，必须走
+//! `NSWorkspace.setDesktopImageURL`）。10-13 实测壁纸代理换图 FIFO 排队 +
+//! 每张沉降 5–16s，常驻接管的每次还原都把这份迟钝暴露给用户（静帧滞留/
+//! 重放/闪烁），经用户决策改为临时覆盖——重配抑制窗口从此闪现用户静态
+//! 壁纸（与 Lively/Plash/WE 等主流应用不接管系统桌面的惯例一致）。
 //!
 //! 所有权纪律（评审定稿，非补丁的三个支点）：
 //! 1. **台账按【条目】键控**（`bridge/<entry_id>.<ext>`，entry id 跨显示器
@@ -18,7 +23,8 @@
 //!    用户运行期间手改过的壁纸不被覆盖；硬杀残留由下次启动对账兜底
 //!    （台账落盘 sidecar `desktop_bridge.json`）。
 //!
-//! 已知边界（设计取舍，如实入档）：SIGKILL/断电来不及恢复，残留到下次启动；
+//! 已知边界（设计取舍，如实入档）：SIGKILL/断电来不及恢复——临时覆盖后
+//! 残留窗口仅为指派后约 5s（FRAME_HOLD 内退出由拆窗前的持有档沉降兜底）；
 //! 崩溃对账路径上多屏同指派一张壁纸时逐屏原值无法消歧（恢复为同一张）；
 //! 硬杀时离线的屏其存储的桌面偏好仍是桥接图，无法远程修复。
 //!
@@ -26,8 +32,25 @@
 //! 轮换 + 7 天清缓存）会在接管期间删掉被记录的原值文件——恢复时
 //! `setDesktopImageURL` 对死路径必然失败（NSCocoaErrorDomain Code=4）且
 //! 「永不覆盖」纪律会让死记录永续。两道自愈：acquire 时死记录视同无记录
-//! （当前是活用户壁纸则重记）；restore 时死原值回退系统默认桌面
-//! `DefaultDesktop.heic`（跨版本稳定的系统间接引用）。
+//! （当前是活用户壁纸则重记）；restore 时死原值回退静态系统桌面图
+//! （`FALLBACK_DESKTOPS` 探测）。
+//!
+//! **回退目标与台账原值都严禁航拍路径**（2026-10-13 实测「点击恢复黑底」）：
+//! macOS 26 的 `DefaultDesktop.heic` 是航拍视频壁纸软链，静态 API 设置渲染
+//! 为黑屏，且它文件存在、会被当作「活值」记进台账绕过回退——
+//! `is_aerial_desktop` 在记录与恢复两侧都视同死值，强制走静态回退。
+//!
+//! **恢复先于拆窗**：setDesktopImageURL 的换图有沉降期（代理解码新图，
+//! 首次未缓存时秒级），先拆窗用户会直视黑底间隙——恢复在会话窗仍盖着时
+//! 执行，set 后 `wait_desktop_settled` 轮询读回等沉降（`SETTLE_QUICK` 800ms
+//! / `SETTLE_HOLD` 10s 双档，见常量注释），换图全程藏在壁纸窗背后。
+//!
+//! **静帧是临时覆盖**（2026-10-13 用户方案）：接管只为覆盖指派后的建窗/
+//! 加载黑隙，约 5 秒（`FRAME_HOLD`，见 session.rs）后由 patrol 调
+//! `takeovers_older_than` + `release_entry` 在背后还原用户原壁纸并释放
+//! 所有权——稳态下桌面永远是用户自己的壁纸，退出/恢复零成本。接管期间
+//! 切换条目只记账不重设（防代理 FIFO 队列重放）；撤回遇读回滞后由
+//! last_set 绑定兜底（LAG_WINDOW 30s）。
 
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
@@ -60,28 +83,57 @@ fn path_stem(p: &str) -> &str {
         .unwrap_or("")
 }
 
-/// 系统默认桌面图：跨版本稳定的系统间接引用（Sonoma+ 壁纸代理也认它），
-/// 作死原值的回退恢复目标。
-#[cfg(target_os = "macos")]
-const SYSTEM_DEFAULT_DESKTOP: &str = "/System/Library/CoreServices/DefaultDesktop.heic";
+/// 死原值回退目标（按序探测取第一个存在的）：必须选**静态图片**——macOS 26
+/// 的 `DefaultDesktop.heic` 已软链到航拍视频壁纸（`DefaultAerial.heic`），
+/// 经静态图 API 设置渲染为黑屏（2026-10-13 实测「重置之后都是黑色的」；
+/// 桥接帧 PNG/JPG 一直渲染正常，唯视频壁纸不行）。Sonoma.heic 是 macOS
+/// 14–26 常驻的静态桌面图，纯色 PNG 兜底；全部缺失 → 留台账待对账。
+const FALLBACK_DESKTOPS: &[&str] = &[
+    "/System/Library/Desktop Pictures/Sonoma.heic",
+    "/System/Library/Desktop Pictures/Mac Blue.heic",
+    "/System/Library/Desktop Pictures/Solid Colors/Blue.png",
+];
 
-/// 恢复目标决议：台账原值文件仍在 → 原值；已消失（轮换工具清理/用户删除）
-/// → 回退系统默认桌面；默认也不在 → None（无恢复目标，落日志留台账）。
+/// 系统航拍/默认桌面路径：macOS 26 上经静态图 API 设置渲染为**黑屏**
+/// （DefaultDesktop.heic 是 DefaultAerial.heic 视频壁纸的软链）。台账记录
+/// 与恢复目标两侧都视同死路径，强制走静态回退——否则「恢复原值 = 恢复
+/// 黑屏」（2026-10-12 实测两屏全黑；台账曾被此类值污染）。
+fn is_aerial_desktop(p: &str) -> bool {
+    p == "/System/Library/CoreServices/DefaultDesktop.heic"
+        || p.starts_with("/System/Library/Wallpapers/")
+        || p.ends_with(".madesktop")
+}
+
+/// 原值/回退目标的可用判定：文件在，且非航拍路径（航拍必黑屏）。
+/// 记录与恢复两侧共用这一个不变量。
+fn restorable(p: &str) -> bool {
+    Path::new(p).exists() && !is_aerial_desktop(p)
+}
+
+/// 静态回退目标解析（探测序取第一个存在的）；None = 无可回退。
+fn static_fallback(exists: impl Fn(&str) -> bool) -> Option<String> {
+    FALLBACK_DESKTOPS
+        .iter()
+        .copied()
+        .find(|p| exists(p))
+        .map(String::from)
+}
+
+/// 恢复目标决议：台账原值可用（`restorable`）→ 原值；否则 → 回退静态
+/// 系统桌面图；全部不可用 → None（无恢复目标，落日志留台账）。
 fn restore_target(original: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
-    if exists(original) {
+    if exists(original) && !is_aerial_desktop(original) {
         return Some(original.to_string());
     }
-    #[cfg(target_os = "macos")]
-    return exists(SYSTEM_DEFAULT_DESKTOP).then(|| SYSTEM_DEFAULT_DESKTOP.to_string());
-    #[cfg(not(target_os = "macos"))]
-    None
+    static_fallback(exists)
 }
 
 /// acquire 后台账应持有的原值；None = 读不到现状且无记录，无法保证可恢复，
 /// 跳过接管。规则见模块注释「acquire 三态」——核心是**首次记录定原值，
 /// 之后永不覆盖**（重入/换壁纸/多屏同指派/用户手改都不改写）。
-/// 例外：已记录的原值文件已不存在（`original_alive` 判否）→ 视同无记录，
-/// 有活值则重记——死路径恢复必然失败，抱着只会把死记录永续。
+/// 例外：已记录的原值不可恢复（`original_alive` 判否——文件已消失，或为
+/// 静态 API 渲染必黑的航拍路径）→ 视同无记录，有活值则重记——抱着死值
+/// 只会把死记录永续。
 fn acquire_original(
     current: Option<&str>,
     entry_id: &str,
@@ -210,17 +262,15 @@ impl DesktopBridge {
         }
     }
 
-    /// 接管：产出静帧 → 记原值（三态）→ 设系统桌面 → 落台账。
-    /// 必须主线程（AppKit）。
+    /// 接管：记原值（三态）→ 已持有所有权则只记账返回 → 否则产出静帧 →
+    /// 设系统桌面 → 落台账。必须主线程（AppKit）。
     #[cfg(target_os = "macos")]
     fn acquire_inner(&mut self, entry: &LibraryEntry, monitor_id: &str) {
         use objc2_foundation::NSURL;
 
-        let path = self.static_path(entry);
-        if !path.exists() && !self.produce_frame(entry, &path) {
-            println!("[bridge] {} 桥接帧产出失败，跳过接管", entry.id);
-            return;
-        }
+        // NSWorkspace 桌面图 API 在 objc2 0.2 绑定里声明为安全（文档语义
+        // 无 UB 面）；AVFoundation 的资产/帧提取仍按 unsafe 纪律走
+        let ws = objc2_app_kit::NSWorkspace::sharedWorkspace();
         let Some(screen) = crate::pin::macos::screens()
             .into_iter()
             .find(|(m, _)| m.id == monitor_id)
@@ -229,20 +279,18 @@ impl DesktopBridge {
             println!("[bridge] {monitor_id} 未找到对应系统屏，跳过接管");
             return;
         };
-        // NSWorkspace 桌面图 API 在 objc2 0.2 绑定里声明为安全（文档语义
-        // 无 UB 面）；AVFoundation 的资产/帧提取仍按 unsafe 纪律走
-        let ws = objc2_app_kit::NSWorkspace::sharedWorkspace();
         let current = ws
             .desktopImageURLForScreen(&screen)
             .and_then(|u| u.path())
             .map(|p| p.to_string());
-        // 原值判定先于任何写入；无法保证可恢复（读不到且无记录）则不接管
+        // 原值判定先于任何写入；无法保证可恢复（读不到且无记录）则不接管。
+        // 存活判定 = 文件在且非航拍——台账里的航拍旧值视同死值，有活值则重记
         let Some(original) = acquire_original(
             current.as_deref(),
             &entry.id,
             &self.dir,
             &self.ledger,
-            |p| Path::new(p).exists(),
+            restorable,
         ) else {
             println!(
                 "[bridge] {} 原壁纸不可读且无记录，跳过接管（安全优先）",
@@ -250,6 +298,35 @@ impl DesktopBridge {
             );
             return;
         };
+        // 当前桌面本身是航拍（用户用系统默认壁纸）时记录的是航拍路径——
+        // 同样不可渲染，直接记静态回退替代
+        let original = if is_aerial_desktop(&original) {
+            println!(
+                "[bridge] {} 原值为系统航拍桌面（{original}），记静态回退替代",
+                entry.id
+            );
+            static_fallback(|p| Path::new(p).exists()).unwrap_or(original)
+        } else {
+            original
+        };
+        // 已持有该屏桌面所有权（本进程写过且未释放）→ 不再重设静帧、不产出
+        // 桥接帧，只记账：壁纸代理换图是 FIFO 排队 + 沉降 5–16s，逐次重设会
+        // 让「恢复系统壁纸」时按历史逐张重放静帧（2026-10-13 反馈）；顺带
+        // 消除「循环指派顶掉用户手改桌面图」的隐性覆盖
+        if self.last_set.contains_key(monitor_id) {
+            self.ledger.entries.insert(entry.id.clone(), original);
+            self.save();
+            println!(
+                "[bridge] {monitor_id} ← {}（已持有桌面所有权，静帧不重设）",
+                entry.id
+            );
+            return;
+        }
+        let path = self.static_path(entry);
+        if !path.exists() && !self.produce_frame(entry, &path) {
+            println!("[bridge] {} 桥接帧产出失败，跳过接管", entry.id);
+            return;
+        }
         let url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(
             &path.display().to_string(),
         ));
@@ -280,12 +357,13 @@ impl DesktopBridge {
     /// 条目集合（调用方据此决定台账清理——没恢复成的不清，留对账）。
     /// 必须主线程。
     #[cfg(target_os = "macos")]
-    fn restore(&mut self, only: Option<&str>) -> BTreeSet<String> {
-        use objc2_foundation::NSURL;
-
+    fn restore(&mut self, only: Option<&str>, settle: std::time::Duration) -> BTreeSet<String> {
         /// set 后读回的滞后窗口：窗口内读不到「是我们的」按我们刚写的算
-        ///（spike 实测 set 后立即读回还是旧值，秒级沉降）。
-        const LAG_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+        ///（spike 实测 set 后立即读回还是旧值）。2026-10-13 实测 macOS 26
+        /// 换图读回沉降 **5–16s**（连续采样），窗口必须盖过它——此前 10s
+        /// 会在「随机换一张后马上恢复」时漏判：第①步读到陈旧旧值认不出
+        /// 桥接帧、第②步又超窗，桌面停在静帧上。
+        const LAG_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
 
         let ws = objc2_app_kit::NSWorkspace::sharedWorkspace();
         let screens = crate::pin::macos::screens();
@@ -317,23 +395,16 @@ impl DesktopBridge {
             attempted.insert(stem.clone());
             let Some(target) = restore_target(&original, |p| Path::new(p).exists()) else {
                 println!(
-                    "[bridge] {stem} 原壁纸已不存在（{original}）且无系统默认桌面可回退，留台账待对账"
+                    "[bridge] {stem} 原壁纸已不存在（{original}）且无静态桌面图可回退，留台账待对账"
                 );
                 continue;
             };
             if target != original {
-                println!("[bridge] {stem} 原壁纸已消失（{original}），回退系统默认桌面");
+                println!("[bridge] {stem} 原壁纸不可用（{original}），回退静态系统桌面图（{target}）");
             }
-            let orig_url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(&target));
-            let empty = objc2_foundation::NSDictionary::new();
-            // SAFETY: 主线程，存活 screen，target 指向已确认存在的文件
-            match unsafe { ws.setDesktopImageURL_forScreen_options_error(&orig_url, screen, &empty) }
-            {
-                Ok(()) => {
-                    println!("[bridge] {} 恢复系统壁纸 → {target}", info.id);
-                    restored.insert(stem);
-                }
-                Err(e) => println!("[bridge] {} 恢复失败（{target}）：{e:?}", info.id),
+            if apply_desktop(&ws, screen, &target, settle) {
+                println!("[bridge] {} 恢复系统壁纸 → {target}", info.id);
+                restored.insert(stem);
             }
         }
         // ② 绑定兜底：本进程刚写入（LAG_WINDOW 内）但读回滞后的屏——
@@ -353,22 +424,16 @@ impl DesktopBridge {
                 continue;
             };
             if !recent {
-                println!("[bridge] {monitor_id} 桌面图非桥接帧（疑似用户已改），跳过恢复");
+                println!("[bridge] {monitor_id} 桌面图非桥接帧（读回已沉降，疑似用户已改），跳过恢复");
                 continue;
             }
             let Some(target) = restore_target(&original, |p| Path::new(p).exists()) else {
                 println!(
-                    "[bridge] {entry_id} 原壁纸已不存在（{original}）且无系统默认桌面可回退，留台账待对账"
+                    "[bridge] {entry_id} 原壁纸不可用（{original}）且无静态桌面图可回退，留台账待对账"
                 );
                 continue;
             };
-            let orig_url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(&target));
-            let empty = objc2_foundation::NSDictionary::new();
-            // SAFETY: 同上
-            let ok =
-                unsafe { ws.setDesktopImageURL_forScreen_options_error(&orig_url, screen, &empty) }
-                    .is_ok();
-            if ok {
+            if apply_desktop(&ws, screen, &target, settle) {
                 println!(
                     "[bridge] {monitor_id} 读回滞后兜底恢复（{}）→ {target}",
                     info.id
@@ -377,6 +442,63 @@ impl DesktopBridge {
             }
         }
         restored
+    }
+}
+
+/// 把一屏的桌面图设为 target 并等换图沉降；成功返回 true，失败落日志
+/// （此前第②步失败静默，排查时无迹可寻）。恢复路径的唯一写入点。
+#[cfg(target_os = "macos")]
+fn apply_desktop(
+    ws: &objc2_app_kit::NSWorkspace,
+    screen: &objc2_app_kit::NSScreen,
+    target: &str,
+    settle: std::time::Duration,
+) -> bool {
+    use objc2_foundation::{NSDictionary, NSURL, NSString};
+
+    let url = NSURL::fileURLWithPath(&NSString::from_str(target));
+    let empty = NSDictionary::new();
+    // SAFETY: 主线程，存活 screen，target 指向已确认存在的文件
+    match unsafe { ws.setDesktopImageURL_forScreen_options_error(&url, screen, &empty) } {
+        Ok(()) => {
+            wait_desktop_settled(ws, screen, target, settle);
+            true
+        }
+        Err(e) => {
+            println!("[bridge] 恢复失败（{target}）：{e:?}");
+            false
+        }
+    }
+}
+
+/// set 后等壁纸代理完成换图：读回反映新 URL 即视为配置沉降完成（spike
+/// 实测读回滞后秒级，正好当完成信号用；模块纪律「set 后不要立即读回验证」
+/// 指的是别用它判对错，这里只用作让步等待）。封顶 `settle`——读不回也
+/// 继续，代理终会渲染；恢复先于拆窗执行时这段等待藏在壁纸窗背后。
+/// 读回确认后再留 `RENDER_GRACE`：配置沉降先于渲染完成，这段宽限让代理
+/// 的渲染与过渡动画大概率在壁纸窗背后播完，拆窗后用户不再看到二次闪烁
+/// （2026-10-13 反馈「退出后壁纸被重新设置了一次」——即渲染阶段的过渡
+/// 动画，系统行为，宽限只能覆盖其典型时序）。
+#[cfg(target_os = "macos")]
+fn wait_desktop_settled(
+    ws: &objc2_app_kit::NSWorkspace,
+    screen: &objc2_app_kit::NSScreen,
+    target: &str,
+    settle: std::time::Duration,
+) {
+    const POLL: std::time::Duration = std::time::Duration::from_millis(60);
+    const RENDER_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+    let deadline = std::time::Instant::now() + settle;
+    while std::time::Instant::now() < deadline {
+        let settled = ws
+            .desktopImageURLForScreen(screen)
+            .and_then(|u| u.path())
+            .is_some_and(|p| p.to_string() == target);
+        if settled {
+            std::thread::sleep(RENDER_GRACE);
+            return;
+        }
+        std::thread::sleep(POLL);
     }
 }
 
@@ -444,9 +566,14 @@ pub fn release_entry(entry_id: &str) {
     #[cfg(target_os = "macos")]
     {
         let mut b = global().lock().expect("桌面桥接");
-        let restored = b.restore(Some(entry_id));
+        // 持有档：调用方（remove_entry）在其壁纸窗仍上播时调用，换图沉降
+        // 藏在背后完成；无命中的常见路径零等待
+        let restored = b.restore(Some(entry_id), SETTLE_HOLD);
         if restored.contains(entry_id) {
             b.ledger.entries.remove(entry_id);
+            // 所有权一并释放：绑定残留会让下一次指派的接管被跳过，
+            // 静帧覆盖就此失效（临时覆盖方案的生命周期闭环）
+            b.last_set.retain(|_, (e, _)| e != entry_id);
             b.save();
         }
     }
@@ -457,14 +584,57 @@ pub fn release_entry(entry_id: &str) {
     }
 }
 
-/// 全量恢复（退出 / 关闭开关 / 托盘逃生门）。返回恢复的屏数；没恢复成的
-/// 记录保留在台账里，交下次启动对账（绝不「清了记录却没恢复」——那是
-/// 原壁纸丢失的通路）。
+/// 沉降等待上限的两档。持有档（SETTLE_HOLD）= 拆窗前用户会直视桌面的路径
+/// （「恢复系统壁纸」、按条目删除）——换图藏在仍上播的壁纸窗背后完成再拆，
+/// 提前拆窗会让旧静帧在眼前滞留 5–16s（实测读回/渲染滞后）；快速档
+/// （SETTLE_QUICK）= 秒退优先的退出路径（用户明确要求即点即退，未沉降的
+/// 换图由代理在退出后自行完成），以及窗口不在场/进程即死（panic 钩子、
+/// 启动对账、关开关）。
+const SETTLE_QUICK: std::time::Duration = std::time::Duration::from_millis(800);
+const SETTLE_HOLD: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// 全量恢复（退出 / 关闭开关 / 启动对账）：快速档——进程随即终止或壁纸窗
+/// 常驻不拆，换图沉降在背后完成即可。返回恢复的屏数；没恢复成的记录保留
+/// 在台账里，交下次启动对账（绝不「清了记录却没恢复」——那是原壁纸丢失
+/// 的通路）。
 pub fn restore_all() -> usize {
+    restore_all_inner(SETTLE_QUICK)
+}
+
+/// 待撤回的接管条目：本进程写入且已超过 `min_hold` 的（静帧只需覆盖指派
+/// 后的建窗/加载间隙，就绪后即应由调用方在背后撤回——见模块注释）。
+/// 返回去重后的条目 id。
+pub fn takeovers_older_than(min_hold: std::time::Duration) -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let b = global().lock().expect("桌面桥接");
+        let mut due: BTreeSet<String> = BTreeSet::new();
+        for (entry_id, at) in b.last_set.values() {
+            if at.elapsed() >= min_hold {
+                due.insert(entry_id.clone());
+            }
+        }
+        due.into_iter().collect()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = min_hold;
+        Vec::new()
+    }
+}
+
+/// 全量恢复（释放路径专用）：换图沉降完成（读回确认）后才返回，调用方
+/// 在此之后才拆壁纸窗——用户看到的是「动态壁纸继续播 → 直接变系统壁纸」，
+/// 中间不出现旧静帧滞留。
+pub fn restore_all_holding_windows() -> usize {
+    restore_all_inner(SETTLE_HOLD)
+}
+
+fn restore_all_inner(settle: std::time::Duration) -> usize {
     #[cfg(target_os = "macos")]
     {
         let mut b = global().lock().expect("桌面桥接");
-        let restored = b.restore(None);
+        let restored = b.restore(None, settle);
         // 只清「确实恢复了」的记录；没恢复成的保留（启动对账重试）——
         // 反过来就是「清了记录却没恢复」的原壁纸丢失通路（E2E 实测教训）
         b.ledger.entries.retain(|k, _| !restored.contains(k));
@@ -473,7 +643,10 @@ pub fn restore_all() -> usize {
         restored.len()
     }
     #[cfg(not(target_os = "macos"))]
-    0
+    {
+        let _ = settle;
+        0
+    }
 }
 
 /// 启动对账：硬杀残留的接管记录按当前活跃指派清理；开关关闭则全量恢复。
@@ -494,7 +667,7 @@ pub fn reconcile(active: &BTreeSet<String>, enabled: bool) {
             .cloned()
             .collect();
         for e in inactive {
-            let restored = b.restore(Some(&e));
+            let restored = b.restore(Some(&e), SETTLE_QUICK);
             if restored.contains(&e) {
                 b.ledger.entries.remove(&e);
             }
@@ -603,23 +776,69 @@ mod tests {
         // 屏上是我们的桥接图（重入）+ 记录已死且无继承 → 跳过接管
         let bridge_img = "/cfg/bridge/e1.png";
         assert_eq!(acquire_original(Some(bridge_img), "e1", dir, &l, alive), None);
+        // 调用点真实谓词（restorable = 文件在且非航拍）：台账航拍旧值视同
+        // 死值 → 重记当前活值（死值抱住会让恢复原值 = 恢复黑屏）
+        let aerial = "/System/Library/CoreServices/DefaultDesktop.heic";
+        let poisoned = ledger(&[("e1", aerial)]);
+        let restorable = |p: &str| p != aerial;
+        assert_eq!(
+            acquire_original(Some(live), "e1", dir, &poisoned, restorable),
+            Some(live.to_string())
+        );
     }
 
     #[test]
-    fn restore_target_falls_back_to_system_default() {
-        let default = "/System/Library/CoreServices/DefaultDesktop.heic";
+    fn restore_target_falls_back_to_static_system_wallpaper() {
+        let sonoma = "/System/Library/Desktop Pictures/Sonoma.heic";
+        let aerial = "/System/Library/CoreServices/DefaultDesktop.heic";
         // 原值在 → 原值
         assert_eq!(
-            restore_target("/u/wall.jpg", |p| p != default),
+            restore_target("/u/wall.jpg", |p| p != sonoma),
             Some("/u/wall.jpg".to_string())
         );
-        // 原值死 + 默认在 → 回退默认
+        // 原值死 + 静态默认在 → 回退（按探测序取第一个存在的）
         assert_eq!(
-            restore_target("/u/gone.jpg", |p| p == default),
-            Some(default.to_string())
+            restore_target("/u/gone.jpg", |p| p == sonoma),
+            Some(sonoma.to_string())
         );
-        // 原值死 + 默认也不在 → 无恢复目标
+        // 原值死 + 全部缺失 → 无恢复目标
         assert_eq!(restore_target("/u/gone.jpg", |_| false), None);
+        // 探测序：前面的不在则取下一个
+        let blue = "/System/Library/Desktop Pictures/Solid Colors/Blue.png";
+        assert_eq!(
+            restore_target("/u/gone.jpg", |p| p == blue),
+            Some(blue.to_string())
+        );
+        // 航拍路径即使文件存在也视同死值（静态 API 设置必黑屏）→ 回退静态
+        assert_eq!(
+            restore_target(aerial, |p| p == sonoma || p == aerial),
+            Some(sonoma.to_string())
+        );
+        // 航拍路径 + 无静态可回退 → 无恢复目标（宁可不恢复也不设黑屏值）
+        assert_eq!(restore_target(aerial, |p| p == aerial), None);
+    }
+
+    #[test]
+    fn aerial_desktop_detection() {
+        assert!(is_aerial_desktop(
+            "/System/Library/CoreServices/DefaultDesktop.heic"
+        ));
+        assert!(is_aerial_desktop(
+            "/System/Library/Wallpapers/.default/DefaultAerial.heic"
+        ));
+        assert!(is_aerial_desktop(
+            "/System/Library/Desktop Pictures/Big Sur.madesktop"
+        ));
+        // 桥接图与用户壁纸不受牵连
+        assert!(!is_aerial_desktop(
+            "/cfg/bridge/dbabf70afb07cdab.png"
+        ));
+        assert!(!is_aerial_desktop(
+            "/Users/u/Pictures/wall.jpg"
+        ));
+        assert!(!is_aerial_desktop(
+            "/System/Library/Desktop Pictures/Sonoma.heic"
+        ));
     }
 
     #[test]

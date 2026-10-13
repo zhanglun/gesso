@@ -200,15 +200,41 @@ impl SessionManager {
         }
     }
 
-    /// 完整退场（托盘「退出 Gesso」，EngineAction::Quit）：清空全部会话，各屏
-    /// 壁纸窗口随之 Drop → DestroyWindow。必须在引擎轮询线程调用（同创建约束）。
-    /// 配置已随每次改动落盘，退场无需再保存。
-    pub fn teardown_all(&mut self) {
-        let n = self.sessions.len();
-        self.sessions.clear();
-        // 桌面桥接全量恢复（先于进程退出；离线屏的边界见 desktop_bridge.rs）
+    /// 退出路径（托盘「退出 Gesso」）：**秒退优先**——快速档恢复后立即
+    /// 拆窗、进程随即终止；未沉降的桌面换图由代理在退出后自行完成（随机
+    /// 切换后秒退，桌面可能短暂显示静帧再变回原壁纸，属代理延迟上限）。
+    /// 返回桥接恢复的屏数。
+    pub fn teardown_for_quit(&mut self) -> usize {
         let restored = crate::desktop_bridge::restore_all();
-        println!("[session] 退出拆除：{n} 个壁纸会话已销毁，系统壁纸恢复 {restored} 项接管");
+        self.hide_and_clear_sessions(restored)
+    }
+
+    /// 释放路径（托盘「恢复系统壁纸」）：**等换图沉降完成再拆窗**——窗口
+    /// 仍在播放，换图全程藏在背后，用户看到的是「动态壁纸继续播 → 直接变
+    /// 系统壁纸」。多等的时间换「无静帧滞留」，退出立即的需求由
+    /// `teardown_for_quit` 满足。
+    pub fn release_all(&mut self) -> usize {
+        let had = !self.config.monitors.is_empty() || !self.sessions.is_empty();
+        self.config.monitors.clear();
+        if had {
+            let _ = self.save_config();
+        }
+        let restored = crate::desktop_bridge::restore_all_holding_windows();
+        self.hide_and_clear_sessions(restored)
+    }
+
+    /// 显式 orderOut 后清空全部会话：Drop 前不藏窗会留幽灵黑底残窗
+    /// （AppKit 延迟 dealloc，进程存活路径可见，与 assign 换窗纪律同源）。
+    fn hide_and_clear_sessions(&mut self, restored: usize) -> usize {
+        let n = self.sessions.len();
+        for s in self.sessions.values_mut() {
+            if let Some(w) = s.window.as_mut() {
+                w.set_visible(false);
+            }
+        }
+        self.sessions.clear();
+        println!("[session] 会话拆除：{n} 个壁纸会话已销毁，系统壁纸恢复 {restored} 项接管");
+        restored
     }
 
     /// explorer 重启自愈（Windows M1）：TaskbarCreated 后由引擎轮询触发。
@@ -271,7 +297,26 @@ impl SessionManager {
     /// 也无条件重施贴壁不变量。兜两类事件驱动够不着的情况：进程挂起期间
     /// 丢失的拓扑事件；WindowServer 不留痕迹的窗口篡改（层级/空间行为重置
     /// 读不回——level() 可能原值不动，只能重施不能检测）。稳定语境：突变即复显。
+    /// 桥接静帧的最短保持时长：覆盖指派后的建窗/加载黑隙（webview 首帧
+    /// 通常 1–2s），此后窗口已在播、桌面静帧无观看者——背后撤回原壁纸。
+    const FRAME_HOLD: std::time::Duration = std::time::Duration::from_secs(5);
+
+    /// 静帧临时覆盖的自动撤回（2026-10-13 用户方案）：接管只服务指派后的
+    /// 建窗/加载间隙，窗口就绪保持 `FRAME_HOLD` 后在背后把桌面还原成用户
+    /// 原壁纸并释放所有权——稳态下桌面永远是用户自己的壁纸，退出/恢复
+    /// 零成本。恢复的换图沉降（持有档）藏在正在播放的壁纸窗背后。
+    pub fn release_ready_takeovers(&mut self) {
+        if !self.config.settings.desktop_bridge {
+            return;
+        }
+        let due = crate::desktop_bridge::takeovers_older_than(Self::FRAME_HOLD);
+        for entry_id in due {
+            crate::desktop_bridge::release_entry(&entry_id);
+        }
+    }
+
     pub fn patrol(&mut self) {
+        self.release_ready_takeovers();
         self.converge(true, false);
     }
 
@@ -761,15 +806,37 @@ impl SessionManager {
 
     /// 主显示器循环切换到下一个库条目（托盘「换壁纸」）
     pub fn cycle_main(&mut self) {
-        let Some(main_id) = self.sessions.keys().next().cloned() else {
+        if self.library.is_empty() {
+            return;
+        }
+        // 无会话也随机：「恢复系统壁纸」会释放全部会话，之后随机换一张取
+        // 不到会话就静默空转（2026-10-13 反馈）——回退到主显示器重新指派
+        let main_id = self
+            .sessions
+            .keys()
+            .next()
+            .cloned()
+            .or_else(|| self.monitors().iter().find(|m| m.is_main).map(|m| m.id.clone()));
+        let Some(main_id) = main_id else {
             return;
         };
         let cur = self.config.monitors.get(&main_id).cloned();
-        let idx = cur
-            .and_then(|id| self.library.iter().position(|e| e.id == id))
-            .map(|i| (i + 1) % self.library.len())
-            .unwrap_or(0);
-        let next_entry = self.library[idx].id.clone();
+        let cur_idx = cur.and_then(|id| self.library.iter().position(|e| e.id == id));
+        // 真随机（托盘文案承诺「随机」，此前实为顺序循环）：排除当前条目，
+        // 随机源用 std RandomState（每次实例化随机播种，无第三方依赖）
+        let next_idx = match (cur_idx, self.library.len()) {
+            (_, 1) => 0,
+            (Some(i), n) => {
+                let r = rand_below(n - 1);
+                if r >= i {
+                    r + 1
+                } else {
+                    r
+                }
+            }
+            (None, n) => rand_below(n),
+        };
+        let next_entry = self.library[next_idx].id.clone();
         self.assign(&main_id, &next_entry);
     }
 
@@ -943,10 +1010,18 @@ impl SessionManager {
             .collect();
         for m in &affected {
             self.config.monitors.remove(m);
-            self.sessions.remove(m);
         }
-        // 桥接释放 + 桥接图清理（显示该条目桥接图的屏恢复原壁纸）
+        // 桥接释放先行（持有档）：换图沉降藏在仍上播的壁纸窗背后完成——
+        // 先拆窗会让用户直视静帧滞留（同退出/恢复，2026-10-13）
         crate::desktop_bridge::release_entry(entry_id);
+        for m in &affected {
+            // Drop 前显式 orderOut（幽灵窗纪律，同 teardown_all）
+            if let Some(mut s) = self.sessions.remove(m) {
+                if let Some(w) = s.window.as_mut() {
+                    w.set_visible(false);
+                }
+            }
+        }
         crate::desktop_bridge::discard_file(entry_id);
         let _ = self.save_config();
         let p = crate::protocol::library_dir().join("library.json");
@@ -1401,6 +1476,14 @@ impl SessionManager {
             })
             .collect()
     }
+}
+
+/// [0, n) 内的伪随机数：RandomState 每次实例化随机播种（std 无依赖方案，
+/// 壁纸洗牌够用，非密码学场景）。
+fn rand_below(n: usize) -> usize {
+    use std::hash::BuildHasher;
+    let state = std::collections::hash_map::RandomState::new();
+    (state.hash_one(std::time::Instant::now()) as usize) % n
 }
 
 /// 视频诊断开关：GESSO_VIDEO_DIAG=1 时每 5s 打印宿主页帧率探针。
