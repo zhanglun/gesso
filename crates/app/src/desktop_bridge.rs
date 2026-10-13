@@ -16,9 +16,13 @@
 //!    零等待，此后进程不再写系统桌面）；
 //! 3. 条目移除时清理静帧文件。
 //!
-//! 残留清理的回退纪律（继承实测教训）：台账原值不可用（文件消失/航拍）
+//! 恢复目标的回退纪律（继承实测教训）：台账原值不可用（文件消失/航拍）
 //! → 回退静态系统桌面图；**记录与恢复两侧都严禁航拍路径**——macOS 26
 //! 的 `DefaultDesktop.heic` 是航拍视频壁纸软链，静态 API 设置渲染为黑屏。
+
+// 实现主体为 macOS 专属（Windows 侧全部 no-op 门控）——跨平台 Clippy 的
+// 死代码豁免同 74996ee 先例
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
