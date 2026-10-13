@@ -400,7 +400,7 @@ fn system_proxy_uri() -> Option<String> {
             RRF_RT_REG_DWORD,
             None,
             Some(&mut enabled as *mut u32 as *mut _),
-            &mut cb,
+            Some(&mut cb),
         )
         .0 != 0
             || enabled != 1
@@ -416,7 +416,7 @@ fn system_proxy_uri() -> Option<String> {
             RRF_RT_REG_SZ,
             None,
             Some(buf.as_mut_ptr() as *mut _),
-            &mut cb,
+            Some(&mut cb),
         )
         .0 != 0
         {
