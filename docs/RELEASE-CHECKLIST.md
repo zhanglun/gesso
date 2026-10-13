@@ -49,8 +49,12 @@ Gesso 0.1.2 修复版本的发布清单。按顺序执行；流程与 0.1.1 相�
   git push origin v0.1.2
   ```
 - [x] CI 自动创建 Release 并上传产物；Actions 页确认三 job 全绿；确认正式发布
-      （[run 38351683395](https://github.com/zhanglun/gesso/actions/runs/38351683395)；
-      https://github.com/zhanglun/gesso/releases/tag/v0.1.2，2026-10-13T05:32Z）。
+      （首发 [run 38351683395](https://github.com/zhanglun/gesso/actions/runs/38351683395)；
+      **2026-10-13 覆盖重发**：发布后 1 小时内实机反馈更新器三缺陷（下载不读系统代理/os error 60、
+      下载失败后重试死锁、失败态不清），修复入 `c6cbd2b`+`fa5099a` 后删 tag/Release 重发——
+      [run 38355072298](https://github.com/zhanglun/gesso/actions/runs/38355072298)，
+      最终 Release https://github.com/zhanglun/gesso/releases/tag/v0.1.2，tag → `fa5099a`）。
+      代价：已装首发 0.1.2 的机器不会再次被提示（同版本号），需手动重下。
 
 ## 阶段 7 — 发布后
 
