@@ -195,8 +195,7 @@ mod tests {
     fn config_roundtrip() {
         let mut cfg = AppConfig::default();
         cfg.monitors.insert("edid-aaa".into(), "entry-1".into());
-        cfg.monitor_fit
-            .insert("edid-aaa".into(), Fit::Contain);
+        cfg.monitor_fit.insert("edid-aaa".into(), Fit::Contain);
         let dir = std::env::temp_dir().join(format!("gesso-test-{}", std::process::id()));
         let p = dir.join("config.json");
         cfg.save(&p).unwrap();

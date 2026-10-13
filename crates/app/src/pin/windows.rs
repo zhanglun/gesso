@@ -42,7 +42,7 @@ use windows::Win32::Graphics::Direct3D11::{
     ID3D11SamplerState, ID3D11ShaderResourceView, ID3D11Texture2D, ID3D11VertexShader,
     D3D11_BIND_CONSTANT_BUFFER, D3D11_BIND_SHADER_RESOURCE, D3D11_BUFFER_DESC,
     D3D11_COMPARISON_NEVER, D3D11_CREATE_DEVICE_FLAG, D3D11_FILTER_MIN_MAG_MIP_LINEAR,
-    D3D11_SAMPLER_DESC, D3D11_SDK_VERSION, D3D11_TEXTURE_ADDRESS_CLAMP, D3D11_TEXTURE2D_DESC,
+    D3D11_SAMPLER_DESC, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_TEXTURE_ADDRESS_CLAMP,
     D3D11_USAGE_DEFAULT, D3D11_VIEWPORT,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
@@ -1126,8 +1126,16 @@ unsafe fn video_render_loop(
     );
 
     // quad 管线：全屏大三角着色器 + 帧纹理 SRV + 线性采样 + fit 常量缓冲
-    let vs_code = compile_shader(VIDEO_VS, windows::core::s!("vsMain"), windows::core::s!("vs_5_0"))?;
-    let ps_code = compile_shader(VIDEO_PS, windows::core::s!("psMain"), windows::core::s!("ps_5_0"))?;
+    let vs_code = compile_shader(
+        VIDEO_VS,
+        windows::core::s!("vsMain"),
+        windows::core::s!("vs_5_0"),
+    )?;
+    let ps_code = compile_shader(
+        VIDEO_PS,
+        windows::core::s!("psMain"),
+        windows::core::s!("ps_5_0"),
+    )?;
     let mut vs = None;
     device.CreateVertexShader(blob_bytes(&vs_code), None, Some(&mut vs))?;
     let mut ps = None;
@@ -1223,7 +1231,11 @@ unsafe fn video_render_loop(
                 )?;
                 backbuffer = Some(swapchain.GetBuffer(0)?);
                 let mut view = None;
-                device.CreateRenderTargetView(backbuffer.as_ref().unwrap(), None, Some(&mut view))?;
+                device.CreateRenderTargetView(
+                    backbuffer.as_ref().unwrap(),
+                    None,
+                    Some(&mut view),
+                )?;
                 rtv = view;
             }
             let consts = fit_constants(f.min(2), nw, nh, cw, ch);

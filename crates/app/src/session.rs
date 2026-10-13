@@ -811,12 +811,12 @@ impl SessionManager {
         }
         // 无会话也随机：「恢复系统壁纸」会释放全部会话，之后随机换一张取
         // 不到会话就静默空转（2026-10-13 反馈）——回退到主显示器重新指派
-        let main_id = self
-            .sessions
-            .keys()
-            .next()
-            .cloned()
-            .or_else(|| self.monitors().iter().find(|m| m.is_main).map(|m| m.id.clone()));
+        let main_id = self.sessions.keys().next().cloned().or_else(|| {
+            self.monitors()
+                .iter()
+                .find(|m| m.is_main)
+                .map(|m| m.id.clone())
+        });
         let Some(main_id) = main_id else {
             return;
         };
@@ -958,12 +958,7 @@ impl SessionManager {
         let Some(entry_id) = self.config.monitors.get(monitor_id) else {
             return;
         };
-        let Some(entry) = self
-            .library
-            .iter()
-            .find(|e| e.id == *entry_id)
-            .cloned()
-        else {
+        let Some(entry) = self.library.iter().find(|e| e.id == *entry_id).cloned() else {
             return;
         };
         // 图片的热重载 URL 先于窗口可变借用构建（fps_for 需要不可变借 self）

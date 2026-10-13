@@ -130,7 +130,9 @@ fn spawn_capture_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: Wallp
                     // 采集恒按适应（Contain）全帧语义——卡片预览看全貌，不随壁纸
                     // 填充模式走（§4.4 2026-10-12；Windows 抽帧 drawImage 读像素
                     // 不吃 CSS，macOS 快照吃——统一钉死保证帧契约同构）
-                    .map(|e| session::SessionManager::entry_host_url(e, 60, gesso_core::Fit::Contain))
+                    .map(|e| {
+                        session::SessionManager::entry_host_url(e, 60, gesso_core::Fit::Contain)
+                    })
             });
             let written = match url {
                 Some(url) => {

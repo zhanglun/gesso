@@ -493,12 +493,7 @@ impl MonitorsView {
                     .inset_0()
                     .rounded(px(MINI_INNER_R))
                     .overflow_hidden()
-                    .child(Self::screen_surface(
-                        item.as_ref(),
-                        m.fit,
-                        geom.ratio,
-                        cx,
-                    )),
+                    .child(Self::screen_surface(item.as_ref(), m.fit, geom.ratio, cx)),
             )
             .when(assigned, |d| {
                 d.child(Self::status_chip(st_icon, st_label, dimmed))

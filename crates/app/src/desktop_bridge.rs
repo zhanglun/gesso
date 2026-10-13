@@ -400,7 +400,9 @@ impl DesktopBridge {
                 continue;
             };
             if target != original {
-                println!("[bridge] {stem} 原壁纸不可用（{original}），回退静态系统桌面图（{target}）");
+                println!(
+                    "[bridge] {stem} 原壁纸不可用（{original}），回退静态系统桌面图（{target}）"
+                );
             }
             if apply_desktop(&ws, screen, &target, settle) {
                 println!("[bridge] {} 恢复系统壁纸 → {target}", info.id);
@@ -424,7 +426,9 @@ impl DesktopBridge {
                 continue;
             };
             if !recent {
-                println!("[bridge] {monitor_id} 桌面图非桥接帧（读回已沉降，疑似用户已改），跳过恢复");
+                println!(
+                    "[bridge] {monitor_id} 桌面图非桥接帧（读回已沉降，疑似用户已改），跳过恢复"
+                );
                 continue;
             }
             let Some(target) = restore_target(&original, |p| Path::new(p).exists()) else {
@@ -454,7 +458,7 @@ fn apply_desktop(
     target: &str,
     settle: std::time::Duration,
 ) -> bool {
-    use objc2_foundation::{NSDictionary, NSURL, NSString};
+    use objc2_foundation::{NSDictionary, NSString, NSURL};
 
     let url = NSURL::fileURLWithPath(&NSString::from_str(target));
     let empty = NSDictionary::new();
@@ -775,7 +779,10 @@ mod tests {
         assert_eq!(acquire_original(None, "e1", dir, &l, alive), None);
         // 屏上是我们的桥接图（重入）+ 记录已死且无继承 → 跳过接管
         let bridge_img = "/cfg/bridge/e1.png";
-        assert_eq!(acquire_original(Some(bridge_img), "e1", dir, &l, alive), None);
+        assert_eq!(
+            acquire_original(Some(bridge_img), "e1", dir, &l, alive),
+            None
+        );
         // 调用点真实谓词（restorable = 文件在且非航拍）：台账航拍旧值视同
         // 死值 → 重记当前活值（死值抱住会让恢复原值 = 恢复黑屏）
         let aerial = "/System/Library/CoreServices/DefaultDesktop.heic";
@@ -830,12 +837,8 @@ mod tests {
             "/System/Library/Desktop Pictures/Big Sur.madesktop"
         ));
         // 桥接图与用户壁纸不受牵连
-        assert!(!is_aerial_desktop(
-            "/cfg/bridge/dbabf70afb07cdab.png"
-        ));
-        assert!(!is_aerial_desktop(
-            "/Users/u/Pictures/wall.jpg"
-        ));
+        assert!(!is_aerial_desktop("/cfg/bridge/dbabf70afb07cdab.png"));
+        assert!(!is_aerial_desktop("/Users/u/Pictures/wall.jpg"));
         assert!(!is_aerial_desktop(
             "/System/Library/Desktop Pictures/Sonoma.heic"
         ));
