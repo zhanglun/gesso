@@ -143,6 +143,17 @@ pub fn cancel_download() {
     }
 }
 
+/// 关闭更新小窗时调用：失败态重置为 Idle（重开从「检查更新」干净起步，
+/// 不停留在旧错误）；其余态保留——Available 还能回来下载、Ready 还能打开安装包。
+pub fn reset_failure() {
+    let mut s = STATE.lock().expect("update 状态锁");
+    if matches!(*s, UpdateState::Failed { .. }) {
+        *s = UpdateState::Idle;
+        drop(s);
+        GEN.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 /// 发起下载（仅「发现新版本」态受理；后台流式写盘，进度经状态回灌）。
 pub fn spawn_download() {
     let Some(release) = state_snapshot().available().cloned() else {
@@ -159,24 +170,29 @@ pub fn spawn_download() {
         downloaded: 0,
         total,
     });
-    std::thread::spawn(move || match download_with_progress(&release) {
-        DownloadOutcome::Done(path) => {
-            set(UpdateState::Ready {
-                release,
-                path: path.display().to_string(),
-            });
-        }
-        DownloadOutcome::Cancelled => {
-            // 回到「发现新版本」：弹窗按既有发布信息重新给出下载入口
-            println!("[update] 下载已取消");
-            set(UpdateState::Available(release));
-        }
-        DownloadOutcome::Failed(message) => {
-            println!("[update] 下载失败：{message}");
-            set(UpdateState::Failed {
-                message,
-                can_retry_download: true,
-            });
+    std::thread::spawn(move || {
+        let outcome = download_with_progress(&release);
+        // 三条结束路径统一释放互斥标志：漏掉即「重试无反应」（BUSY 死锁到进程重启）
+        BUSY.store(false, Ordering::SeqCst);
+        match outcome {
+            DownloadOutcome::Done(path) => {
+                set(UpdateState::Ready {
+                    release,
+                    path: path.display().to_string(),
+                });
+            }
+            DownloadOutcome::Cancelled => {
+                // 回到「发现新版本」：弹窗按既有发布信息重新给出下载入口
+                println!("[update] 下载已取消");
+                set(UpdateState::Available(release));
+            }
+            DownloadOutcome::Failed(message) => {
+                println!("[update] 下载失败：{message}");
+                set(UpdateState::Failed {
+                    message,
+                    can_retry_download: true,
+                });
+            }
         }
     });
 }
@@ -238,7 +254,11 @@ fn download_with_progress(release: &ReleaseInfo) -> DownloadOutcome {
         .call()
     {
         Ok(r) => r,
-        Err(e) => return DownloadOutcome::Failed(format!("下载连接失败：{e}")),
+        Err(e) => {
+            return DownloadOutcome::Failed(format!(
+                "下载连接失败：{e}；请检查网络/代理后重试，或前往发布页手动下载"
+            ))
+        }
     };
     let total = resp
         .header("Content-Length")
@@ -293,9 +313,139 @@ fn user_agent() -> String {
 /// 共享 agent：连接超时 15s（下载体用整体超时无意义——大文件 + 慢网会被误杀，
 /// 停滞依赖用户「取消下载」兜底）。检查请求在其上再叠 15s 整体超时。
 fn http_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
+    let mut builder = ureq::AgentBuilder::new()
         .timeout_connect(std::time::Duration::from_secs(15))
-        .build()
+        // 连接停滞不再无限挂起（读不到数据 30s 即报错；慢速下载不受影响）
+        .timeout_read(std::time::Duration::from_secs(30));
+    // 代理优先级：环境变量（ureq proxy-from-env 默认行为）> 系统代理 > 直连。
+    // GUI 进程不继承 shell 环境变量、ureq 不读系统代理——国内用户浏览器能下、
+    // 应用内超时（os error 60）的根因即此，故系统代理要自己补读。
+    if !env_proxy_set() {
+        if let Some(uri) = SYSTEM_PROXY.get_or_init(system_proxy_uri) {
+            if let Ok(p) = ureq::Proxy::new(uri) {
+                builder = builder.proxy(p);
+            }
+        }
+    }
+    builder.build()
+}
+
+static SYSTEM_PROXY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+fn env_proxy_set() -> bool {
+    ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
+        .iter()
+        .any(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
+}
+
+/* ---------- 系统代理读取（macOS: scutil --proxy；Windows: Internet Settings 注册表） ---------- */
+
+/// macOS 系统代理（含 Clash/Surge「系统代理」模式写入的静态代理）；PAC 不解析回落直连。
+#[cfg(target_os = "macos")]
+fn system_proxy_uri() -> Option<String> {
+    let out = std::process::Command::new("scutil")
+        .arg("--proxy")
+        .output()
+        .ok()?;
+    parse_scutil_proxy(&String::from_utf8_lossy(&out.stdout))
+}
+/// `scutil --proxy` 输出 → 代理 URI（纯函数，单测覆盖）。优先 HTTPS 代理，
+/// 其次 HTTP，最后 SOCKS；各自需 Enable=1 且地址/端口齐全；PAC 不解析。
+#[cfg(any(target_os = "macos", test))]
+fn parse_scutil_proxy(s: &str) -> Option<String> {
+    let get = |key: &str| -> Option<String> {
+        s.lines()
+            .find(|l| l.trim_start().starts_with(key))
+            .and_then(|l| l.split(':').nth(1))
+            .map(|v| v.trim().to_string())
+    };
+    let httpish = |enable: &str, host: &str, port: &str| {
+        (get(enable).as_deref() == Some("1"))
+            .then(|| {
+                get(host)
+                    .zip(get(port))
+                    .map(|(h, p)| format!("http://{h}:{p}"))
+            })
+            .flatten()
+    };
+    httpish("HTTPSEnable", "HTTPSProxy", "HTTPSPort")
+        .or_else(|| httpish("HTTPEnable", "HTTPProxy", "HTTPPort"))
+        .or_else(|| {
+            (get("SOCKSEnable").as_deref() == Some("1"))
+                .then(|| {
+                    get("SOCKSProxy")
+                        .zip(get("SOCKSPort"))
+                        .map(|(h, p)| format!("socks5://{h}:{p}"))
+                })
+                .flatten()
+        })
+}
+
+/// Windows 系统代理（WinInet Internet Settings；`ProxyServer` 形如
+/// `host:port` 或 `http=h:p;https=h:p;socks=h:p`）。
+#[cfg(target_os = "windows")]
+fn system_proxy_uri() -> Option<String> {
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::System::Registry::{
+        RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
+    };
+    const SUBKEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings");
+    unsafe {
+        let mut enabled: u32 = 0;
+        let mut cb = std::mem::size_of::<u32>() as u32;
+        if RegGetValueW(
+            HKEY_CURRENT_USER,
+            SUBKEY,
+            w!("ProxyEnable"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut enabled as *mut u32 as *mut _),
+            &mut cb,
+        )
+        .0 != 0
+            || enabled != 1
+        {
+            return None;
+        }
+        let mut buf = [0u16; 256];
+        let mut cb = (buf.len() * 2) as u32;
+        if RegGetValueW(
+            HKEY_CURRENT_USER,
+            SUBKEY,
+            w!("ProxyServer"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr() as *mut _),
+            &mut cb,
+        )
+        .0 != 0
+        {
+            return None;
+        }
+        let s = String::from_utf16_lossy(&buf[..(cb as usize) / 2]);
+        parse_windows_proxy_server(&s)
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn parse_windows_proxy_server(s: &str) -> Option<String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if !s.contains('=') {
+        return Some(format!("http://{s}")); // 单一形态：对所有协议生效
+    }
+    let val = |want: &str| {
+        s.split(';').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            (k.trim() == want).then(|| v.trim().to_string())
+        })
+    };
+    val("https")
+        .or_else(|| val("http"))
+        .map(|v| format!("http://{v}"))
+        .or_else(|| val("socks").map(|v| format!("socks5://{v}")))
 }
 
 fn fetch_latest() -> Result<ReleaseInfo, String> {
@@ -722,5 +872,64 @@ mod tests {
         }));
         assert_eq!(consume_available_toast().as_deref(), Some("0.3.0"));
         set(UpdateState::Idle);
+    }
+
+    #[test]
+    fn scutil_proxy_precedence_and_gating() {
+        // 三者全开：HTTPS 优先
+        let all = "<dictionary> {\n HTTPSEnable : 1\n HTTPSProxy : 10.0.0.2\n HTTPSPort : 443\n HTTPEnable : 1\n HTTPProxy : 10.0.0.1\n HTTPPort : 7890\n SOCKSEnable : 1\n SOCKSProxy : 127.0.0.1\n SOCKSPort : 7891\n }";
+        assert_eq!(
+            parse_scutil_proxy(all).as_deref(),
+            Some("http://10.0.0.2:443")
+        );
+        // 仅 HTTP 开
+        let http_only = "HTTPEnable : 1\n HTTPProxy : 127.0.0.1\n HTTPPort : 7890\n HTTPSEnable : 0\n SOCKSEnable : 0";
+        assert_eq!(
+            parse_scutil_proxy(http_only).as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        // 仅 SOCKS 开
+        let socks_only =
+            "SOCKSEnable : 1\n SOCKSProxy : 127.0.0.1\n SOCKSPort : 7891\n HTTPEnable : 0";
+        assert_eq!(
+            parse_scutil_proxy(socks_only).as_deref(),
+            Some("socks5://127.0.0.1:7891")
+        );
+        // 全关 / 仅 PAC：直连（None）
+        assert_eq!(parse_scutil_proxy("HTTPEnable : 0\n SOCKSEnable : 0"), None);
+        assert_eq!(
+            parse_scutil_proxy(
+                "ProxyAutoConfigEnable : 1\n ProxyAutoConfigURLString : http://x/pac"
+            ),
+            None
+        );
+        // 开了但缺地址：不产半截 URI
+        assert_eq!(parse_scutil_proxy("HTTPEnable : 1\n HTTPPort : 7890"), None);
+    }
+
+    #[test]
+    fn windows_proxy_server_forms() {
+        // 单一形态：对所有协议生效
+        assert_eq!(
+            parse_windows_proxy_server("127.0.0.1:7890").as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        // 分协议形态：https > http > socks
+        let per = "http=127.0.0.1:8080;https=127.0.0.1:7891;socks=127.0.0.1:7892";
+        assert_eq!(
+            parse_windows_proxy_server(per).as_deref(),
+            Some("http://127.0.0.1:7891")
+        );
+        assert_eq!(
+            parse_windows_proxy_server("http=127.0.0.1:8080;socks=127.0.0.1:7892").as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert_eq!(
+            parse_windows_proxy_server("socks=127.0.0.1:7892").as_deref(),
+            Some("socks5://127.0.0.1:7892")
+        );
+        // 空串 / 空白
+        assert_eq!(parse_windows_proxy_server(""), None);
+        assert_eq!(parse_windows_proxy_server("   "), None);
     }
 }

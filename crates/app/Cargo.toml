@@ -57,6 +57,7 @@ windows = { version = "0.62", features = [
   "Win32_UI_Input_KeyboardAndMouse", # 光标 feed：GetAsyncKeyState/GetLastInputInfo（M5-W）
   "Win32_System_Power",             # 电池：GetSystemPowerStatus（M5-W）
   "Win32_System_RemoteDesktop",     # 锁屏：WTSQuerySessionInformationW（M5-W）
+  "Win32_System_Registry",            # 系统代理：Internet Settings 注册表（update.rs）
   "Win32_Graphics_Dwm",             # 全屏检测排除 cloak 幽灵窗口（M5-W）
   "Win32_UI_Accessibility",         # WinEventHook（全屏检测，M5 Windows 接入）
   "Win32_System_Com",               # CoInitializeEx（MF 套间，win15/win-video）

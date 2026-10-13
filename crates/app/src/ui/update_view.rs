@@ -80,6 +80,8 @@ pub fn open(cx: &mut App) {
 }
 
 fn close(window: &mut Window) {
+    // 失败态随窗口关闭重置（重开从「检查更新」干净起步，不停留在旧错误）
+    crate::update::reset_failure();
     window.remove_window();
 }
 
