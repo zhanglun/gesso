@@ -24,7 +24,7 @@ Gesso 0.1.2 修复版本的发布清单。按顺序执行；流程与 0.1.1 相�
 - [x] `cargo fmt --all --check` / clippy（core+app，`-D warnings`）/ build / test 全绿
       （fmt 与 Windows clippy 红灯已修：`ed547f3`、`d0b4a37`；CI run 38348937763 双平台绿）。
 - [x] 发布收口提交：`chore(release): 0.1.2`（版本号 + CHANGELOG 冻结 + notes + README；本提交）。
-- [ ] 收口提交推送后 CI 复验全绿。
+- [x] 收口提交推送后 CI 复验全绿。
 
 ## 阶段 2 — 实机冒烟
 
@@ -41,7 +41,8 @@ Gesso 0.1.2 修复版本的发布清单。按顺序执行；流程与 0.1.1 相�
 
 ## 阶段 6 — 触发 CI 发布
 
-- [ ] **干跑**：手动触发 Release workflow（`workflow_dispatch`，只打包不发布），确认三产物齐全。
+- [x] **干跑**：手动触发 Release workflow（`workflow_dispatch`，只打包不发布），确认三产物齐全
+      （[run 38351122277](https://github.com/zhanglun/gesso/actions/runs/38351122277)，2026-10-13：dmg / setup.exe / portable.zip 全部出齐）。
 - [ ] 打 tag 并推送（**当前暂不执行，等用户确认**）：
   ```bash
   git tag -a v0.1.2 -m "Release 0.1.2"
