@@ -200,32 +200,26 @@ impl SessionManager {
         }
     }
 
-    /// 退出路径（托盘「退出 Gesso」）：**秒退优先**——快速档恢复后立即
-    /// 拆窗、进程随即终止；未沉降的桌面换图由代理在退出后自行完成（随机
-    /// 切换后秒退，桌面可能短暂显示静帧再变回原壁纸，属代理延迟上限）。
-    /// 返回桥接恢复的屏数。
+    /// 退出路径（托盘「退出 Gesso」）：拆窗即退（运行时不接管系统桌面，
+    /// 无恢复动作——旧版本残留的桌面接管由启动清理负责）。返回拆除会话数。
     pub fn teardown_for_quit(&mut self) -> usize {
-        let restored = crate::desktop_bridge::restore_all();
-        self.hide_and_clear_sessions(restored)
+        self.hide_and_clear_sessions()
     }
 
-    /// 释放路径（托盘「恢复系统壁纸」）：**等换图沉降完成再拆窗**——窗口
-    /// 仍在播放，换图全程藏在背后，用户看到的是「动态壁纸继续播 → 直接变
-    /// 系统壁纸」。多等的时间换「无静帧滞留」，退出立即的需求由
-    /// `teardown_for_quit` 满足。
+    /// 释放路径（托盘「恢复系统壁纸」）：清空全部指派并拆窗，桌面即用户
+    /// 自己的壁纸（从未被接管）。返回拆除会话数。
     pub fn release_all(&mut self) -> usize {
         let had = !self.config.monitors.is_empty() || !self.sessions.is_empty();
         self.config.monitors.clear();
         if had {
             let _ = self.save_config();
         }
-        let restored = crate::desktop_bridge::restore_all_holding_windows();
-        self.hide_and_clear_sessions(restored)
+        self.hide_and_clear_sessions()
     }
 
     /// 显式 orderOut 后清空全部会话：Drop 前不藏窗会留幽灵黑底残窗
     /// （AppKit 延迟 dealloc，进程存活路径可见，与 assign 换窗纪律同源）。
-    fn hide_and_clear_sessions(&mut self, restored: usize) -> usize {
+    fn hide_and_clear_sessions(&mut self) -> usize {
         let n = self.sessions.len();
         for s in self.sessions.values_mut() {
             if let Some(w) = s.window.as_mut() {
@@ -233,8 +227,9 @@ impl SessionManager {
             }
         }
         self.sessions.clear();
-        println!("[session] 会话拆除：{n} 个壁纸会话已销毁，系统壁纸恢复 {restored} 项接管");
-        restored
+        crate::desktop_bridge::uncover_all();
+        println!("[session] 会话拆除：{n} 个壁纸会话已销毁");
+        n
     }
 
     /// explorer 重启自愈（Windows M1）：TaskbarCreated 后由引擎轮询触发。
@@ -297,28 +292,7 @@ impl SessionManager {
     /// 也无条件重施贴壁不变量。兜两类事件驱动够不着的情况：进程挂起期间
     /// 丢失的拓扑事件；WindowServer 不留痕迹的窗口篡改（层级/空间行为重置
     /// 读不回——level() 可能原值不动，只能重施不能检测）。稳定语境：突变即复显。
-    /// 桥接静帧的最短保持时长：覆盖指派后的建窗/加载黑隙（webview 首帧
-    /// 通常 1–2s），此后窗口已在播、桌面静帧无观看者——背后撤回原壁纸。
-    const FRAME_HOLD: std::time::Duration = std::time::Duration::from_secs(5);
-
-    /// 静帧临时覆盖的自动撤回（2026-10-13 用户方案）：接管只服务指派后的
-    /// 建窗/加载间隙，窗口就绪保持 `FRAME_HOLD` 后在背后把桌面还原成用户
-    /// 原壁纸并释放所有权——稳态下桌面永远是用户自己的壁纸，退出/恢复
-    /// 零成本。恢复的换图沉降（持有档）藏在正在播放的壁纸窗背后。
-    pub fn release_ready_takeovers(&mut self) {
-        if !self.config.settings.desktop_bridge {
-            return;
-        }
-        let due = crate::desktop_bridge::takeovers_older_than(Self::FRAME_HOLD);
-        for entry_id in due {
-            // 零沉降：窗口在播、无人直视桌面；等待曾在主线程同步睡眠
-            // 1.5–11.5s（0.1.2 双击冻结根因），详见 release_entry_nowait
-            crate::desktop_bridge::release_entry_nowait(&entry_id);
-        }
-    }
-
     pub fn patrol(&mut self) {
-        self.release_ready_takeovers();
         self.converge(true, false);
     }
 
@@ -365,6 +339,15 @@ impl SessionManager {
                     .find(|m| m.id == s.monitor.id)
                     .is_some_and(|m| Some(m.frame) != s.applied_frame);
             if gone || stale_geom {
+                // 先盖后熄：几何过时的屏先上过渡静帧窗（无闪现），屏消失的
+                // 反而要销毁它的过渡窗（残窗会被 WindowServer 收容到别的屏）
+                if stale_geom {
+                    if let Some(m) = monitors.iter().find(|m| m.id == s.monitor.id) {
+                        crate::desktop_bridge::cover(&s.monitor.id, m.frame, &s.entry_id);
+                    }
+                } else {
+                    crate::desktop_bridge::uncover(&s.monitor.id);
+                }
                 if let Some(w) = s.window.as_mut() {
                     w.set_visible(false);
                 }
@@ -623,11 +606,8 @@ impl SessionManager {
                         m.id, s.entry_id, title, m.frame.0, m.frame.1, m.frame.2, m.frame.3
                     );
                     self.sessions.insert(m.id.clone(), s);
-                    // 桌面桥接接管：补建路径也要接管（开机/重连的会话不经
-                    // assign——漏了这里桥接要等用户手动换壁纸才生效）
-                    if self.config.settings.desktop_bridge {
-                        crate::desktop_bridge::acquire(&entry, &m.id);
-                    }
+                    // 过渡静帧补产+解码（后台）
+                    crate::desktop_bridge::refresh_frame(&entry);
                 }
                 Err(e) => println!("[session] {} 创建失败：{e}", m.id),
             }
@@ -643,6 +623,8 @@ impl SessionManager {
                         w.set_visible(true);
                     }
                     s.visible = true;
+                    // 真窗已点亮，过渡静帧使命完成（在其背后撤除，无闪现）
+                    crate::desktop_bridge::uncover(&s.monitor.id);
                 }
             }
         }
@@ -884,10 +866,10 @@ impl SessionManager {
                         w.set_visible(true);
                     }
                     s.visible = true;
-                    // 桌面桥接接管（设置开关；静态帧兜底过渡期，desktop_bridge.rs）
-                    if self.config.settings.desktop_bridge {
-                        crate::desktop_bridge::acquire(&entry, &s.monitor.id);
-                    }
+                    // 真窗已点亮，撤除可能存在的过渡静帧（重配后指派场景）
+                    crate::desktop_bridge::uncover(&s.monitor.id);
+                    // 过渡静帧补产+解码（后台）
+                    crate::desktop_bridge::refresh_frame(&entry);
                 }
             }
         } else {
@@ -906,25 +888,6 @@ impl SessionManager {
     /// 设置更新（设置页全部即时生效：写内存 + 落盘，§4.5）
     pub fn update_settings(&mut self, settings: gesso_core::Settings) {
         self.config.settings = settings;
-        // 桌面桥接开关即时生效：关闭 = 全量恢复；开启 = 对现有会话补接管
-        if self.config.settings.desktop_bridge {
-            let owned: Vec<(String, LibraryEntry)> = self
-                .sessions
-                .values()
-                .filter_map(|s| {
-                    self.library
-                        .iter()
-                        .find(|e| e.id == s.entry_id)
-                        .cloned()
-                        .map(|e| (s.monitor.id.clone(), e))
-                })
-                .collect();
-            for (monitor_id, entry) in owned {
-                crate::desktop_bridge::acquire(&entry, &monitor_id);
-            }
-        } else {
-            crate::desktop_bridge::restore_all();
-        }
         let _ = self.save_config();
     }
 
@@ -1017,11 +980,9 @@ impl SessionManager {
         for m in &affected {
             self.config.monitors.remove(m);
         }
-        // 桥接释放先行（持有档）：换图沉降藏在仍上播的壁纸窗背后完成——
-        // 先拆窗会让用户直视静帧滞留（同退出/恢复，2026-10-13）
-        crate::desktop_bridge::release_entry(entry_id);
         for m in &affected {
             // Drop 前显式 orderOut（幽灵窗纪律，同 teardown_all）
+            crate::desktop_bridge::uncover(m);
             if let Some(mut s) = self.sessions.remove(m) {
                 if let Some(w) = s.window.as_mut() {
                     w.set_visible(false);

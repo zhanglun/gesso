@@ -312,15 +312,18 @@ fn bootstrap() -> (session::SessionManager, bool) {
     let mut sm = session::SessionManager::new(config, library);
     sm.sync_monitors();
 
-    // 桌面桥接对账：硬杀残留的接管记录按当前活跃指派清理；开关关闭则全量
-    // 恢复（desktop_bridge.rs 模块注释——所有权纪律与已知边界）
-    let active: std::collections::BTreeSet<String> =
-        sm.config().monitors.values().cloned().collect();
-    let bridge_on = sm.config().settings.desktop_bridge;
-    desktop_bridge::reconcile(&active, bridge_on);
-    // 视频桥接帧后台预生成：指派路径从此只认现成帧，主线程永不解码视频
-    if bridge_on {
-        desktop_bridge::preseed_video_frames(sm.library());
+    // 旧版本残留清理：旧版带桌面接管的版本若硬杀退出，桌面可能还设着
+    // 桥接帧——一次性恢复原壁纸（零等待）；此后本进程不再写系统桌面。
+    // 静帧预生成：过渡窗的帧供给（后台，主线程永不解码视频）。
+    desktop_bridge::cleanup_legacy_takeovers();
+    desktop_bridge::preseed_video_frames(sm.library());
+    // 当前指派条目的静帧预解码（后台）：首次重配即有过渡帧可用
+    {
+        let assigned: std::collections::BTreeSet<String> =
+            sm.config().monitors.values().cloned().collect();
+        for e in sm.library().iter().filter(|e| assigned.contains(&e.id)) {
+            desktop_bridge::refresh_frame(e);
+        }
     }
 
     // 开发验证钩子（仅 debug 构建）：GESSO_DEV_URL=<https 地址> 启动即导入并指派
@@ -364,7 +367,6 @@ fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) ->
             gesso_core::config::Language::En => 2,
         },
         update_check: cs.update_check,
-        desktop_bridge: cs.desktop_bridge,
         ..ui::data::Settings::default()
     };
     // 软件更新投影（§4.7；真源 = update 模块全局，随快照单向回灌）
@@ -683,13 +685,12 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             sm.cycle_main();
         }
         engine::EngineAction::RestoreSystemWallpaper => {
-            // 逃生门语义（2026-10-12 升级）：释放桌面所有权——清指派 + 拆全
-            // 部壁纸窗 + 桥接全量恢复。只恢复桌面图不可见（窗还盖在上面），
-            // 用户侧必须看到壁纸回来才算数；重新指派壁纸会按设置再次接管。
+            // 释放语义：清空全部指派 + 拆全部壁纸窗——桌面即用户自己的壁纸
+            //（运行时不接管系统桌面，无需恢复动作；重新指派即可再上壁纸）。
             let n = app.sm.release_all();
             #[cfg(target_os = "windows")]
             pin::windows::restore_desktop();
-            println!("[ui] 恢复系统壁纸：壁纸会话已全部释放，{n} 屏系统桌面图已还原");
+            println!("[ui] 恢复系统壁纸：{n} 个壁纸会话已释放，桌面即系统壁纸");
         }
         engine::EngineAction::Import { path } => {
             // 选中 WE 的 project.json → 转 WE 整目录导入
@@ -1022,12 +1023,7 @@ fn install_panic_logger() {
         // 让用户壁纸回来而非黑屏。任何失败静默——进程随后即死。
         #[cfg(target_os = "windows")]
         pin::windows::emergency_teardown();
-        // 桌面桥接恢复（macOS）：AppKit 只能主线程调——主线程 panic 直接
-        // 恢复；后台线程 panic 跳过，留待下次启动对账（desktop_bridge.rs）
-        #[cfg(target_os = "macos")]
-        if objc2::MainThreadMarker::new().is_some() {
-            desktop_bridge::restore_all();
-        }
+        // 运行时不接管系统桌面，无桌面恢复动作；旧版残留交下次启动清理。
     }));
 }
 

@@ -9,7 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSColor, NSScreen, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSColor, NSImage, NSImageView, NSScreen, NSView, NSWindow, NSWindowCollectionBehavior,
+    NSWindowStyleMask,
 };
 use objc2_foundation::MainThreadMarker;
 use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
@@ -568,6 +569,87 @@ pub fn screens() -> Vec<(MonitorInfo, Retained<NSScreen>)> {
 /// 枚举显示器（稳定 ID = EDID 身份三元组；无身份回落 CGDirectDisplayID）。
 pub fn enumerate_monitors() -> Vec<MonitorInfo> {
     screens().into_iter().map(|(m, _)| m).collect()
+}
+
+// —— 过渡窗（桌面桥接新路线：重配/建窗间隙的静帧遮盖）——
+
+/// 纯 AppKit 静帧窗：同 PIN_LEVEL，建窗即显示。晚于它创建/复显的真壁纸
+/// 窗自然盖在其上，点亮后即可销毁过渡窗（Drop 先 orderOut，幽灵窗纪律）。
+/// 毫秒级建窗，不碰系统桌面/壁纸代理。
+pub struct MacCoverWindow {
+    window: Retained<NSWindow>,
+    _image_view: Retained<NSImageView>,
+}
+
+impl Drop for MacCoverWindow {
+    fn drop(&mut self) {
+        self.window.orderOut(None);
+    }
+}
+
+/// RGBA 像素 → NSImage（主线程；位图包装是内存拷贝级，毫秒）。
+/// SAFETY: objc2 声明的安全方法，按文档语义调用；bitmapData 写入不超过
+/// 分配尺寸（w×h×4，由 rep 初始化参数保证）。
+pub fn nsimage_from_rgba(
+    rgba: &[u8],
+    w: usize,
+    h: usize,
+    mtm: MainThreadMarker,
+) -> Retained<NSImage> {
+    use objc2_app_kit::{NSBitmapImageRep, NSDeviceRGBColorSpace, NSImageScaling};
+    use objc2_foundation::{NSRect, NSSize};
+
+    unsafe {
+        let rep = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+            mtm.alloc(),
+            std::ptr::null_mut(),
+            w as isize,
+            h as isize,
+            8,
+            4,
+            true,
+            false,
+            NSDeviceRGBColorSpace,
+            (w * 4) as isize,
+            32,
+        )
+        .expect("位图初始化");
+        std::ptr::copy_nonoverlapping(rgba.as_ptr(), rep.bitmapData(), rgba.len());
+        let img = NSImage::initWithSize(mtm.alloc(), NSSize::new(w as f64, h as f64));
+        img.addRepresentation(&rep);
+        let _ = NSImageScaling::ScaleProportionallyUpOrDown; // 供 cover 窗用
+        let _ = NSRect::ZERO;
+        img
+    }
+}
+
+/// 创建并立即显示过渡窗（主线程）。frame 为显示器坐标系全屏帧。
+pub fn create_cover_window(
+    frame: MonitorFrame,
+    image: Retained<NSImage>,
+) -> Result<MacCoverWindow> {
+    use objc2_app_kit::{NSImageScaling, NSImageView};
+    use objc2_foundation::NSRect;
+
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
+    let window = make_pin_window(mtm);
+    let (x, y, w, h) = frame;
+    let rect = NSRect::new(
+        objc2_foundation::NSPoint::new(x, y),
+        objc2_foundation::NSSize::new(w, h),
+    );
+    window.setFrame_display(rect, true);
+    let view = NSImageView::initWithFrame(mtm.alloc(), rect);
+    view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
+    view.setImage(Some(&image));
+    let content = window.contentView().expect("contentView 缺失");
+    content.addSubview(&view);
+    window.orderFrontRegardless();
+    Ok(MacCoverWindow {
+        window,
+        _image_view: view,
+    })
 }
 
 #[cfg(test)]
