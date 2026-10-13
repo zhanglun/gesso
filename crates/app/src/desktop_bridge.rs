@@ -394,6 +394,7 @@ fn decode_png(path: &Path) -> Option<(usize, usize, Vec<u8>)> {
 
 // —— 过渡窗生命周期（全部主线程；非 macOS no-op）——
 
+#[cfg(target_os = "macos")]
 thread_local! {
     /// monitor_id → 过渡窗。仅主线程触碰（AppKit），thread_local 免 Send 约束。
     static COVERS: std::cell::RefCell<BTreeMap<String, crate::pin::macos::MacCoverWindow>> =
