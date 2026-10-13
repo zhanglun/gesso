@@ -1209,8 +1209,19 @@ fn main() {
                         let mut lang_changed = false;
                         cx.update(|cx| {
                             for a in engine_actions {
+                                // 低频路径性能归因：引擎动作全在主线程内联执行，
+                                // 慢动作即 UI 冻结（2026-10-13 双击卡顿排障定案）
+                                // ——超 80ms 必落日志
+                                let t0 = std::time::Instant::now();
                                 let out =
                                     apply_engine_action(cx.global_mut::<engine::AppState>(), a);
+                                let el = t0.elapsed();
+                                if el.as_millis() > 80 {
+                                    println!(
+                                        "[perf] 引擎动作耗时 {}ms（含建窗/桥接，详见 [session]/[bridge] 行）",
+                                        el.as_millis()
+                                    );
+                                }
                                 pending_thumbs.extend(out.pending_thumbs);
                                 if out.focus_main {
                                     focus_main = true;

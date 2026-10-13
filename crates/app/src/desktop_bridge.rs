@@ -333,12 +333,17 @@ impl DesktopBridge {
             &path.display().to_string(),
         ));
         let empty = objc2_foundation::NSDictionary::new();
+        let t_set = std::time::Instant::now();
         // SAFETY: 主线程；screen 来自当前枚举的存活 NSScreen，url 指向有效文件
         if let Err(e) =
             unsafe { ws.setDesktopImageURL_forScreen_options_error(&url, &screen, &empty) }
         {
             println!("[bridge] 设系统桌面失败：{e:?}");
             return;
+        }
+        let el_set = t_set.elapsed();
+        if el_set.as_millis() > 80 {
+            println!("[perf] setDesktopImageURL 耗时 {}ms", el_set.as_millis());
         }
         self.ledger.entries.insert(entry.id.clone(), original);
         self.last_set.insert(
@@ -495,16 +500,28 @@ fn wait_desktop_settled(
     const POLL: std::time::Duration = std::time::Duration::from_millis(60);
     const RENDER_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
     let deadline = std::time::Instant::now() + settle;
+    let t_wait = std::time::Instant::now();
+    let mut settled_early = false;
     while std::time::Instant::now() < deadline {
         let settled = ws
             .desktopImageURLForScreen(screen)
             .and_then(|u| u.path())
             .is_some_and(|p| p.to_string() == target);
         if settled {
+            settled_early = true;
             std::thread::sleep(RENDER_GRACE);
-            return;
+            break;
         }
         std::thread::sleep(POLL);
+    }
+    let el = t_wait.elapsed();
+    if el.as_millis() > 80 {
+        println!(
+            "[perf] 沉降等待 {}ms（settle 上限 {}ms，命中={}）",
+            el.as_millis(),
+            settle.as_millis(),
+            settled_early
+        );
     }
 }
 

@@ -863,7 +863,16 @@ impl SessionManager {
                     if let Some(old) = s.window.as_mut() {
                         old.set_visible(false);
                     }
+                    let t_load = std::time::Instant::now();
                     w.load(&Self::entry_host_url(&entry, fps, fit));
+                    let el_load = t_load.elapsed();
+                    if el_load.as_millis() > 80 {
+                        println!(
+                            "[perf] 建窗+装载 {}ms（{}）",
+                            el_load.as_millis(),
+                            entry.title
+                        );
+                    }
                     s.window = Some(w);
                     s.applied_frame = Some(s.monitor.frame);
                     s.state = transfer(s.state, SessionEvent::Loaded);
