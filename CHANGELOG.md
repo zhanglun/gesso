@@ -10,6 +10,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Fixed
 
+- **双击指派后约 5 秒界面冻结（beachball、通知卡顿）**：patrol 自动撤回桥接静帧时在主线程同步等待壁纸代理换图沉降（最长 1.5–11.5 秒，每次指派触发一次）。撤回时壁纸窗仍在播放、无人直视桌面，等待毫无意义——背景撤回改为 set 后零等待（原壁纸渲染由系统代理自行完成）；右键移除/「恢复系统壁纸」的拆窗路径等待语义不变（那两条要等换图藏好再拆窗）。
+
 ## [0.1.2] - 2026-10-13
 
 ### Added

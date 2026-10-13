@@ -565,14 +565,29 @@ pub fn acquire(entry: &LibraryEntry, monitor_id: &str) {
 }
 
 /// 取消指派/移除条目：恢复显示该条目桥接图的屏并清其记录（未恢复成则保留，
-/// 交启动对账）、删桥接图。
+/// 交启动对账）、删桥接图。拆窗路径：调用方（remove_entry）在其壁纸窗仍
+/// 上播时调用，换图沉降藏在背后完成（SETTLE_HOLD）后再拆窗，用户不看到
+/// 静帧滞留。
 pub fn release_entry(entry_id: &str) {
+    release_entry_with(entry_id, SETTLE_HOLD);
+}
+
+/// patrol 背景撤回专用：**零沉降等待**。撤回时壁纸窗仍在播放、无拆窗、
+/// 无人直视桌面——等待毫无意义，且旧实现在主线程同步等沉降（最长
+/// 1.5–11.5s）是 0.1.2「双击指派后 UI 冻结」的根因（2026-10-13 对抗审查
+/// 定稿）。set 后即返回，渲染由壁纸代理自行完成；快速连续指派时代理
+/// FIFO 队列可能让建窗间隙短暂闪现旧帧/原壁纸（装饰性，非卡顿，接受）。
+/// 台账清理仍受「set 成功才清」门控（restore 返回值），不踩「清了记录
+/// 却没恢复」的 E2E 事故通路。
+pub fn release_entry_nowait(entry_id: &str) {
+    release_entry_with(entry_id, std::time::Duration::ZERO);
+}
+
+fn release_entry_with(entry_id: &str, settle: std::time::Duration) {
     #[cfg(target_os = "macos")]
     {
         let mut b = global().lock().expect("桌面桥接");
-        // 持有档：调用方（remove_entry）在其壁纸窗仍上播时调用，换图沉降
-        // 藏在背后完成；无命中的常见路径零等待
-        let restored = b.restore(Some(entry_id), SETTLE_HOLD);
+        let restored = b.restore(Some(entry_id), settle);
         if restored.contains(entry_id) {
             b.ledger.entries.remove(entry_id);
             // 所有权一并释放：绑定残留会让下一次指派的接管被跳过，
@@ -584,7 +599,7 @@ pub fn release_entry(entry_id: &str) {
     let _ = entry_id;
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = entry_id;
+        let _ = (entry_id, settle);
     }
 }
 

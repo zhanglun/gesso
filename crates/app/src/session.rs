@@ -311,7 +311,9 @@ impl SessionManager {
         }
         let due = crate::desktop_bridge::takeovers_older_than(Self::FRAME_HOLD);
         for entry_id in due {
-            crate::desktop_bridge::release_entry(&entry_id);
+            // 零沉降：窗口在播、无人直视桌面；等待曾在主线程同步睡眠
+            // 1.5–11.5s（0.1.2 双击冻结根因），详见 release_entry_nowait
+            crate::desktop_bridge::release_entry_nowait(&entry_id);
         }
     }
 
