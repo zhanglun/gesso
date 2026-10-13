@@ -43,12 +43,14 @@ Gesso 0.1.2 修复版本的发布清单。按顺序执行；流程与 0.1.1 相�
 
 - [x] **干跑**：手动触发 Release workflow（`workflow_dispatch`，只打包不发布），确认三产物齐全
       （[run 38351122277](https://github.com/zhanglun/gesso/actions/runs/38351122277)，2026-10-13：dmg / setup.exe / portable.zip 全部出齐）。
-- [ ] 打 tag 并推送（**当前暂不执行，等用户确认**）：
+- [x] 打 tag 并推送（2026-10-13，`v0.1.2` → `9cebdaf`）：
   ```bash
   git tag -a v0.1.2 -m "Release 0.1.2"
   git push origin v0.1.2
   ```
-- [ ] CI 自动创建 Release 并上传产物；Actions 页确认三 job 全绿；确认正式发布。
+- [x] CI 自动创建 Release 并上传产物；Actions 页确认三 job 全绿；确认正式发布
+      （[run 38351683395](https://github.com/zhanglun/gesso/actions/runs/38351683395)；
+      https://github.com/zhanglun/gesso/releases/tag/v0.1.2，2026-10-13T05:32Z）。
 
 ## 阶段 7 — 发布后
 
