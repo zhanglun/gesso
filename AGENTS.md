@@ -80,7 +80,7 @@ docs/           工程文档 + design/（设计归档）
 - ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（根因：gpui img 固有宽高比撑高被裁，显式 `.aspect_ratio` 压制）；缩略图启动即生成 + spinner；清单解析失败 exit 78 保文件；锁屏自动暂停省电；移除冗余「查看详情」菜单项
 - ✅ **0.1.0 已发布**（2026-10-07）：GitHub Actions 自动打包发布（macOS dmg / Windows 便携 zip / checksums）；ad-hoc 签名未公证；发布流程见 `docs/RELEASE-CHECKLIST.md`，打包脚本在 `packaging/`
 - ✅ **0.1.1 已发布**（2026-10-12）：反馈修复版——Windows 启动闪退（#2）、双平台视频原生管线、epoch 多屏收敛、桌面桥接、应用自更新等（全量见 CHANGELOG）；产物新增 Windows 安装包（NSIS）
-- ✅ 填充模式（2026-10-12，未发布）：详情条填充下拉三态（cover 默认/contain/fill），core `Fit` 契约直通三消费端——macOS 视频 = AVLayerVideoGravity、Windows 视频 = quad 管线（swapchain 改窗口客户区尺寸 + UV 常量采样，勿改回帧尺寸交 DWM 拉伸）、图片 = host 页 object-fit；采集 URL 恒传 Contain（全帧语义，缩略图契约不变）；库条目目录名必须 = 条目 ID（library/media 路由按此解析）
+- ✅ 填充模式（2026-10-12，随 0.1.2 发布）：详情条填充下拉三态（cover 默认/contain/fill），core `Fit` 契约直通三消费端——macOS 视频 = AVLayerVideoGravity、Windows 视频 = quad 管线（swapchain 改窗口客户区尺寸 + UV 常量采样，勿改回帧尺寸交 DWM 拉伸）、图片 = host 页 object-fit；采集 URL 恒传 Contain（全帧语义，缩略图契约不变）；库条目目录名必须 = 条目 ID（library/media 路由按此解析）
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 

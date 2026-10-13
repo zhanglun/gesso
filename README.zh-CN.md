@@ -4,7 +4,7 @@
 
 [AGENTS.md](AGENTS.md)（AI 会话指南） · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [常见问题](docs/FAQ.md) · [参与开发](CONTRIBUTING.md)
 
-> **状态：v0.1.1 已发布（2026-10-12）** ——[GitHub Releases 下载](https://github.com/zhanglun/gesso/releases)（macOS dmg / Windows 安装包 + 便携 zip，未签名）。
+> **状态：v0.1.2 发布候选** ——发布物料已备齐，尚未推送 `v0.1.2` tag（macOS dmg / Windows 安装包 + 便携 zip，未签名）。
 > macOS 与 Windows 均可用（Windows 已在单屏真机验证）；除标注外，下文所有能力均在真机验证过。
 
 ---

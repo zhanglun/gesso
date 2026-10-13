@@ -1,140 +1,68 @@
-# 0.1.1 Release Checklist
+# 0.1.2 Release Checklist
 
-Gesso 0.1.1 修复版本的发布清单。按顺序执行；每条都是可勾选项，不引入
-仓库里没有的工具链（能用本机命令就不绑新依赖）。
+Gesso 0.1.2 修复版本的发布清单。按顺序执行；流程与 0.1.1 相同（GitHub Actions
+自动打包发布），这里只跟踪本版本的状态。
 
 > 发布由 **GitHub Actions 自动完成**：推送 `v*` tag → `release.yml` 在两平台
 > matrix 跑打包脚本 → 汇总自动创建 GitHub Release，附产物 + `checksums.txt` + release notes。
 >
 > 目标产物：
-> - **macOS**：`Gesso-<version>-arm64.dmg`（Windows 同构脚本本地也可跑）
+> - **macOS**：`Gesso-<version>-arm64.dmg`
 > - **Windows**：`Gesso-<version>-x64-portable.zip` + `Gesso-<version>-x64-setup.exe`（NSIS 安装包）
 > - 一个 GitHub Release（`.dmg` + `.zip` + `.exe` + `checksums.txt` + notes）
+>
+> **不做代码签名 / 公证**：两平台产物均为未签名，release notes 写清首次打开方式。
 
----
+## 阶段 0 — 发布决策
 
-> **不做代码签名 / 公证**：Gesso 是无签名凭据的开源项目，0.1.1 两平台产物均为**未签名**。
-> 发布时只在 release notes 里写清首次打开方式（macOS 右键打开 / Windows 过 SmartScreen），
-> 不为此申请证书，也不阻塞发布。
-
-## 阶段 0 — 发布决策（开工前先定）
-
-- [x] **macOS 架构**：先只发 `aarch64`（Apple Silicon），还是同时做 Intel（`x86_64`）/ Universal binary。
-- [x] **Windows 分发形态**：便携 zip（解压即用）还是安装器（`msi`/NSIS/Inno）。0.1 建议**便携 zip**，最省事。
-- [x] **最低系统版本**：macOS（建议 12 Monterey+）/ Windows（建议 10 1809+，WebView2 随系统或引导安装）。
-- [x] WebView2 Runtime 策略：Windows 上是否随包引导安装（Evergreen Bootstrapper）。
-
----
+- [x] 沿用 0.1.1 的决策：macOS 仅 arm64、Windows 安装包 + 便携 zip、产物不签名不公证。
 
 ## 阶段 1 — 代码冻结与质量门
 
-- [x] 合入所有要进 0.1.1 的 PR；main 处于稳定状态。
-- [x] `cargo build -p gesso-app`：0 error / 0 warning。
-- [x] `cargo build -p gesso-app --all-targets`：0 warning（含 examples）。
-- [x] `cargo fmt --all --check` 通过。
-- [x] `cargo clippy -p gesso-core --all-targets -- -D warnings` 通过。
-- [x] `cargo test -p gesso-core -p gesso-app`：全绿。
-- [x] CI 在 `macos-latest` + `windows-latest` 全绿（[run 38194624529](https://github.com/zhanglun/gesso/actions/runs/38194624529)，2026-10-12）。
-- [x] 无遗留调试代码（grep `diag` / `println!` / 临时代码块）。
-- [x] 无大文件 / 临时产物入库（`thumb*.png`、`/tmp` 夹具、`*.bundle`）。
+- [x] 合入 0.1.2 全部内容：填充模式、桌面桥接临时覆盖与台账自愈、随机换一张修复、
+      显示器页打磨（v0.1.1..HEAD）。
+- [x] `cargo fmt --all --check` / clippy（core+app，`-D warnings`）/ build / test 全绿
+      （fmt 与 Windows clippy 红灯已修：`ed547f3`、`d0b4a37`；CI run 38348937763 双平台绿）。
+- [x] 发布收口提交：`chore(release): 0.1.2`（版本号 + CHANGELOG 冻结 + notes + README；本提交）。
+- [ ] 收口提交推送后 CI 复验全绿。
 
-## 阶段 2 — 实机冒烟（两平台都跑一遍）
+## 阶段 2 — 实机冒烟
 
-按用户实际路径操作，不靠日志想当然：
-
-- [x] 全新安装（清空配置目录后首次启动）→ 主屏自动指派内置样例；无首启向导（2026-10-07 撤销，见 CHANGELOG Unreleased）。
-- [x] 内置样例自动上主屏并渲染。
-- [x] 四种壁纸各应用一次：**视频 / 图片 / Shader / HTML**。
-- [x] **WE 导入**：选一个真实 WE `project.json`（video 一个、web 一个）→ 渲染、零拷贝、源文件未被改。
-- [x] 托盘菜单全项可用：暂停全部 / 切换 / 管理窗口 / 开机自启 / 退出。
-- [x] 暂停恢复：视频真停解码（非仅黑屏）。
-- [x] 全屏应用 → 按设置策略自动暂停/降帧；退出恢复。
-- [x] 光标跟随壁纸（shader `iMouse` / html postMessage）正常。
-- [x] 电池供电策略触发（笔记本）。
-- [x] 重启系统后：配置恢复、壁纸自动上屏、开机自启生效。
-- [x] 失效素材不留下空白桌面（回退系统壁纸/占位）。
-- [x] **Windows 专项**：图标层之下渲染、点击穿透、explorer 重启自愈、125% DPI 对齐。
-- [x] **macOS 专项**：菜单栏全屏不遮挡壁纸、多 Space 跟随。
-- [x] **多显示器**（有条件时）：各屏独立贴壁。
-- [ ] Windows 多显示器重配实机验证（已知限制；不阻塞 0.1.1，后续反馈中优化）。
+- [x] 填充模式三态（macOS AVLayerVideoGravity / Windows quad 管线）实机验证（2026-10-13 用户确认）。
+- [x] 桌面桥接临时覆盖：指派/切换/退出/「恢复系统壁纸」全路径实机验证（同上）。
+- [ ] Windows 多显示器重配实机验证（沿袭 0.1.1 已知限制，不阻塞本版本）。
 
 ## 阶段 3 — 版本号与变更记录
 
-- [x] 确认 `Cargo.toml`（workspace）`version` 与各 crate `version.workspace = true` 一致。
-- [x] 全仓搜旧版本号，确认无散落硬编码。
-- [x] 整理 `CHANGELOG.md`：
-  - [x] 把 `[Unreleased]` 下要发布的内容归到 `## [0.1.1] - YYYY-MM-DD`。
-  - [x] 新建空的 `[Unreleased]`（`Added/Changed/Fixed` 子标题）。
-  - [x] "Known limitations" 与 ROADMAP 现状一致。
-- [x] 更新 README 状态行（如"early development"→"0.1 stable/beta"）。
-- [x] 发布收口提交：`chore(release): 0.1.1`（`2b50eb2` + `74996ee` Windows 构建修复）。
-
-## 阶段 4 & 5 — 两平台打包脚本（CI 调用，本地也能跑）
-
-脚本是 `release.yml` matrix 的执行体；脚本本身已本地验证（macOS）：
-
-```bash
-# macOS（bash + hdiutil）
-packaging/macos/build_app.sh   # release 构建 + 组装 target/release-bundle/Gesso.app
-packaging/macos/build_dmg.sh   # 打成 Gesso-<version>-arm64.dmg
-
-# Windows（PowerShell 5.1+/7）
-packaging\windows\build_portable.ps1   # 打成 Gesso-<version>-x64-portable.zip
-```
-
-打包脚本约定（两平台一致）：
-
-- [x] **macOS `.app`**：`Contents/MacOS/gesso` + `Info.plist`（`com.gesso.dev`、版本注入、
-      `LSMinimumSystemVersion=12.0`、`LSUIElement=true`）+ `Gesso.icns` + `Resources/assets/{host,samples}`。
-- [x] **Windows zip**：顶层 `Gesso/` 含 `gesso.exe`（图标内嵌 winresource）+ `assets/{host,samples}`；
-      WebView2 用系统 Evergreen，不打包。
-- [x] release 的 `assets_dir()` 定位 bundle/exe 内资源，**不硬编码开发机路径**（见 protocol.rs）。
-- [x] release notes 写明未签名首次打开：macOS **右键 → 打开** / `xattr` 兜底；
-      Windows **SmartScreen → 更多信息 → 仍要运行**。
-- [x] （可选，非必需）Universal/Intel 不在 0.1.1 范围；Windows 安装器随本版本发布。
+- [x] `Cargo.toml` workspace version → `0.1.2`（NSIS/打包脚本注入，无散落硬编码）。
+- [x] `CHANGELOG.md`：`[Unreleased]` → `[0.1.2] - 2026-10-13`，重建空 Unreleased。
+- [x] release notes：`packaging/release-notes/v0.1.2.md`（workflow 按 tag 名读取）。
+- [x] README 双语状态行 → v0.1.2 发布候选。
 
 ## 阶段 6 — 触发 CI 发布
 
-- [x] **（推荐先干跑）** Actions 页手动触发 **Release** workflow（`workflow_dispatch`）：
-      只跑两平台打包并上传为构建 artifact，**不创建 Release**。确认两平台都能打包成功
-      （[run 38195110710](https://github.com/zhanglun/gesso/actions/runs/38195110710)，2026-10-12，三产物齐全）。
-- [x] 确认 release notes 文件就位：`packaging/release-notes/v0.1.1.md`
-      （workflow 按 tag 名 `body_path: packaging/release-notes/<tag>.md` 读取）。
-- [x] 打 tag 并推送（2026-10-12，`v0.1.1` → `74996ee`）：
+- [ ] **干跑**：手动触发 Release workflow（`workflow_dispatch`，只打包不发布），确认三产物齐全。
+- [ ] 打 tag 并推送（**当前暂不执行，等用户确认**）：
   ```bash
-  git tag -a v0.1.1 -m "Release 0.1.1"
-  git push origin v0.1.1
+  git tag -a v0.1.2 -m "Release 0.1.2"
+  git push origin v0.1.2
   ```
-- [x] CI 自动：matrix 打包 → 汇总生成 `checksums.txt` → 创建 Release（标题=tag、notes=对应 md）
-      并上传 `.dmg` + `.zip` + `.exe` + `checksums.txt`。
-- [x] 在 Actions 页确认 `release.yml` 三个 job（两平台 build + release）全绿
-      （[run 38196885084](https://github.com/zhanglun/gesso/actions/runs/38196885084)）。
-- [x] 正式发布：确认 0.1.1 Release 为正式版本
-      （https://github.com/zhanglun/gesso/releases/tag/v0.1.1，2026-10-12T02:47Z）。
-- [ ] 发布后从 **Release 页面下载产物**（非本地构建）在干净机器上各装一遍。（未完成，待办）
+- [ ] CI 自动创建 Release 并上传产物；Actions 页确认三 job 全绿；确认正式发布。
 
 ## 阶段 7 — 发布后
 
-- [ ] 验证下载安装的产物真实可用（关键，防"本机构建能跑、发布产物缺资源"）。
-- [x] README 双语已更新状态行 + Releases 下载链接（版本徽章暂未加）。
-- [ ] 公告渠道（release post / 社区）。
-- [ ] 开启 0.2 规划：把发布后反馈整理进 ROADMAP。
-- [x] 确认本地无遗留临时产物（历史改写备份已删；/tmp 测试残留已清）。
+- [ ] 从 Release 页面下载产物，干净机器各装一遍。
+- [ ] 公告渠道。
+- [ ] 0.2 规划（0.1.x 反馈整理进 ROADMAP）。
 
 ---
 
-## 当前状态（v0.1.1 已发布，2026-10-12）
+## 0.1.1 发布记录（2026-10-12，已完成）
 
-发布已完成：tag `v0.1.1` → [release run 38196885084](https://github.com/zhanglun/gesso/actions/runs/38196885084) 三 job 全绿 →
-[Release v0.1.1](https://github.com/zhanglun/gesso/releases/tag/v0.1.1) 附 `.dmg` / `.zip` / `.exe` / `checksums.txt`。
+- tag `v0.1.1` → [release run 38196885084](https://github.com/zhanglun/gesso/actions/runs/38196885084) 三 job 全绿 →
+  [Release v0.1.1](https://github.com/zhanglun/gesso/releases/tag/v0.1.1) 附 `.dmg` / `.zip` / `.exe` / `checksums.txt`。
+- 干跑记录：[run 38195110710](https://github.com/zhanglun/gesso/actions/runs/38195110710)。
+- 遗留：干净机安装验证、公告、0.2 规划（并入上方阶段 7）。
 
-剩余待办（阶段 7）：① Release 产物干净机安装验证；② 公告渠道；③ 0.2 规划。
-
-发布自动化（下个版本直接复用）：
-
-1. ✅ **Release workflow**：`.github/workflows/release.yml`（tag 触发，matrix 两平台，自动发 Release；`workflow_dispatch` 干跑不发布）。
-2. ✅ **打包脚本**：macOS `build_app.sh`/`build_dmg.sh`、Windows `build_portable.ps1` + NSIS 安装包。
-3. ✅ **release notes**：`packaging/release-notes/<tag>.md`；校验值由 CI 生成 `checksums.txt`。
-
-> 原则：0.1.x 先保证“两平台能下载、安装、跑起来”；不做签名/公证，
-> 通用二进制/安装器非必需。未签名产物在 release notes 写清打开方式即可。
+> 原则：0.1.x 先保证"两平台能下载、安装、跑起来"；不做签名/公证。未签名产物
+> 在 release notes 写清打开方式即可。
