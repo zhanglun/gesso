@@ -2,21 +2,21 @@
 
 **跨平台动态壁纸引擎（Windows / macOS）**——视频、动图、Shader、网页，钉在桌面图标层之下。Rust + [GPUI](https://gpui.rs)。
 
-[AGENTS.md](AGENTS.md)（AI 会话指南） · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [常见问题](docs/FAQ.md) · [参与开发](CONTRIBUTING.md)
+[AGENTS.md](AGENTS.md)（AI 会话指南） · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [安全策略](SECURITY.md) · [参与开发](CONTRIBUTING.md)
 
 > **状态：v0.1.2 已发布（2026-10-13）** ——[GitHub Releases 下载](https://github.com/zhanglun/gesso/releases)（macOS dmg / Windows 安装包 + 便携 zip，未签名）。
-> macOS 与 Windows 均可用（Windows 已在单屏真机验证）；除标注外，下文所有能力均在真机验证过。
+> macOS 与 Windows 均可用。Windows 单屏已真机验证，多屏硬件仍在路线图中。
 
 ---
 
 ## 它做什么
 
 - **钉在图标层之下**：壁纸窗口位于桌面图标层下方，图标可见、可点（点击穿透），不遮挡任何工作内容。
-- **一套宿主管线，四类内容**：视频（`mp4`/`webm`）、动图（`gif`/`webp`）、Shader（`glsl`，Shadertoy 风格）、网页（`html`）。宿主页是唯一契约，渲染器可插拔。
+- **原生视频 + 宿主管线**：视频（`mp4`/`webm`）使用平台原生播放器；动图（`gif`/`webp`）、Shader（`glsl`，Shadertoy 风格）和网页（`html`）使用共享的沙箱宿主页。
 - **远端网页零拷贝**：库页工具条粘贴任意 `https://` 地址即可用在线网页当壁纸（不落盘）；Wallpaper Engine 的 `project.json` 导入同样是只读引用。
 - **暂停是真停**：暂停时 JS 渲染循环停止、视频解码停止，画面定格而非淡出；全屏应用与电池模式下会自动暂停（见[路线图](docs/ROADMAP.md)）。
 - **托盘优先**：暂停/恢复、换壁纸都在菜单栏；管理窗口只用来管内容。
-- **壁纸内容零 IPC**：壁纸内容按不可信代码对待，运行在 webview 沙箱里，只能读自己的素材目录。
+- **壁纸内容零 IPC**：壁纸内容按不可信代码对待，运行在 webview 沙箱里，只接收宿主页转发的暂停、帧率和输入事件。
 
 ## 平台状态
 
@@ -24,21 +24,21 @@
 |---|---|---|
 | **macOS** | ✅ 可用 | `NSWindow` 压到图标层之下（`level = -2147483604`）+ 点击穿透 + 全空间跟随；已用全屏视频壁纸实机验证 |
 | **Windows** | ✅ 可用 | 自有 Win32 窗口 + WebView2 子窗口，经 WorkerW 梯子（`Progman 0x052C` → `SetParent`）钉到图标层之下，点击穿透、PMv2 DPI、explorer 重启自愈；已真机验证（单屏，多屏待多显示器环境复验） |
-| **Linux** | ❌ v1 不做 | KDE/GNOME/X11/Wayland 各需一套桌面集成路径，见[常见问题](docs/FAQ.md) |
+| **Linux** | ❌ v1 不做 | KDE/GNOME/X11/Wayland 各需一套桌面集成路径，Linux 不在 v1 范围内 |
 
 | 能力 | 状态 |
 |---|---|
 | 视频壁纸：钉桌面 + 铺满全屏 | ✅ |
 | 托盘暂停/恢复 | ✅ |
 | 配置持久化（重启自动恢复） | ✅ |
-| 显示器枚举（稳定 ID `cg-<display-id>`） | ✅ |
+| 显示器枚举（优先 EDID/PnP，平台 ID 回落） | ✅ |
 | 管理窗口（壁纸库 / 显示器 / 设置） | ✅ |
 | 导入（文件对话框 + 拖入窗口） | ✅ |
 | 设置持久化、开机自启 | ✅ |
 | Shader 渲染器（Shadertoy 子集，WebGL2） | ✅ |
-| HTML 渲染器（沙箱 iframe，拒绝存储/IPC） | ✅ |
-| 系统数据桥（全屏/电池自动暂停 · 时间脉冲 · 光标跟随 · 空闲降帧） | ✅ M5 |
-| Wallpaper Engine video/web 壁纸（用户主动导入，只读） | ✅ M6，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
+| HTML 渲染器（沙箱 iframe，无 Rust IPC） | ✅ |
+| 系统数据桥（全屏/电池自动暂停 · 时间脉冲 · 光标跟随 · 空闲降帧） | ✅ |
+| Wallpaper Engine video/web 壁纸（用户主动导入，只读） | ✅，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
 ## 环境要求
 
@@ -56,10 +56,11 @@ cargo run -p gesso-app          # 托盘图标 + 管理窗口 + 壁纸
 首次启动会注册内置样例壁纸并指派到主显示器。应用生成的文件都在：
 
 ```
-~/Library/Application Support/Gesso/     # macOS（Windows 计划为 %USERPROFILE%\.gesso）
+~/Library/Application Support/Gesso/     # macOS（Windows：%USERPROFILE%\.gesso）
 ├── config.json         # 显示器 → 壁纸映射 + 设置
 └── library/
-    └── <条目id>/       # 条目自包含：index.html（宿主页）+ index.<ext>（素材）
+    └── <条目id>/       # 条目自包含（index.<ext> 素材 / wallpaper.html 网页）；
+                        # 宿主页由应用经 gesso://host 统一提供，不占用条目目录
 ```
 
 常用命令：
@@ -83,8 +84,8 @@ pkill -f "target/debug/gesso"             # 退出（有单实例锁）
                           平台贴壁层             内容库 + 配置
                               │
               ┌───────────────▼───────────────────────────┐
-              │  壁纸窗口 = 自有原生窗口                    │  macOS: AppKit NSWindow
-              │  + wry webview（宿主页，沙箱）              │  Windows: Win32（计划）
+              │  壁纸窗口 = 平台原生窗口                    │  macOS: AppKit / AVPlayerLayer
+              │  非视频内容使用 WebView                    │  Windows: WorkerW / MF + DXGI
               └───────────────────────────────────────────┘
 ```
 
@@ -95,14 +96,13 @@ pkill -f "target/debug/gesso"             # 退出（有单实例锁）
 | 文档 | 内容 |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、窗口模型、贴壁参数、内容管线、状态机、安全模型 |
-| [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | 架构规则 + 15 条实测踩坑 + 常用路径 |
+| [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | 架构规则、平台纪律与常用路径 |
 | [crates/app/API.md](crates/app/API.md) | UI 层唯一允许使用的引擎接口 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑、当前进度、已知缺口 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 本地开发与调试指南（日志/诊断/排查速查表） |
-| [docs/design/技术方案.md](docs/design/技术方案.md) | 完整工程方案（14 章） |
+| [docs/design/技术方案.md](docs/design/技术方案.md) | 当前实现细节（中文） |
 | [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) | 工坊素材兼容方案与法律边界 |
-| [docs/FAQ.md](docs/FAQ.md) | 为什么不做 Linux？要 Xcode 吗？有遥测吗？怎么卸载？ |
-| [SPIKE-REPORT.md](SPIKE-REPORT.md) | 三项可行性 spike 的实测结论 |
+| [SPIKE-REPORT.md](docs/archive/SPIKE-REPORT.md) | 可行性 spike 实测结论（已归档，历史资料） |
 
 ## 致谢与参考
 

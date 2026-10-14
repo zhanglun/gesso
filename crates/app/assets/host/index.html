@@ -1,14 +1,10 @@
 <!DOCTYPE html>
-<!-- Gesso 壁纸宿主页 · M4（video / image / shader / html）
-     契约（技术方案 §5.1）：URL query 的 spec= 为 urlencode(JSON ContentSpec)。
-     shader 额外携带 code=（base64url 源码）——file:// 页面里 fetch/XHR 被 WKWebView
-     拦截，查询参数不受限，故源码随 URL 直达。
-     html 条目：用户页面固定为同目录 wallpaper.html，以沙箱 iframe 装载
-     （sandbox="allow-scripts"，无 allow-same-origin → opaque origin，storage/
-     cookie/IPC 一律抛 SecurityError）；暂停经 postMessage {__gesso:"pause"}
-     递入 iframe，由壁纸自行配合（引擎不硬杀帧）。
-     window.__gesso.pause()/resume() 由 pin 层经 evaluate_script 调用（§5.3）：
-     video 停播放器、shader 停 RAF 循环、html 发暂停消息，窗口常驻。 -->
+<!-- Gesso 壁纸宿主页：video / image / shader / html。
+     URL query 的 spec= 是 urlencode(JSON ContentSpec)，shader 源码通过 code=base64url
+     传入。HTML 条目从同目录 wallpaper.html 装载到 sandbox="allow-scripts allow-same-origin"
+     iframe；不授予顶层导航、弹窗或表单权限。暂停经 postMessage {__gesso:"pause"}
+     递入 iframe，由壁纸自行配合；window.__gesso.pause()/resume() 由 pin 层经
+     evaluate_script 调用，窗口保持驻留。安全边界由 gesso:// 路径白名单和 CSP 共同提供。 -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -26,7 +22,7 @@
 <video id="media" autoplay muted loop playsinline></video>
 <img id="imgmedia" alt="" style="display:none">
 <canvas id="gl"></canvas>
-<!-- sandbox：allow-scripts + allow-same-origin。M6 实测定：opaque origin
+<!-- sandbox：allow-scripts + allow-same-origin。实测定：opaque origin
      （无 allow-same-origin）会让 WKWebView 完全不发起同源外链脚本/样式
      请求——WE web 壁纸几乎都拆外部 .js/.css，故必须给 same-origin。
      安全仍由 CSP（connect-src 'none' 等）+ 自定义 scheme 只回已导入条目
@@ -48,7 +44,7 @@
   // ============ shader 渲染器（WebGL2 · Shadertoy 子集）============
   // uniform 契约：iTime / iResolution / iMouse / iTimeDelta / iFrame + iChannel0..3。
   // iChannel 绑定运行时生成的 256x256 RGBA 白噪声纹理（REPEAT+LINEAR），
-  // 覆盖 Shadertoy 标准预设纹理里的 noise 子集；自备贴图的作品不在 M4 范围。
+  // 覆盖 Shadertoy 标准预设纹理里的 noise 子集；自备贴图的作品暂不在支持范围。
   let gl = null, glU = null, glRaf = 0, glRunning = false;
   const glT = { t0: 0, last: 0, lastDraw: -1e9, frame: 0 };
   // 光标桥状态（__gesso.mouse 喂入，归一化 [0,1] 原点左下）。
@@ -226,12 +222,10 @@
     }
   }
 
-  // ============ html 渲染器（沙箱 iframe · M4 part 2）============
-  // 用户页面 = 同目录 wallpaper.html（spec.source 相对路径）。沙箱只给
-  // allow-scripts：无 allow-same-origin → opaque origin，localStorage/
-  // document.cookie/IndexedDB 抛 SecurityError；无 allow-top-navigation/
-  // allow-popups/allow-forms → 顶页导航、弹窗、表单一律静默失败。
-  // 暂停/恢复经 postMessage 递入（壁纸侧监听 message 事件自行配合）。
+  // ============ html 渲染器（沙箱 iframe）============
+  // 用户页面 = 同目录 wallpaper.html（spec.source 相对路径）。沙箱允许脚本和
+  // 条目自身的同源资源访问，但不授予 allow-top-navigation/allow-popups/allow-forms；
+  // 顶层导航、弹窗和表单因此被阻断。暂停/恢复经 postMessage 递入，壁纸侧自行配合。
   let htmlFrame = null;
 
   function initHtml(src) {
@@ -302,13 +296,13 @@
     msg.textContent = "Gesso: 暂不支持的类型 " + spec.kind;
   }
 
-  // §5.3 暂停契约：JS 层停帧，窗口常驻
+  // 暂停契约：JS 层停帧，窗口常驻
   window.__gesso = {
     pause: function () { v.pause(); stopShaderLoop(); postToFrame({ __gesso: "pause" }); },
     resume: function () { v.play().catch(function () {}); startShaderLoop(); postToFrame({ __gesso: "resume" }); }
   };
 
-  // ===== M5 数据桥（Rust 引擎驱动）=====
+  // ===== 数据桥（Rust 引擎驱动）=====
   // setFps：Downscale 策略的实时降帧——shader 门控每帧读 spec.fps_cap 即时生效；
   // html 经 postMessage 递建议值（壁纸自管 RAF）；video 无帧率杠杆，维持播放。
   window.__gesso.setFps = function (n) {

@@ -2,7 +2,7 @@
 //! Wallpaper Engine 写的网页在 Gesso 宿主页的沙箱 iframe 里也能跑。
 //!
 //! 数据源：Gesso 宿主页以 postMessage 推送（暂停/fps/鼠标/时间）。音频在
-//! M6 无真实来源——audio listener 收到静音数组（60 或 128 路 0）。
+//! 当前无真实来源——audio listener 收到静音数组（60 或 128 路 0）。
 //! 参考：docs.wallpaperengine.io/en/web/api/propertylistener.html
 
 /// 注入脚本（自执行，末尾带换行）。

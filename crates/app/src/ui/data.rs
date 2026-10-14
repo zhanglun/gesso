@@ -38,7 +38,7 @@ impl Kind {
     }
 }
 
-/// 预览配色渐变（M4 起换抽帧真图；shader/html 保留图标占位）。
+/// 预览配色渐变（缩略图就绪前的占位；失败兜底用类型图标）。
 #[derive(Clone, Copy)]
 pub struct Art {
     pub from: u32,
@@ -72,7 +72,7 @@ pub struct LibraryItem {
     pub thumb_pending: bool,
 }
 
-/// 运行状态（技术方案 §9 状态机的视图投影）。
+/// 运行状态（状态机的 UI 投影）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PlayState {
     Playing,
@@ -89,7 +89,7 @@ impl PlayState {
     }
 }
 
-/// 显示器条目（视图投影；稳定 ID 在 core 用 EDID 哈希，UI 只见名字）。
+/// 显示器条目（视图投影；平台稳定 ID 只用于引擎映射，UI 主要展示友好名称）。
 #[derive(Clone)]
 pub struct MonitorEntry {
     pub name: SharedString,

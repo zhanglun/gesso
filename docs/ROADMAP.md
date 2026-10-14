@@ -1,108 +1,46 @@
 # Roadmap
 
-Status reflects what actually runs on hardware: ✅ means it was verified on a real machine. Time estimates assume spare-time pace.
+> 本文只记录当前未完成事项、验证缺口和下一步优先级。已完成能力见 [CHANGELOG.md](../CHANGELOG.md)。
 
-## Where we are
+## 当前状态
 
-```
-✅ M0    workspace skeleton + CI
-✅ M0.5  GPUI integration spike (tray × GPUI loop, native handles, theme tokens)
-✅ M1.5  macOS desktop layering spike (pin below icons, click-through, all-spaces)
-✅ M2    video wallpaper end-to-end (pin + pause/resume + persistence)
-✅ M3    sessions/config/UI engine + UI↔engine actions + import + settings + first-run
-✅ M4    renderer completeness — video / image / shader (WebGL2 + Shadertoy subset) / HTML (sandboxed iframe); all four kinds have real webview-captured thumbnails (static + 15-frame hover sequence)
-✅ M5    system data bridge — fullscreen/battery auto-pause + time feed + cursor feed (iMouse) + idle downscale
-✅ M6    Wallpaper Engine import I (video/web) + static images + content-type registry refactor
-✅ M1    Windows pinning（实机验证：图标层下渲染 / TaskbarCreated 自愈 / PMv2 DPI）
-✅ M-URL 远端网页壁纸（origin=url 条目 + 宿主页 iframe 直装 https；2026-10-07 macOS 实机验证：louie.co.nz/25th_hour 跨域渲染 + 缩略图 16 帧）
-✅ 0.1.0 发布（2026-10-07，GitHub Actions 自动打包发布：macOS dmg + Windows 便携 zip + checksums；ad-hoc 签名、未公证）
-✅ V-PERF 视频卡顿排障与分叉（2026-10-10 macOS 实机验证）：webview 减负（采集窗熄火/冻结帧降频/壁纸窗不透明）+ 视频媒体回环 HTTP 服务（自定义 scheme 碎片拉流 92 req/s → 原生管线一条流）+ macOS 视频壁纸原生 AVPlayerLayer 管线（webview 远端层树上屏无锁相，60fps 实测 53~56 波动 → 原生后顺滑）；帧率探针 GESSO_VIDEO_DIAG 入库
-✅ 0.1.x 反馈修复批次（2026-10-10）：F11 三连修（诊断色删除 + 全屏检测前台 PID 匹配 + 冻结帧画布）、视频窗 2pt 外扩裁掉 AVPlayerLayer 边缘劣化带、唤醒显示器 ID 重编几何平移（副屏丢壁纸/幽灵窗，实测）、视频壁纸内存直供（循环零盘读，实测 3 遍整文件物理读增量 0）
-✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（库卡片/宿主页/显示器小样/原生视频；gpui img 固有宽高比坑见工程笔记 §2）、缩略图启动即生成 + 生成中 spinner、清单解析失败护栏（exit 78 保文件）、锁屏自动暂停省电（CGSessionCopyCurrentDictionary）、移除冗余「查看详情」菜单项
-✅ 多屏重配事件驱动收敛 + 桌面桥接（2026-10-11 macOS 实机四轮迭代）：唤醒/合盖开盖等重配从 2s 轮询改为 epoch 事件 + 两段式收敛（30ms 即时清扫熄灭脱节窗口、1.5s 去抖、跨采样稳定后原子施加），过渡几何从构造上不可见；桌面桥接把系统桌面接管为当前壁纸静帧兜住熄窗间隙（设置开关默认开；2026-10-13 改为临时覆盖约 5 秒后自动还原用户壁纸，见下一条）。机制见 ARCHITECTURE §2，伪影根因链见工程笔记 §2
-✅ 0.1.1 发布（2026-10-12，GitHub Actions 自动打包：macOS dmg + Windows 安装包 + 便携 zip + checksums，未签名；修复内容见 CHANGELOG）
-✅ 桌面桥接临时覆盖 + 恢复/退出全链路修复（2026-10-13 macOS 实机多轮）：切换壁纸后系统桌面只短暂显示静帧（约 5 秒，盖住建窗/加载间隙）即自动还原用户壁纸，退出与「恢复系统壁纸」均立即完成；修复恢复无反应/桌面黑屏/静帧滞留/二次闪烁（根因：壁纸轮换工具删除原壁纸文件、macOS 26 航拍默认壁纸经静态 API 设置会黑屏、壁纸代理换图延迟 5–16 秒），「随机换一张」由顺序循环改为真随机。设计取舍与根因链见设计文档 2026-10-12/13 变更块与工程笔记 §2
-⬜ M7    Wallpaper Engine import II (scene, long-term)
-```
+- ✅ macOS 壁纸窗口：AppKit 原生窗口钉在桌面图标层之下，支持全空间、点击穿透和多屏独立指派。
+- ✅ Windows 壁纸窗口：WorkerW 挂载、Explorer 重启自愈、PMv2 DPI 和原生视频呈现已落地。
+- ✅ 内容类型：视频、静态/动图图片、Shader、HTML，以及用户主动导入的 WE `video` / `web` 项目。
+- ✅ 运行时：事件驱动显示器重配收敛、全屏/电源/锁屏/空闲策略、光标/时间桥、填充模式和应用内更新。
+- ✅ 桌面过渡：运行时不写系统桌面；几何过时窗口由 Gesso 自己的 AppKit 静帧过渡窗覆盖；旧版系统桌面桥接帧只在启动时清理。
+- ✅ 发布：`v0.1.2` 已通过 GitHub Actions 生成 macOS DMG、Windows 安装包、便携包和校验文件。
 
-## Next up, in priority order
+## 下一步优先级
 
-1. **发布后反馈消化**：安装/首启问题归集进 issue，质量修补随 0.1.x 小版本滚动（发布全自动化在 `.github/workflows/release.yml`，打 tag 即出产物）。
-2. **Windows 多显示器实机验证**（实现已就位，等环境；epoch 收敛/清扫/桌面桥接的 Windows 面随 2026-10-11 本轮新增，一并回归）。
-3. ~~**Windows 视频帧节奏实测**~~ → ✅ 2026-10-11 实测撞帧，**原生视频壁纸窗已落地**（`pin::WinVideoWindow`，见 M1-W）。诊断证据全文见工程笔记 §2「Windows 视频壁纸卡顿」行。
-4. **M7 Wallpaper Engine import II (scene)**（长期）。
+1. **Windows 多显示器真实硬件回归**
+   - 插拔、分辨率变化、主屏切换、Explorer 重启；
+   - 重点检查 WorkerW 重挂、窗口几何、点击穿透和配置承接。
+2. **安装和升级冒烟**
+   - 干净 macOS 机器安装未签名 DMG；
+   - 干净 Windows 机器安装 NSIS 和便携包；
+   - 验证应用内更新、系统代理和失败重试。
+3. **Wallpaper Engine import II**
+   - `scene` 类型解析和安全边界评估；
+   - 继续保持用户主动导入，不扫描 Steam/工坊，不下载或再分发素材。
+4. **HTML 壁纸兼容性**
+   - 收集真实项目样本；
+   - 保持 sandbox、CSP、无 IPC 和同源资源边界；
+   - 评估 `fps_cap` 对第三方 RAF 的可控范围。
 
-### M5 — system data bridge（✅ 已完成）
-- ✅ fullscreen detection: `CGWindowList` layer-0 window covering a display frame（±3pt 容差，y 轴按主显示器高度翻转）→ 按全屏策略执行：暂停 / 降帧到 5 fps / 忽略。
-- ✅ battery: IOKit power sources（`IOPSCopyPowerSourcesList`）。电池供电作用于全部显示器，本屏全屏优先。
-- ✅ time feed: 引擎 ~1 Hz `evaluate` 驱动 `__gesso.tick(Date.now())`；html 壁纸收 `postMessage {__gesso:"time"}`。
-- ✅ cursor feed: 全局光标位置路由到所在显示器的会话，归一化量化（u16）后经 `__gesso.mouse(present,x,y,buttons)` 喂入，shader 写 `iMouse`、html 收 `{__gesso:"mouse"}`；推送 30 Hz、宿主页每帧快速平滑，变化才推。鼠标静止 5 分钟自动降到 5 fps，一动即恢复。
-- 权限事实（实测）：位置走 `NSEvent::mouseLocation`、按键/空闲走 CoreGraphics HID 源状态表——纯轮询、不做事件 tap，**无需 Input Monitoring / 辅助功能授权**（只有 `CGEventTapCreate` 才要）。
+## 明确不做
 
-### M5-W — Windows 系统数据桥（✅ 2026-10-06 实机验证）
+- Linux 后端；
+- WE `application` 原生程序；
+- Steam/Workshop 磁盘扫描；
+- 内容下载器或再分发；
+- 运行时写入系统桌面壁纸；
+- 静默替换正在运行的应用。
 
-- ✅ 光标 feed：GetCursorPos（顶左物理像素）+ GetAsyncKeyState 按键 + GetLastInputInfo 空闲（含键盘活动）；左下契约翻转在 poll_mouse 契约边界一次完成。实机：光标 glow 随 SetCursorPos 移动/离开（条带亮度 366 ↔ 114）。
-- ✅ 全屏检测：EnumWindows 找 rect 完整覆盖显示器 frame（±3px）的可见顶层窗口，排除自身类/shell（Progman/WorkerW 恒全屏）/工具窗/DWM cloak 幽灵。实机：真全屏触发自动暂停、退出解除、与空闲降帧状态互斥正确。
-- ✅ 电池：GetSystemPowerStatus（BatteryFlag 128 = 无电池 → None；台式机正确返回 None）。
-- ✅ 空闲降帧：5 分钟无输入 → 5 fps，一动即恢复（实机触发复验）。
-- ✅ 锁屏检测（2026-10-11）：`WTSQuerySessionInformationW(WTSSessionInfoEx)` 轮询会话锁标志，与 macOS 同为纯轮询（无需 HWND/消息泵）；查询失败按未锁。解锁/锁屏暂停省电自此双平台生效。
+## 相关文档
 
-### M1 — Windows pinning（✅ 主体完成，2026-10-05 实机验证）
-- ✅ 自有 Win32 壁纸窗口（WS_POPUP + TOOLWINDOW/NOACTIVATE，非 GPUI 窗口）+ wry/WebView2 子窗口直挂。
-- ✅ WorkerW 挂载阶梯：`Progman 0x052C` → SHELLDLL_DefView 宿主之后的 WorkerW → `SetParent`；兜底 Progman（桌面图标关闭）/ 顶层 HWND_BOTTOM（explorer 未就绪）。实机：shader / html / **视频（协议 Range 206 流式）**均在图标层之下全屏渲染。
-- ✅ **创建顺序生死线（实测踩坑）**：必须先 `SetParent` 挂载、后创建 WebView2——反之 DComp 视觉树绑定失效，窗口树全绿但整窗不可见（见工程笔记 §2）。
-- ✅ DPI：进程顶部 `SetProcessDpiAwarenessContext(PMv2)`（GPUI/wry 均不设置），125% 缩放下物理像素与 WorkerW 精确对齐；`GPUI_DISABLE_DIRECT_COMPOSITION=1`。
-- ✅ explorer 重启自愈：隐藏监听窗口收 `TaskbarCreated` → 引擎轮询整窗重建（explorer 死亡会连带销毁跨进程子窗口，重挂旧句柄无效）。实机验证：重启后自动落位 WorkerW 并恢复渲染。
-- ✅ gesso:// 协议在 WebView2 下的 workaround 全链路：导航 `gesso://X/…` ↔ `http://gesso.X/…` 由 wry 翻译/还原，页面子资源 URL 由 `protocol::entry_url` 直接产出 workaround 形态，CSP 按 workaround 宿主枚举。
-- ⬜ 多显示器实机验证（实现已就位：EnumDisplayMonitors 物理像素 + 各屏独立窗口；验证机单屏）。
-- ⬜ 点击穿透语义对齐：WM_NCHITTEST HTTRANSPARENT 只作用于本窗口，空白桌面点击会落入 WebView2 子窗口（技术方案 §6 视作可选交互增强，v1 接受）。
-- ~~⬜ M5 数据桥 Windows 侧~~ → ✅ Done（M5-W，2026-10-06 实机验证，见上）。
-- ✅ **原生视频壁纸窗**（2026-10-11，对标 macOS `MacVideoWindow`）：MF SourceReader 解码 → flip-model swapchain 直挂 WorkerW 子窗口（解码/呈现专职线程，窗口消息留主线程；换壁纸 = 整窗重建、暂停 = 冻结帧、点击穿透复用 GessoWallpaper 类）。MF SourceReader 的四个坑（高级视频处理属性/PROPVARIANT 路径/EOS 活锁/软件缩放烧核）见工程笔记 §2。WebView2 从此只管 shader/html/图片（与 macOS 分叉对齐）。真机验证：此前全构建卡顿的视频丝滑。
-
-### M4-W — 缩略图管线 Windows 接入（✅ 2026-10-06 实机验证）
-
-背景：M4 的缩略图生成（视频 AVFoundation 抽帧 / shader·html WKWebView 快照）是 Apple 专属，
-Windows 库页无帧图、无 hover 预览（image 类型 Direct 直引不受影响）。方案：**以 Windows 为
-契机把抽帧收敛到 webview 一条管线**，业务逻辑（调度/抽取/落盘）单份，平台面只剩 html 截图
-一个薄接缝。macOS 现有路径本次零改动（已验证、已投产），待新管线在两侧对齐后再择机退役
-AVFoundation（含其 objc2 崩溃面）。
-
-- ✅ 宿主页：WebGL 上下文加 `preserveDrawingBuffer: true`（工程笔记 #41 认可方案；
-      否则 toDataURL 跨任务读到清空后的黑帧）
-- ✅ Windows 采集窗口：近隐形窗口（TOPMOST + 1.2% alpha + TOOLWINDOW + NOACTIVATE +
-      `WS_EX_TRANSPARENT` 跨进程点击穿透，物理像素 800×450），采集期显身、空闲期隐藏
-      （隐藏窗不参与命中测试与合成，屏幕无常驻隐形层），顶层窗口恒不被遮挡、不受
-      explorer 重启影响——比 macOS 的「壁纸层之上一档」更稳（那里靠层级逼近同一效果）
-- ✅ 视频抽帧：采集 JS 用影子 `<video crossorigin=anonymous>`（协议响应已带
-      `Access-Control-Allow-Origin: *`，规避 canvas 跨源污染），seek → cover-fit 绘制
-      → toDataURL；采样时刻表复用 `frame_times`（8fps × 2s = 16 帧契约不变）
-- ✅ shader 定格：`__gessoSeek(t)` + settle 后 `#gl.toDataURL`（依赖 preserveDrawingBuffer）
-- ✅ html 实时帧：PrintWindow(PW_RENDERFULLCONTENT) 截采集窗口（兜底 BitBlt 屏幕区），
-      唯一的平台接缝，独立成 capture_win.rs；实机 800×450 16 帧全出
-- ✅ 落盘：dataURL → base64 解码（encoding.rs 新增解码器）→ `.tmp` → rename 原子写，
-      命名沿用 `thumb.png + thumb-N.png` 契约，UI 零改动
-- ✅ 调度：`dispatch_thumb` 统一分派——Windows 视频走主线程串行采集队列
-      （CAPTURE_QUEUE / ThumbScheduler 原样复用）；macOS 分派不变
-- ✅ 协议 Range 改惰性切片 + 开放范围 512KB 部分响应（大视频逐 seek 全量过盘的
-      顺带修复：394MB 条目就绪超时即此根因，壁纸播放同步受益）
-- ⚠️ 实测坑：ExecuteScript 字符串结果 JSON 编码带引号、布尔裸值——统一去引号
-      （见工程笔记 §2）
-- ✅ 实机验收：五条目全 16 帧（testsrc / plasma / clock + 两条 212/394MB 用户视频），
-      帧内容视觉核验非黑帧；库页卡片/hover 读同一磁盘契约即生效
-
-### M6 — Wallpaper Engine import I（✅ 已完成）
-- ✅ 工坊内容解析：用户**自己通过导入对话框选中** WE 条目的 `project.json`（或整目录），Gesso 解析并使用——**绝不扫描磁盘、不枚举 Steam/工坊、不依赖 Steam 安装**。法律边界：只读用户主动指定的内容，不下载/不爬取/不再分发。
-- ✅ WE web 垫片：`wallpaperRegisterAudioListener`/媒体等空实现 + 暂停/fps/鼠标/时间桥，注入点紧贴 `<head>`。- ✅ 普通导入可选 `project.json` 触发整目录 WE 导入；法律边界：只读本机已订阅内容，不下载/不爬取/不再分发。
-- ✅ 静态图：支持 jpg/jpeg/png/avif，UI 新增独立「图片」分类（底层复用 Image）；图片缩略图 Direct 直引源文件，零生成零拷贝。
-- ✅ 架构还债（本次两个 bug 的结构性根因）：① `gesso-core::content` 内容类型描述表——类型↔扩展名↔MIME↔缩略图策略的单一事实源；② `HostCommand` 枚举类型化 Rust↔宿主页命令；③ main.rs 上帝循环拆解（`apply_engine_action`/`merge_snapshot`/命名定时）；④ session.rs 纯工具抽到 `encoding.rs`。
-- scene 类型（M7）暂拒绝；`depkg` 为 GPL，倾向子进程隔离，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md)。
-- ✅ **`gesso://` 协议回归**（`bf3c294`）：lb-wry ≥0.53 自定义协议在 macOS 已正常（M2 “零回调”结论失效）。宿主页改为 `gesso://host/index.html` 统一副本，不再拷入条目目录；`ContentSpec.source` 为绝对 `gesso://library/<entry>/…`；实现视频 Range(206)。四类实机验证通过。
-
-## Known gaps (no milestone yet)
-
-- WE 零拷贝直引：video/web 不拷入库、不修改原文件。用户主动导入 `project.json` 后，经 `gesso://steam/<entry-id>/<rel>` 只读访问该条目的 source_dir（以库清单里的不可猜 entry id 为凭据，不扫描磁盘）。
-- Real-machine monitor outline (signature #1) and tray panel positioning on retina displays.
-- ~~HTML thumbnails use the gradient placeholder~~ → Done (`372b4c4`): html captures live frames via the same persistent-window capture pipeline as shader/video.
-- HTML wallpapers: iframe navigation policy — external/top navigation, popups and forms stay sandbox-blocked; the frame may only embed `gesso`-scheme (self-contained, offline) sub-frames. Same-origin external `.js`/`.css` and local `fetch()` work (`allow-same-origin` + CSP `connect-src gesso:`; verified via a kitchen-sink fixture). `fps_cap` is advisory for the html kind. Hover previews use a two-phase cycle — preload all 16 frames behind a spinner, then play at a fixed 125 ms/frame (`c6bd3ce`).
-- ~~i18n English pass pending~~ → Done: Auto / 简体中文 / English, selector in Settings ▸ Startup, live-apply + persisted.
-- Tray polish: dynamic menu copy (muda handlers are `Send`-only — menu handle can't be mutated from the poller).（quick-panel 定位一项随 2026-10-03 撤销快速面板一并作废）
+- 当前架构：[ARCHITECTURE.md](ARCHITECTURE.md)
+- 开发与调试：[DEVELOPMENT.md](DEVELOPMENT.md)
+- 工程纪律：[ENGINEERING-NOTES.md](ENGINEERING-NOTES.md)
+- WE 兼容边界：[WALLPAPER-ENGINE.md](WALLPAPER-ENGINE.md)
+- 发布流程：[RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md)

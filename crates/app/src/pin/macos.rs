@@ -1,9 +1,9 @@
-//! macOS 贴壁实现（M1.5 spike 产品化）。
+//! macOS 贴壁实现（可行性 spike 产品化）。
 //!
-//! 关键参数定稿（SPIKE-REPORT M1.5）：
+//! 关键参数定稿（见 docs/archive/SPIKE-REPORT.md）：
 //! - level = -2147483604（图标层下缘之下一档；勿用桌面图同级，排序不可控）
 //! - Borderless + CanJoinAllSpaces|Stationary|FullScreenAuxiliary|IgnoresCycle
-//! - ignoresMouseEvents + 透明底（webview 隐藏 = 露系统壁纸）
+//! - ignoresMouseEvents + 不透明黑底（回退系统桌面 = 隐藏整窗，非藏 webview）
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -300,7 +300,7 @@ impl WallpaperWindow for MacWallpaperWindow {
 /// 原生视频壁纸窗：AVPlayerLayer 直挂 contentView，不经 webview。
 /// 原因（2026-10-10 实测）：webview 的远端层树对视频上屏节奏不均——60fps
 /// 片 rVFC 实测 53~56/s 波动（页面节拍却稳 60Hz），肉眼卡顿；原生 AVPlayer
-/// 管线有显示锁相，且直接 file:// 读盘，媒体回环 HTTP/gesso:// 均不参与。
+/// 管线有显示锁相，视频 URL 优先使用回环 HTTP，服务不可用时才回落本地文件。
 pub struct MacVideoWindow {
     _window: Retained<NSWindow>,
     _looper: Retained<objc2_av_foundation::AVPlayerLooper>,
@@ -341,12 +341,12 @@ pub fn create_video_window(
         layer.setVideoGravity(&objc2_foundation::NSString::from_str(video_gravity(fit)));
         content.setWantsLayer(true);
         content.setLayer(Some(&layer));
-        // 媒体 URL：http:// 回环（内存直供）或 file:// 回落，均为完整 URL 形态
+        // 媒体 URL：优先使用 http:// 回环内存直供，失败时回落本地文件。
         let nsurl = objc2_foundation::NSURL::URLWithString(&NSString::from_str(url))
             .ok_or_else(|| GessoError::UnsupportedPlatform(format!("媒体 URL 非法：{url}")))?;
         let item = AVPlayerItem::playerItemWithURL(&nsurl, mtm);
         let looper = AVPlayerLooper::playerLooperWithPlayer_templateItem(&player, &item);
-        player.setMuted(true); // AudioPolicy::Muted（技术方案 §5.1）
+        player.setMuted(true); // AudioPolicy::Muted
         player.play();
         (player, looper, layer)
     };
@@ -437,14 +437,10 @@ fn video_pin_frame((x, y, w, h): (f64, f64, f64, f64)) -> objc2_foundation::NSRe
     )
 }
 
-// CGDisplay 身份三元组（EDID 的 vendor/product/serial）。合盖/重连/唤醒会重编
-// CGDirectDisplayID（v1 用它当 ID 的已知缺陷，见 session.rs），但硬件身份不变——
-// 它就是跨重配的稳定 ID 来源。
-//
-// 可用性（2026-10-09 实测）：macOS 26 把这三个符号从 CoreGraphics 的 SDK 接口
-// **和运行时 dylib** 里都删除了（dlsym 探测 MISSING）——26+ 上 identity_fns()
-// 返回 None，自动回落 cg-id（v1 行为）。macOS 13–15 运行时符号仍在，dlsym 有效；
-// 26+ 的完整 EDID 身份需走 IOKit IODisplayConnect（后续工作，MonitorControl 同路）。
+// CGDisplay 身份三元组（EDID 的 vendor/product/serial）。合盖、重连和唤醒可能重编
+// CGDirectDisplayID，但硬件身份通常不变——用三元组做稳定 key；同型号双屏
+// serial=0 会碰撞，后面追加 CG ID 消歧。没有可用身份时回落 CG ID。
+// macOS 26+ 可能没有这三个 CoreGraphics 符号，因此 identity_fns() 会回落。
 type CgIdentityFn = unsafe extern "C" fn(u32) -> u32;
 
 fn identity_fns() -> Option<[CgIdentityFn; 3]> {

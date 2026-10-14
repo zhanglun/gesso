@@ -1,12 +1,12 @@
-//! Windows 缩略图采集（M4-W）：webview 抽帧，输出契约与 macOS 完全一致
+//! Windows 缩略图采集：webview 抽帧，输出契约与 macOS 完全一致
 //! （`thumb.png + thumb-N.png` 连续序列 + `.tmp` → rename 原子写）。
 //!
-//! 与 macOS 的平台面差异（收敛目标见 ROADMAP M4-W，macOS 侧本次零改动）：
+//! 与 macOS 的平台面差异（收敛目标见 ROADMAP）：
 //! - 快照 = PrintWindow(PW_RENDERFULLCONTENT)，兜底 BitBlt 屏幕区（采集窗
 //!   TOPMOST 恒不被遮挡，屏幕抓取可靠）；WKWebView takeSnapshot 无 Windows 对应物
 //! - 视频 = 影子 `<video crossorigin=anonymous>` + canvas 绘制（协议响应已带
 //!   `Access-Control-Allow-Origin: *`，规避 canvas 跨源污染）；macOS 走 AVFoundation
-//! - shader = `preserveDrawingBuffer` 下的 `#gl.toDataURL`（宿主页 M4-W 起开启；
+//! - shader = `preserveDrawingBuffer` 下的 `#gl.toDataURL`（宿主页已开启；
 //!   WebGL 默认帧缓冲合成后即清空，跨任务读取是黑帧——工程笔记 #41）
 //!
 //! 线程与生命周期纪律（同 capture.rs 模块头）：主线程（GPUI 前台执行器）、

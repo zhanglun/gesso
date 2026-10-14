@@ -9,16 +9,16 @@ Gesso：跨平台（Windows/macOS）动态壁纸引擎——视频/动图/Shader
 
 ## 必读文档（按顺序）
 
-1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 架构规则 + 实测踩坑台账（§2 随修随记），改代码前先读。
+1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** —— 架构规则 + 当前平台纪律 + 高风险调试路径，改代码前先读。
 2. **[crates/app/API.md](crates/app/API.md)** —— UI 层唯一允许调用的引擎接口。
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** —— 分层、窗口模型、贴壁参数、状态机。
 4. **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 当前进度与已知缺口。
-5. **[docs/design/](docs/design/)** —— 设计归档：交互规格（界面与交互设计.md，已冻结 v1.0）、视觉 token（DESIGN.md）、**可点击 HTML 原型**（prototype/index.html，视觉契约）、完整工程方案（技术方案.md，14 章）+ 6 张架构/流程图。
+5. **[docs/design/](docs/design/)** —— 当前交互规格、视觉 token、可点击原型、技术方案和图表源；辅助图表不是改代码前必读材料。
 6. **[docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)** —— 发布操作清单与流水记录（产物不签名/不公证，流程已自动化）。
 
 ## 硬性规则（历史事故的浓缩，全文见工程笔记 §1–§2）
 
-1. **壁纸窗口是 `pin/` 里的纯 AppKit/Win32 窗口，绝不是 GPUI 窗口。** GPUI 的窗口协调器会重置桌面级全屏几何（M1.5 实测：origin 被压到 -30 并持续回写）。
+1. **壁纸窗口是 `pin/` 里的纯 AppKit/Win32 窗口，绝不是 GPUI 窗口。** GPUI 的窗口协调器会重置桌面级全屏几何（实测：origin 被压到 -30 并持续回写）。
 2. **UI 只走 `crates/app/API.md` 的接口**；写操作入队 `EngineAction`，读操作走快照，快照合并必须保留 UI 本地状态（tab/query/selected/filter）。
 3. **改界面行为先改 `docs/design/` 的规格与原型，再改代码**——设计文档随仓库迭代，随设计迭代更新。
 4. **提交前必须**：`cargo check -p gesso-app` 通过 + `cargo test -p gesso-core` 全绿；改了行为要在实机跑对应路径。
@@ -44,8 +44,8 @@ crates/core     纯领域逻辑（ContentSpec/配置/库/状态机/content 内�
 crates/app      应用：
   ├─ pin/         平台贴壁层（macOS: AppKit；Windows: Win32 + WorkerW 挂载）——唯一允许碰原生窗口的模块
   ├─ session.rs   会话管理器（唯一编排者）
-  ├─ capture.rs   缩略图采集（macOS WKWebView 快照；Windows 走 capture_win.rs：webview 抽帧 + PrintWindow，M4-W）
-  ├─ build.rs     Windows exe 图标资源内嵌（winresource，ID 1；托盘/任务栏图标见 NOTES §2）
+  ├─ capture.rs   缩略图采集（macOS WKWebView 快照；Windows 走 capture_win.rs：webview 抽帧 + PrintWindow）
+  ├─ build.rs     Windows exe 图标资源内嵌（winresource，ID 1；托盘/任务栏图标规格见 docs/design/DESIGN.md 品牌图形）
   ├─ thumb.rs     视频抽帧 + 缩略图策略调度
   ├─ encoding.rs  纯工具：base64url/路径编码/目录拷贝/主资源发现
   ├─ host_cmd.rs  Rust→宿主页类型化命令（HostCommand）
@@ -53,40 +53,27 @@ crates/app      应用：
   ├─ protocol.rs  gesso:// 资源协议（已打通：host 统一宿主页 + library 条目资源，视频 Range）
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
-  ├─ update.rs    应用自更新（§4.7：GitHub Releases 检查/下载/交付；状态真源在模块全局，代数计数回灌）
+  ├─ update.rs    应用自更新（GitHub Releases 检查/下载/交付；状态真源在模块全局，代数计数回灌）
   ├─ ui/          管理窗口 UI（gpui-kit；strings.rs 双语包；update_view.rs 更新小窗）
   └─ assets/      宿主页（host/index.html）/ 预置壁纸（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）
-docs/           工程文档 + design/（设计归档）
+docs/           工程文档 + design/（当前设计源；历史资料在 docs/archive/）
 ```
 
-## 当前状态速览（截至本文件更新）
+## 当前实现边界
 
-- ✅ macOS 视频壁纸钉桌面全链路（贴壁/穿透/多空间/菜单栏带覆盖/暂停恢复/持久化）
-- ✅ 导入（对话框 + 拖入）、托盘（右键菜单）、设置持久化、开机自启（首启向导已于 2026-10-07 撤销，首启=自动指派样例）
-- ✅ 管理窗口三页签（真数据桥接）+ 缩略图悬停预览 + 显示器页「桌面沙盘 + 详情条」改版
-- ✅ M4 渲染器完备：shader + html（沙箱 iframe）+ 四类内容缩略图采集（macOS WKWebView 快照；Windows webview 抽帧 + PrintWindow，`capture_win.rs`，帧契约同构）+ 预置壁纸 ×10（视频 1 · shader 8 · html 1）
-- ✅ 协议 Range 惰性切片 + 开放范围 512KB 部分响应（大视频 seek 不再全量过盘）
-- ✅ M1 Windows 贴壁（2026-10-05 实机验证：WorkerW 挂载 + 图标层下渲染 + explorer 重启自愈 + PMv2 DPI；多屏实机/M5 桥接待接）
-- ✅ M5 系统数据桥完整（双平台）：全屏/电池自动暂停·降帧 + 时间脉冲 + 光标 feed（iMouse 跟随，纯轮询无需授权）+ 空闲降帧；Windows 桥见 `bridge/windows.rs`，左下契约翻转在 poll_mouse 边界
-- ✅ M6 WE 用户主动导入/解析（video/web；绝不扫描磁盘）+ jpg/png/avif 静态图 + 独立「图片」分类
-- ✅ 架构还债：content 内容类型表（类型/扩展名/MIME/缩略图策略单一事实源）、HostCommand 类型化、main 上帝循环拆解、session 工具抽到 encoding
-- ✅ 协议已打通（`gesso://` 宿主页走统一副本、资源走 library、WE 源走 steam 只读直引；`bf3c294`）；WE video/web 零拷贝
-- ✅ 英文 i18n（中/英双文案包 + Auto，设置页即时切换）+ 远端网页壁纸（🔗 从 https URL 导入，iframe 直装，零本地拷贝）
-- ✅ 应用自更新（§4.7，2026-10-11）：GitHub Releases 检查（启动 +24h 节拍，`settings.update_check` 开关）→ 多层通知（系统通知 best-effort + 应用内 toast + 托盘 tooltip）→ 「软件更新」小窗（检查/下载进度/交付六态）；下载官方安装包交由系统安装，**不做静默自替换**；dev 钩子 `GESSO_UPDATE_MODAL=1`
-- ✅ V-PERF 视频卡顿排障闭环（2026-10-10）：视频字节流不走自定义 scheme（回环 HTTP 媒体服务，AVPlayer 原生管线）；**macOS 视频壁纸 = 原生 AVPlayerLayer（`pin::MacVideoWindow`）**；帧率探针 `GESSO_VIDEO_DIAG=1`（rVFC/rAF 每 5s 采样）
-- ✅ V-PERF-W Windows 视频根治（2026-10-11）：WebView2 呈现交接层卡顿（诊断证据见工程笔记 §2）→ **Windows 视频壁纸 = 原生 MF SourceReader + flip-model swapchain 直挂 WorkerW（`pin::WinVideoWindow`）**，WebView2 双平台都只管 shader/html/图片；EOS 循环 = 每圈重建 SourceReader（seek 在 advanced VP 链路活锁，勿用）；双平台视频均无音频管线（静音契约天然成立）
-- ✅ 多屏重配事件驱动收敛（2026-10-11 macOS 实机）：显示器重配走 epoch 事件 + 两段式收敛（**勿改回轮询采样**——过渡几何会以小窗/放大帧上窗），30ms 清扫熄灭脱节窗口，可见窗必与当前拓扑一致；**过渡静帧（`desktop_bridge.rs`）= 自家过渡窗**（2026-10-13 终局：清扫几何过时屏前先上静帧窗、真窗点亮后撤；运行时**永不写系统桌面**——壁纸代理 FIFO 每张 5–16s、拥塞时 setDesktopImageURL 实测 2s，任何运行时写入都在主线程制造冻结且静帧永远来不及渲染；旧版残留由启动一次性清理；勿把系统壁纸写回运行时路径，勿当「改了用户壁纸」的 bug 清除——现在根本不碰）。机制见 ARCHITECTURE §2，根因链见工程笔记 §2
-- ✅ 0.1.x 反馈修复（2026-10-10）：视频窗 2pt 外扩与媒体 ≤256MB 内存直供均为刻意行为（勿当 bug/泄漏清除），唤醒后显示器 ID 重编按几何平移（sync_monitors 内置守卫）；细节见工程笔记 §2 与 CHANGELOG
-- ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（根因：gpui img 固有宽高比撑高被裁，显式 `.aspect_ratio` 压制）；缩略图启动即生成 + spinner；清单解析失败 exit 78 保文件；锁屏自动暂停省电；移除冗余「查看详情」菜单项
-- ✅ **0.1.0 已发布**（2026-10-07）：GitHub Actions 自动打包发布（macOS dmg / Windows 便携 zip / checksums）；ad-hoc 签名未公证；发布流程见 `docs/RELEASE-CHECKLIST.md`，打包脚本在 `packaging/`
-- ✅ **0.1.1 已发布**（2026-10-12）：反馈修复版——Windows 启动闪退（#2）、双平台视频原生管线、epoch 多屏收敛、桌面桥接、应用自更新等（全量见 CHANGELOG）；产物新增 Windows 安装包（NSIS）
-- ✅ 填充模式（2026-10-12，随 0.1.2 发布）：详情条填充下拉三态（cover 默认/contain/fill），core `Fit` 契约直通三消费端——macOS 视频 = AVLayerVideoGravity、Windows 视频 = quad 管线（swapchain 改窗口客户区尺寸 + UV 常量采样，勿改回帧尺寸交 DWM 拉伸）、图片 = host 页 object-fit；采集 URL 恒传 Contain（全帧语义，缩略图契约不变）；库条目目录名必须 = 条目 ID（library/media 路由按此解析）
+- macOS 和 Windows 壁纸窗口由 `pin/` 自己管理，不使用 GPUI 窗口；Windows 使用 WorkerW，macOS 使用 AppKit。
+- 视频使用原生管线：macOS 为 AVPlayerLayer，Windows 为 Media Foundation + DXGI；WebView 负责 shader、图片和 HTML。
+- UI 写操作只能进入 `EngineAction`；读取使用快照；壁纸资源通过只读 `gesso://` 路由提供。
+- WE 只接受用户主动导入的 `video` / `web` 条目，不扫描 Steam/工坊；远端网页只接受用户主动指定的 HTTPS 地址。
+- 显示器重配使用 epoch 事件、去抖收敛和 macOS 自家过渡窗；运行时不写系统桌面。
+- 内容类型、扩展名、MIME 和缩略图策略以 `gesso_core::content` 为唯一事实源；UI 接口以 `crates/app/API.md` 为唯一事实源。
+- 应用更新不静默替换正在运行的程序；Windows 多显示器硬件回归、WE scene 和更广泛 HTML 兼容性仍在 `docs/ROADMAP.md`。
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 
 - macOS 构建**不需要 Xcode**（runtime_shaders）；图标用 `gpui_kit_assets::IconName`（完整 Lucide）；`Button` 无 `color()`/`when()`（用变体 + `if`）；`overflow_y_scroll` 必须在 `.id()` 之后；库路径含空格必须百分号编码；`swap(true)` 当开关必错（用 `fetch_xor`）。
 - WE **只由用户主动导入**（对话框选 `project.json`），绝不扫描磁盘/枚举 Steam。video/web 不拷入库，`source_dir` 指用户选中目录，经 `gesso://steam/<entry-id>/…` 以不可猜 entry id 为凭据只读直引（视频 Range 206、shim 内存注入）。
 - **Windows 壁纸窗口创建顺序 = 生死线**：必须先 `SetParent` 挂 WorkerW、**后**创建 WebView2——反序则窗口树全绿但整窗不渲染（DComp 视觉树创建时绑定宿主层级）；explorer 重启会连带销毁跨进程子窗口，重钉 = 整窗重建（`session::remount_all`）。
-- Windows 进程 DPI awareness 必须自己在 main() 顶部声明 PMv2（GPUI/wry 均不设置），否则 125%+ 缩放下与 WorkerW 无法像素对齐；`GPUI_DISABLE_DIRECT_COMPOSITION=1` 按 M1 配方设置。
-- 本机系统若被精简过（System32 缺 Windows.UI.Composition.dll 等 WinRT UI 运行时）：WinRT UI 类激活 E_ACCESSDENIED，勿选 WinRT 呈现路线；经典 dcomp.dll/DXGI/MF 完好可用（详见工程笔记「Windows 视频壁纸卡顿」行）。
-- Windows 侧 `gesso://` 走 WebView2 workaround（页面实际 origin `http://gesso.<host段>/`）：子资源 URL 由 `protocol::entry_url` 产出 workaround 形态，CSP 按 workaround 宿主枚举；协议回调收还原后的 gesso:// URI，路由不分平台。
+- Windows 进程 DPI awareness 必须自己在 main() 顶部声明 PMv2（GPUI/wry 均不设置），否则 125%+ 缩放下与 WorkerW 无法像素对齐；`GPUI_DISABLE_DIRECT_COMPOSITION=1` 同步设置。
+- 本机系统若被精简过（System32 缺 Windows.UI.Composition.dll 等 WinRT UI 运行时）：WinRT UI 类激活 E_ACCESSDENIED，勿选 WinRT 呈现路线；经典 dcomp.dll/DXGI/MF 完好可用。
+- Windows 侧 `gesso://` 走 WebView2 workaround（页面实际 origin 为 `http://gesso.<host段>/`）；`protocol::entry_url` 负责生成 workaround 形态，回调再还原为 `gesso://` 路由。

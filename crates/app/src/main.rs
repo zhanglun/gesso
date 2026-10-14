@@ -1,4 +1,4 @@
-//! gesso —— M2/M3 装配：会话管理器 + 管理窗口三页签 UI（界面与交互设计 v1.0）。
+//! gesso —— 应用装配：会话管理器 + 管理窗口三页签 UI（界面与交互设计 v1.0）。
 //!
 //! release 改 GUI 子系统：不随启动弹终端黑窗（诊断已由 panic 落盘日志兜底，
 //! debug 构建保留控制台承接 stdout 日志）。
@@ -95,7 +95,7 @@ fn spawn_thumb_job(bg: gpui_kit::gpui::BackgroundExecutor, dir: String) {
 /// shader/html 缩略图采集：入串行队列，惰性起一个主线程工作任务逐个消化。
 /// 串行是崩溃纪律：并发多 webview + 快照 completion 是崩溃放大器（2026-10-04）。
 /// 缩略图策略分派（两处调用共用）：Windows 视频走主线程采集队列（webview 抽帧，
-/// M4-W），macOS 维持后台 AVFoundation 抽帧。
+/// macOS 维持后台 AVFoundation 抽帧。
 fn dispatch_thumb(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: WallpaperKind) {
     match gesso_core::content_type(kind).thumb {
         gesso_core::ThumbStrategy::Capture => spawn_capture_job(cx, dir, kind),
@@ -177,7 +177,7 @@ fn bootstrap() -> (session::SessionManager, bool) {
             }
         }
     };
-    // 预置壁纸：视频 1 + shader 8 + html 1（M4 DoD：shader 渲染，noiseflow 含 iChannel
+    // 预置壁纸：视频 1 + shader 8 + html 1（noiseflow 含 iChannel
     // 纹理，cursor 含 iMouse 光标桥；html 演示沙箱契约与 postMessage 暂停配合）。
     // 标题即产品文案：不带「内置/样例/测试」措辞；本表是预置条目标题的唯一事实源
     //（播种时对已存在条目做标题刷新，升级改名不残留旧文案）。
@@ -609,7 +609,7 @@ fn install_tray_menu_handler() {
             // 当前状态经托盘图标/状态矩阵反映）
             "pause" => {
                 // fetch_xor 翻转并返回旧值（swap(true) 会永远读到同一个旧值 →
-                // 该项变成"只暂停不恢复"，M0.5 踩过同款坑）
+                // 该项变成"只暂停不恢复"，历史踩过同款坑）
                 let paused = !TRAY_PAUSED.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
                 engine::enqueue(EngineAction::PauseAll(paused));
             }
@@ -1027,12 +1027,12 @@ fn install_panic_logger() {
 
 fn main() {
     install_panic_logger();
-    // Windows 平台面（M1，技术方案 §4.1）：进程必须先于任何窗口创建声明 PerMonitorV2，
+    // Windows 平台面：进程必须先于任何窗口创建声明 PerMonitorV2，
     // 否则显示器枚举/窗口定位拿到的是虚拟化坐标，与 DPI-aware 的 explorer/WorkerW
     // 无法像素对齐。GPUI 与 wry 均不设置（实测 0.3.7 快照），此处运行时调用等效于
     // manifest 声明，必须放在 gpui_kit::application() 之前。
     // GPUI DirectX 渲染器默认走 DirectComposition 视觉树，与 WebView2 同进程共存
-    // 有合成冲突风险（ROADMAP M1 配方）——禁用之（仅影响管理窗口渲染路径）。
+    // 有合成冲突风险（实测配方）——禁用之（仅影响管理窗口渲染路径）。
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::UI::HiDpi::{
@@ -1309,7 +1309,7 @@ fn main() {
                         }
                         refresh_ui = true;
                     }
-                    // M1 Windows：explorer 重启自愈——TaskbarCreated 广播置位后即刻
+                    // Windows：explorer 重启自愈——TaskbarCreated 广播置位后即刻
                     // 重钉（原 2s 轮询取走，现在每拍检查，延迟 ≤150ms）。广播意味着
                     // explorer 壳层已就绪（Progman 必在），重挂最差落到 Progman 兜底。
                     // 各会话壁纸窗口重走挂载阶梯 + 重建 webview（合成随 SetParent 失效）；
@@ -1328,7 +1328,7 @@ fn main() {
                             pin::windows::rearm_remount();
                         }
                     }
-                    // M5 数据桥（≈2s 节拍，错开半拍）：锁屏 + 全屏 + 电源态
+                    // 数据桥（≈2s 节拍，错开半拍）：锁屏 + 全屏 + 电源态
                     // → 策略解析 → 自动暂停/降帧；有状态变化才刷新 UI
                     if tick != 0 && tick % AUTOPAUSE_EVERY == AUTOPAUSE_OFFSET {
                         let changed = cx.update(|cx| {
@@ -1486,11 +1486,11 @@ fn main() {
             })
             .detach();
 
-            // M5 光标 feed：后台只出 33ms 节拍，读 AppKit 位置 + 比对 + 推送
+            // 光标 feed：后台只出 33ms 节拍，读 AppKit 位置 + 比对 + 推送
             // 全在主线程。根因教训：NSEvent.mouseLocation 从后台线程读在快速
             // 更新时是陈旧值（光团卡住、停后才闪现到终点）——AppKit 界面状态
             // 必须主线程读。poll_mouse 内部量化去重，静止不产生 evaluate。
-            // Windows（M5-W）：GetCursorPos + GetAsyncKeyState + GetLastInputInfo
+            // Windows：GetCursorPos + GetAsyncKeyState + GetLastInputInfo
             // 同语义实现（bridge/windows.rs），左下契约翻转在 poll_mouse 边界。
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             cx.spawn(async move |cx| loop {

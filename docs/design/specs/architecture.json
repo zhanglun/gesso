@@ -43,7 +43,7 @@
       "id": "bridge",
       "type": "messagebus",
       "label": "事件桥",
-      "sublabel": "光标 / 时间 / 电池",
+      "sublabel": "光标 / 时间 / 全屏 / 电源 / 锁屏",
       "tag": "30Hz",
       "pos": [
         790,
@@ -87,8 +87,8 @@
       "id": "weadapter",
       "type": "backend",
       "label": "WE 适配器",
-      "sublabel": "project.json · depkg",
-      "tag": "M6+",
+      "sublabel": "project.json · shim 注入",
+      "tag": "已上线",
       "pos": [
         790,
         220
@@ -146,7 +146,7 @@
   "boundaries": [
     {
       "kind": "region",
-      "label": "Gesso 应用进程（GPUI）",
+      "label": "Gesso 应用进程",
       "wraps": [
         "tray",
         "library",
@@ -206,7 +206,7 @@
       "id": "library-host",
       "from": "library",
       "to": "host",
-      "label": "wallpaper:// 只读",
+      "label": "gesso:// 只读",
       "fromSide": "right",
       "toSide": "left",
       "via": [
@@ -228,7 +228,7 @@
       "id": "bridge-host",
       "from": "bridge",
       "to": "host",
-      "label": "bridge:// 事件",
+      "label": "HostCommand 事件",
       "variant": "dashed",
       "fromSide": "left",
       "toSide": "right",
@@ -263,7 +263,7 @@
       "id": "host-webview",
       "from": "host",
       "to": "webview",
-      "label": "video / WebGL2",
+      "label": "WebGL2 / DOM / 图片",
       "variant": "emphasis",
       "fromSide": "bottom",
       "toSide": "top",
@@ -302,7 +302,7 @@
       "id": "weadapter-workshop",
       "from": "weadapter",
       "to": "workshop",
-      "label": "扫描 / 只读引用",
+      "label": "用户导入 / 只读引用",
       "fromSide": "bottom",
       "toSide": "top",
       "labelAt": [
@@ -316,7 +316,7 @@
       "dot": "cyan",
       "title": "渲染一条管线",
       "items": [
-        "四类内容统一经壁纸宿主页渲染",
+        "shader/html/图片经宿主页渲染，视频走平台原生窗",
         "多显示器窗口共享系统 WebView 进程",
         "贴壁层是唯一的平台特定代码"
       ]
@@ -335,7 +335,7 @@
       "title": "安全与边界",
       "items": [
         "壁纸窗口零 IPC，仅接收事件",
-        "wallpaper:// 自定义只读协议",
+        "gesso:// 自定义只读协议",
         "Workshop 目录只读引用，不做再分发"
       ]
     }

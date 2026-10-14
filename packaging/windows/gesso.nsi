@@ -1,5 +1,4 @@
-﻿; Gesso Windows installer (NSIS 3) — same installer form as our Tauri
-; projects (lettura / pavo): per-user setup.exe, no admin, installs to
+﻿; Gesso Windows installer (NSIS 3, per-user): setup.exe, no admin, installs to
 ; %LOCALAPPDATA%\Gesso, Start-menu + desktop shortcuts, uninstaller entry
 ; in "Apps & features" (HKCU).
 ; Version is injected by build_portable.ps1: makensis /DVERSION=<workspace version>
@@ -45,7 +44,7 @@ Section "Install"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
-  ; Shortcuts (Start menu folder + desktop, same affordances as Tauri NSIS)
+  ; Shortcuts (Start menu folder + desktop)
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
   CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\gesso.exe"
   CreateShortcut "$SMPROGRAMS\${APPNAME}\Uninstall ${APPNAME}.lnk" "$INSTDIR\uninstall.exe"

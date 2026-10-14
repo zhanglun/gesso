@@ -429,7 +429,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <div class="detail-strip">
           <div class="who">
             <div class="l1"><span id="ds-name">主显示器</span><span class="badge" id="ds-badge">主屏</span><span class="num" id="ds-res" style="font-size:12px;font-weight:400;color:var(--text-2)">1512×982</span></div>
-            <div class="l2">标识取自 EDID · 配置随显示器保留，重新接入自动恢复</div>
+            <div class="l2">优先使用硬件标识 · 配置随显示器保留，重新接入自动恢复</div>
           </div>
           <div class="st num" id="ds-st" style="margin-left:4px"></div>
           <div class="acts">
@@ -484,7 +484,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <div class="sep"></div>
     <div class="mi" role="menuitem" id="tm-auto">开机自启 <span style="margin-left:auto;color:var(--accent)">✓</span></div>
     <div class="sep"></div>
-    <div class="mi" role="menuitem" id="tm-restore" title="释放全部壁纸会话并还原系统桌面（重新指派后再次接管）">恢复系统壁纸</div>
+    <div class="mi" role="menuitem" id="tm-restore" title="清空显示器指派并拆除 Gesso 壁纸窗口；运行时不修改系统桌面">恢复系统壁纸</div>
     <div class="sep"></div>
     <div class="mi" role="menuitem" id="tm-quit" style="color:var(--danger)">退出 Gesso</div>
   </div>
@@ -843,7 +843,6 @@ function openCtx(e,w){
     mk('设为副显示器壁纸',I.play,()=>assign(w.id,1));
     ctx.insertAdjacentHTML('beforeend','<div class="sep"></div>');
     mk('打开所在目录',I.folder,()=>toast('已打开所在目录（演示）'));
-    mk('查看详情',I.info,()=>toast(`${w.name} · ${w.type} · ${w.meta} — ${w.desc}`));
     ctx.insertAdjacentHTML('beforeend','<div class="sep"></div>');
     mk('从库中移除',I.trash,()=>toast(`已移除「${w.name}」（不删除文件）`),'danger');
   }

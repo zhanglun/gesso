@@ -1,4 +1,4 @@
-//! 应用配置：显示器→壁纸映射 + 全局设置（技术方案 §10）。
+//! 应用配置：显示器→壁纸映射与全局设置。
 
 use std::collections::BTreeMap;
 
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Fit, Result, WallpaperKind};
 
-/// 显示器→库条目映射；key 为 EDID 哈希稳定 ID（§4.3）。
+/// 显示器→库条目映射；key 为平台生成的显示器身份。
 pub type MonitorMap = BTreeMap<String, String>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

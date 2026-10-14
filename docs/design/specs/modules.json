@@ -15,7 +15,7 @@
       "id": "uimanager",
       "type": "frontend",
       "label": "管理窗口 ui/",
-      "sublabel": "GPUI 原生 UI · Entity 状态",
+      "sublabel": "GPUI 原生 UI · 快照状态",
       "pos": [
         70,
         40
@@ -29,7 +29,7 @@
       "id": "uihost",
       "type": "frontend",
       "label": "壁纸宿主页 host/",
-      "sublabel": "wry webview · 零依赖 TS",
+      "sublabel": "wry webview · 零依赖原生 JS",
       "tag": "沙箱",
       "pos": [
         330,
@@ -73,7 +73,7 @@
       "id": "protocol",
       "type": "security",
       "label": "协议层 protocol.rs",
-      "sublabel": "wallpaper://（wry 协议）· CSP · MIME · 导航闸",
+      "sublabel": "gesso:// · CSP · MIME · Range · 回环媒体",
       "pos": [
         620,
         240
@@ -102,7 +102,7 @@
       "id": "pin",
       "type": "backend",
       "label": "贴壁层 pin/",
-      "sublabel": "windows.rs / macos.rs · GPUI 窗口句柄",
+      "sublabel": "windows.rs / macos.rs · 原生窗口句柄",
       "pos": [
         330,
         440
@@ -117,7 +117,7 @@
       "type": "backend",
       "label": "WE 适配器 we/",
       "sublabel": "project.json · shim 注入",
-      "tag": "M6+",
+      "tag": "已上线",
       "pos": [
         620,
         440
@@ -168,7 +168,7 @@
       "id": "session-host",
       "from": "sessionmgr",
       "to": "uihost",
-      "label": "session:// 事件",
+      "label": "HostCommand 注入",
       "variant": "dashed",
       "fromSide": "top",
       "toSide": "bottom",
@@ -181,7 +181,7 @@
       "id": "bridge-host",
       "from": "bridge",
       "to": "uihost",
-      "label": "bridge:// 事件",
+      "label": "HostCommand 事件",
       "variant": "dashed",
       "fromSide": "left",
       "toSide": "right",
@@ -236,7 +236,7 @@
       "id": "host-protocol",
       "from": "uihost",
       "to": "protocol",
-      "label": "wallpaper:// 取资产",
+      "label": "gesso:// 取资产",
       "fromSide": "top",
       "toSide": "right",
       "via": [
@@ -309,7 +309,7 @@
       "title": "沙箱在图上",
       "items": [
         "ui/host 零 IPC：只有入站事件",
-        "出站只有协议请求，过导航闸",
+        "出站只有 gesso:// 协议请求",
         "CSP 与 MIME 在协议层注入"
       ]
     }

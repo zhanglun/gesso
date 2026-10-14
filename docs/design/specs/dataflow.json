@@ -12,7 +12,7 @@
   },
   "stages": [
     {
-      "label": "发现与读取"
+      "label": "用户主动指定"
     },
     {
       "label": "类型路由"
@@ -44,12 +44,12 @@
       "sublabel": "手动指定",
       "stage": 0,
       "row": 3,
-      "tag": "只读"
+      "tag": "计划中"
     },
     {
       "id": "scan",
       "type": "backend",
-      "label": "扫描与解析",
+      "label": "导入解析",
       "sublabel": "project.json",
       "stage": 1,
       "row": 2,
@@ -87,7 +87,7 @@
       "sublabel": "depkg 解包 → tex/png",
       "stage": 3,
       "row": 2,
-      "tag": "M7+"
+      "tag": "计划中"
     },
     {
       "id": "reject",
@@ -120,7 +120,7 @@
     {
       "from": "workshop",
       "to": "scan",
-      "label": "遍历 <workshopid>/",
+      "label": "用户选中条目目录",
       "variant": "emphasis"
     },
     {
@@ -197,7 +197,7 @@
     {
       "from": "library",
       "to": "host",
-      "label": "wallpaper:// 只读",
+      "label": "gesso:// 只读",
       "variant": "emphasis"
     }
   ],
@@ -224,7 +224,7 @@
       "dot": "rose",
       "title": "scene 是长跑",
       "items": [
-        "depkg 解包为 M7 里程碑",
+        "depkg 解包属后续计划",
         "先支持抽取图片资产降级",
         "保证导入永不失败"
       ]

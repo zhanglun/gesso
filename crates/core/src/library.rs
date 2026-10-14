@@ -6,7 +6,7 @@ use crate::{Result, WallpaperKind};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LibraryEntry {
-    /// 随机 16 hex 字符；同时是 wallpaper:// 路径空间的不可猜测凭据。
+    /// 随机 16 hex 字符；同时是 gesso://library/<id>/ 路径空间的不可猜测凭据。
     pub id: String,
     pub kind: WallpaperKind,
     pub title: String,
@@ -59,7 +59,7 @@ impl LibraryManifest {
     }
 }
 
-/// 生成 16 hex 随机 ID。128 位熵，不可猜测性由 wallpaper:// 路径白名单依赖。
+/// 生成 16 hex 随机 ID。128 位熵，不可猜测性由 gesso://library/<id>/ 路由依赖。
 pub fn generate_id() -> String {
     let mut buf = [0u8; 8];
     getrandom::fill(&mut buf).expect("系统熵源不可用");

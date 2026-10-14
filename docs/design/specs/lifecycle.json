@@ -77,7 +77,7 @@
       "id": "autopause",
       "type": "waiting",
       "label": "Paused 自动",
-      "sublabel": "全屏应用 / 电池供电",
+      "sublabel": "全屏 / 电池 / 锁屏",
       "lane": "auto",
       "col": 1,
       "tag": "事件驱动"

@@ -1,6 +1,6 @@
-//! Windows 贴壁实现（M1）。
+//! Windows 贴壁实现。
 //!
-//! 挂载阶梯（技术方案 §4.1，参考 Lively 思路，未复制代码）：
+//! 挂载阶梯（参考 Lively 思路，未复制代码）：
 //! 1. `SendMessageTimeout(Progman, 0x052C)` → Explorer 在图标层之后生成一个 WorkerW
 //!    （壁纸层；图标 SHELLDLL_DefView 仍在原 WorkerW/Progman 上）；
 //! 2. 壁纸窗口 `SetParent` 到该 WorkerW——图标/右键菜单在其上，全屏应用盖住一切；
@@ -128,14 +128,15 @@ fn child_offset(parent_origin: (i32, i32), monitor_origin: (i32, i32)) -> (i32, 
     )
 }
 
-/// 设备名 → 稳定 ID：`\\.\DISPLAY1` → `win-DISPLAY1`（v1 限制同 macOS：
-/// 接口重排会重编号，EDID 哈希是升级路径，技术方案 §4.3）。
+/// 设备名回落 ID：`\\.\DISPLAY1` → `win-DISPLAY1`。
+/// 正常情况下 `assign_monitor_ids` 优先使用显示器 PnP 身份，并在重复身份时
+/// 追加设备名消歧；只有无法读取 PnP 身份时才使用设备名。
 fn monitor_id_from_device(device: &str) -> String {
     format!("win-{}", device.trim_start_matches(r"\\.\"))
 }
 
 /// 显示器硬件身份：该屏挂的 monitor PnP ID（EDID 派生，如 `dela0bc`），
-/// 跨重启/驱动重装稳定——DISPLAYn 枚举序号则不是（v1 已知缺陷）。取不到回落。
+/// 通常跨重启/驱动重装稳定；取不到时由调用方回落到设备名。
 fn monitor_pnp_id(device: &str) -> Option<String> {
     let mut dd = DISPLAY_DEVICEW {
         cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
@@ -368,7 +369,7 @@ pub fn rearm_remount() {
     REMOUNT_PENDING.store(true, Ordering::Relaxed);
 }
 
-/// 退出还原桌面（EngineAction::Quit）：壁纸窗口已由会话拆除（Drop → DestroyWindow），
+/// 退出时重绘桌面（EngineAction::Quit）：壁纸窗口已由会话拆除（Drop → DestroyWindow），
 /// 但被盖住的原始壁纸属 explorer 绘制——子窗口消失不会自动触发父窗口重绘，
 /// 直接退进程桌面会留黑底。对 Progman / 图标层 / 壁纸 WorkerW 各无效化一遍，
 /// 谁持有壁纸谁重绘。主线程调用（teardown_all 之后）。
@@ -429,7 +430,7 @@ pub fn emergency_teardown() {
     restore_desktop();
 }
 
-/// 采集覆盖窗（M4-W，capture.rs 用）：TOPMOST + 3/255 alpha 的近隐形窗口，
+/// 采集覆盖窗（capture_win.rs 用）：TOPMOST + 3/255 alpha 的近隐形窗口，
 /// 采集期显身、空闲期由 capture_win 隐藏（隐藏窗不参与命中测试与合成）。
 /// 顶层窗口不被普通应用窗口遮挡 → WebView2 全速渲染（macOS「壁纸层之上一档 +
 /// 2% 透明」的 Windows 等价机制；遮挡会让 Chromium 停摆 RAF/合成 → 快照全黑）。

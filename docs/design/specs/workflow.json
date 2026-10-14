@@ -82,7 +82,7 @@
       "col": 2,
       "type": "backend",
       "label": "枚举显示器",
-      "sublabel": "EDID 稳定 ID"
+      "sublabel": "EDID/PnP 优先，平台 ID 回落"
     },
     {
       "id": "pinwall",
@@ -106,16 +106,16 @@
       "lane": "render",
       "col": 5,
       "type": "frontend",
-      "label": "宿主页就绪",
-      "sublabel": "video/shader/html"
+      "label": "内容就绪",
+      "sublabel": "shader / html / 图片（视频走原生窗）"
     },
     {
       "id": "fallback",
       "lane": "exc",
       "col": 5,
       "type": "security",
-      "label": "回退静态壁纸",
-      "sublabel": "素材缺失兜底"
+      "label": "失败兜底",
+      "sublabel": "失效素材拒绝指派 / Error"
     }
   ],
   "edges": [
@@ -183,7 +183,7 @@
       "title": "显示器即会话",
       "items": [
         "每显示器独立建窗与指派",
-        "显示器用 EDID 哈希稳定标识",
+        "显示器优先用 EDID，缺失时回落 CG ID",
         "配置缺失时首启向导补齐"
       ]
     },
@@ -191,7 +191,7 @@
       "dot": "rose",
       "title": "优雅降级",
       "items": [
-        "素材缺失回退静态壁纸",
+        "素材缺失时拒绝指派并进 Error 态",
         "壁纸层永不开天窗",
         "失败路径与主路径同样清晰"
       ]

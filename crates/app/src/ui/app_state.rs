@@ -1,6 +1,6 @@
 //! 窗口状态（全局唯一真源）。
 //!
-//! 形状按 技术方案 §3.8：持久状态唯一真源是一个 Global；UI Entity 只是投影。
+//! 持久状态唯一真源是一个 Global；UI Entity 只是投影。
 //! 所有变更走本模块的 `update`（唯一写入路径），完成后刷新窗口 —— 单向数据流。
 
 use gpui_kit::component::WindowExt as _;
@@ -94,7 +94,7 @@ pub fn state(cx: &App) -> &GessoState {
     cx.try_global::<GessoState>().expect("GessoState 未初始化")
 }
 
-/// 唯一写入路径；改完即整窗刷新（M3 换 Entity observe 精细化重绘）。
+/// 唯一写入路径；改完即整窗刷新（可演进为 Entity observe 精细化重绘）。
 pub fn update(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut GessoState)) {
     cx.update_global::<GessoState, _>(|g, _| f(g));
     window.refresh();

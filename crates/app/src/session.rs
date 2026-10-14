@@ -1,4 +1,4 @@
-//! 会话管理器（M3）：唯一编排者。
+//! 会话管理器：唯一编排者。
 //!
 //! 职责：读配置 → 枚举显示器 → 每个已配置显示器一个壁纸窗口会话；
 //! 状态机转移全部经 gesso_core::session::transfer（单一真源）；
@@ -34,8 +34,7 @@ pub enum ImportCheck {
     Err(ImportError),
 }
 
-/// 自动暂停的原因（同一 Autopause 状态的 UI 投影区分；技术方案 §418 的
-/// Paused(fullscreen)/Paused(battery)）。
+/// 自动暂停的原因，用于在同一 Autopause 状态下区分 UI 投影。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AutopauseReason {
     Fullscreen,
@@ -51,12 +50,11 @@ pub enum SuspendEffect {
     None,
     /// 自动暂停（经状态机 AutoPauseTrigger/Clear）。
     Pause(AutopauseReason),
-    /// 降帧到 5 fps（时钟类壁纸需求，技术方案 §423；引擎经 setFps 透传，
-    /// shader 实时生效、html 建议值、video 无帧率杠杆维持播放）。
+    /// 降帧到 5 fps；shader 实时生效，HTML 只把它作为建议值，视频没有帧率杠杆。
     Downscale,
 }
 
-/// M5 数据桥策略解析：锁屏 > 全屏 > 电池。锁屏时屏幕整体不可见，无条件暂停
+/// 数据桥策略解析：锁屏 > 全屏 > 电池。锁屏时屏幕整体不可见，无条件暂停
 /// （降帧/忽略对锁屏无意义），所以锁屏不走用户策略，直接 Pause。
 pub fn suspend_effect(
     locked: bool,
@@ -101,12 +99,12 @@ pub struct Session {
     /// 当前生效的自动暂停原因（None = 非自动暂停态；进 PausedUser 也不清它——
     /// 状态机里用户暂停压住自动暂停，退出全屏后仍由 AutoPauseClear 恢复）。
     pub autopause_reason: Option<AutopauseReason>,
-    /// M5 降帧生效中（恢复时按会话配置回设 fps）。
+    /// 降帧生效中（恢复时按会话配置回设 fps）。
     pub downscaled: bool,
     /// 光标 feed：本会话上次推送的量化状态（present,x_q,y_q,bits）。
     /// None = 尚未推送过；present=false 表示光标已离开本屏。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    // 平台面：macOS 光标 feed（M5）读写
+    // 平台面：macOS 光标 feed 读写
     pub mouse_last: Option<(bool, u16, u16, u8)>,
     /// 鼠标静止空闲降帧生效中（与全屏降帧互斥，恢复时回设 fps）。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -232,7 +230,7 @@ impl SessionManager {
         n
     }
 
-    /// explorer 重启自愈（Windows M1）：TaskbarCreated 后由引擎轮询触发。
+    /// explorer 重启自愈（Windows）：TaskbarCreated 后由引擎轮询触发。
     /// explorer 死亡会连带销毁挂在其 WorkerW 下的壁纸窗口（跨进程父窗口死亡），
     /// 所以这里**整窗重建**（pin::create + load），不是对旧句柄重挂。
     /// 返回 false = 有窗口未落位（explorer 未就绪），调用方应置位重试。
@@ -392,10 +390,9 @@ impl SessionManager {
             self.last_enum_sig = Some(sig);
         }
 
-        // v2 稳定 ID：macOS 用 EDID 身份三元组（vendor/model/serial，跨合盖/重连/重启
-        // 不变）；Windows 仍用设备名。全失配迁移保留作兜底：虚拟屏无 EDID 回落 cg-id，
-        // 重编后仍可能失配——此时把映射迁到当前主屏，避免静默丢壁纸（只保留第一条，
-        // 多屏指派需用户重设；升级到全平台 EDID 后此路径只剩兜底意义）。
+        // 显示器身份优先使用平台硬件标识：macOS 为 EDID vendor/model/serial，
+        // Windows 为 monitor PnP ID；没有硬件身份时回落平台显示器编号。
+        // 全失配迁移保留作兜底：虚拟屏或系统重编 ID 时把既有指派迁到当前主屏。
         let known: std::collections::BTreeSet<String> =
             monitors.iter().map(|m| m.id.clone()).collect();
         if !self.config.monitors.is_empty()
@@ -443,10 +440,9 @@ impl SessionManager {
         let now: std::collections::BTreeSet<String> =
             monitors.iter().map(|m| m.id.clone()).collect();
 
-        // 唤醒/重连后系统重编显示器 ID（macOS 26 无 EDID 符号回落 cg-id；
-        // 同型号双屏消歧 id 也带 cgid）：ID 失配 ≠ 屏幕没了。按几何一致把
-        // 会话+配置+帧率整体平移到新 ID——不拆窗重建（唤醒期的拆建正是
-        // 幽灵窗/黑屏的来源）。全失配迁移兜底保留（虚拟屏等无 EDID 场景）。
+        // 唤醒/重连后系统可能重编显示器 ID。ID 失配不等于屏幕消失：按几何一致把
+        // 会话、配置和帧率整体平移到新 ID，避免唤醒期拆建造成幽灵窗或黑屏；
+        // 全失配迁移覆盖虚拟屏等无硬件身份场景。
         let stale: Vec<(String, (f64, f64, f64, f64))> = self
             .sessions
             .iter()
@@ -633,7 +629,7 @@ impl SessionManager {
         settling && (pending || self.sessions.values().any(|s| !s.visible))
     }
 
-    /// 条目自包含：把宿主页拷进条目目录（贴 WE 项目模型；M3 起随条目分发）
+    /// 条目自包含；宿主页不拷入条目目录：
     /// 宿主页 URL：走 gesso:// 协议，宿主页为 assets 中的单一共享副本，
     /// 不再拷入条目目录（避免宿主页与用户资源共用 index.* 命名空间）。
     fn ensure_entry_host(_entry: &LibraryEntry) -> String {
@@ -680,8 +676,7 @@ impl SessionManager {
     }
 
     /// 宿主页 URL：条目自包含 host 拷贝 + spec。
-    /// shader 额外携带 code=（base64url 源码）：file:// 页面里 fetch/XHR 被
-    /// WKWebView 拦截，查询参数不受限，源码随 URL 直达宿主页。
+    /// shader 额外携带 code=（base64url 源码），避免把源码再拆成独立资源请求。
     pub(crate) fn entry_host_url(entry: &LibraryEntry, fps: u8, fit: Fit) -> String {
         let spec = Self::content_spec(entry, fps, fit);
         let mut url = format!(
@@ -1122,7 +1117,7 @@ impl SessionManager {
         Ok(entry)
     }
 
-    /// M6：导入一个 WE 工坊条目（video/web；scene/application 已在 UI 过滤）。
+    /// 导入一个 WE 工坊条目（video/web；scene/application 已在 UI 过滤）。
     ///
     /// 零拷贝：source_dir 直指 Steam 工坊目录（只读，绝不改原文件）；video
     /// 走回环 HTTP / gesso://steam 流式 Range，web 的 shim 在协议层内存注入。
@@ -1192,7 +1187,7 @@ impl SessionManager {
         }
     }
 
-    /// M5 数据桥：把一次桥采样落成会话状态（全屏/电池自动暂停 + 降帧）。
+    /// 数据桥：把一次桥采样落成会话状态（全屏/电池自动暂停 + 降帧）。
     /// 返回是否有状态变化（调用方据此刷新 UI）。用户暂停（PausedUser）压住
     /// 自动暂停——状态机里 AutoPauseTrigger 对 PausedUser 是 no-op，这里同步跳过。
     pub fn apply_autopause(
@@ -1278,7 +1273,7 @@ impl SessionManager {
         changed
     }
 
-    /// M5 时间脉冲：Rust 每秒驱动一次宿主页时钟（时钟类壁纸 DoD——
+    /// 时间脉冲：Rust 每秒驱动一次宿主页时钟（时钟类壁纸 DoD——
     /// 挂钟时间由引擎事件推进，壁纸不必自起高频轮询）。
     pub fn broadcast_time_tick(&mut self) {
         static TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1317,7 +1312,7 @@ impl SessionManager {
         }
     }
 
-    /// M5 光标 feed：把全局光标位置路由到它所在显示器的会话。
+    /// 光标 feed：把全局光标位置路由到它所在显示器的会话。
     ///
     /// 设计（性能纪律）：① 归一化到 [0,1] 后量化 u16 再比较，亚像素抖动不
     /// 触发推送；② 状态没变零 IPC，鼠标静止时只做空闲判断；③ 离开某屏推送
@@ -1376,7 +1371,7 @@ impl SessionManager {
             // 归一化并量化。宿主页契约 = 左下原点（fragCoord/iMouse）：
             // macOS 桥交付的 m.y 已是左下全局（AppKit），ny 即左下占比；
             // Windows 桥/帧同为顶左物理像素，在此契约边界一次翻转为左下
-            // （勿在桥内预翻再此处翻——「勿翻两次」，工程笔记 M5）。
+            // （勿在桥内预翻再此处翻——「勿翻两次」）。
             let (mx, my, mw, mh) = s.monitor.frame;
             let nx = ((m.x - mx) / mw).clamp(0.0, 1.0);
             let ny = ((m.y - my) / mh).clamp(0.0, 1.0);
@@ -1564,7 +1559,7 @@ mod tests {
             suspend_effect(false, false, false, P::Pause, P::Pause),
             SuspendEffect::None
         );
-        // 降帧策略（时钟类壁纸，技术方案 §423）
+        // 降帧策略（时钟类壁纸）
         assert_eq!(
             suspend_effect(false, true, false, P::Downscale, P::Pause),
             SuspendEffect::Downscale

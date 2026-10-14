@@ -1,4 +1,4 @@
-//! ContentSpec —— 内容库与壁纸宿主页之间的唯一契约（技术方案 §5.1）。
+//! ContentSpec —— 内容库与壁纸宿主页之间的唯一契约。
 
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +33,7 @@ pub struct SpecMeta {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContentSpec {
     pub kind: WallpaperKind,
-    /// `wallpaper://<条目id>/<相对路径>`；宿主页唯一可访问的地址空间。
+    /// `gesso://<host>/<条目id>/<相对路径>`；宿主页使用的只读资源地址。
     pub source: String,
     pub fit: Fit,
     pub fps_cap: u8,
@@ -44,7 +44,7 @@ pub struct ContentSpec {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AudioPolicy {
-    /// 壁纸默认静音（技术方案 §5.2）—— `#[default]` 显式承载该语义。
+    /// 壁纸默认静音；`#[default]` 显式承载该语义。
     #[default]
     Muted,
     On,
@@ -58,7 +58,7 @@ mod tests {
     fn spec_json_roundtrip() {
         let spec = ContentSpec {
             kind: WallpaperKind::Shader,
-            source: "wallpaper://ab12cd34/main.glsl".into(),
+            source: "gesso://library/ab12cd34/main.glsl".into(),
             fit: Fit::Cover,
             fps_cap: 60,
             audio: AudioPolicy::Muted,

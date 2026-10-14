@@ -1,6 +1,6 @@
 # 引擎 API 契约（UI 层唯一调用面）
 
-> M2 已跑通（隔离分支 `feat/m2-engine`）。UI 层（`crates/app/src/ui/`）**只允许**调这个文件里列出的方法；
+> UI 层（`crates/app/src/ui/`）**只允许**调这个文件里列出的方法；
 > 不要直接触碰 `pin/`、`protocol.rs`、`PinSession` 内部。所有 UI 需要的状态变化都通过这里的快照/事件获得。
 
 ## 1. 会话管理器（唯一编排者）
@@ -35,7 +35,7 @@ impl SessionManager {
     /// 显示器列表（含 frame 与 is_main）
     pub fn monitors(&self) -> Vec<pin::MonitorInfo>;
 
-    /// 单显示器暂停/恢复（§4.4 屏卡片 ⏸/▶；经状态机转移）
+    /// 单显示器暂停/恢复（经状态机转移）
     pub fn pause_one(&mut self, monitor_id: &str, paused: bool);
 
     /// 导入：扩展名校验 → 随机 ID → 拷贝进库 → 清单落盘（P1）
@@ -78,7 +78,7 @@ pub struct AppConfig { pub monitors: MonitorMap, pub settings: Settings }
 ```rust
 // crates/app/src/protocol.rs
 pub fn config_dir() -> PathBuf;      // ~/Library/Application Support/Gesso
-pub fn library_dir() -> PathBuf;     // <config>/library/<entry_id>/index.{mp4,html,…}
+pub fn library_dir() -> PathBuf;     // <config>/library/<entry_id>/（视频 index.<ext>，网页 wallpaper.html）
 pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 ```
 
@@ -87,12 +87,18 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 引擎把 `SessionManager` 放进 `gpui` 全局状态（`crates/app/src/engine.rs`：`cx.set_global(engine::AppState::new(sm))`）
 - 读：`main.rs::snapshot_ui(&sm)` 生成 `ui::app_state::GessoState`（UI 投影），启动注入 + 轮询回灌（保留 tab/selected/query/filter 等浏览状态）
 - 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
-  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `RestoreSystemWallpaper`（托盘「恢复系统壁纸」：释放全部壁纸会话并立即还原桌面壁纸）（另有引擎内部的 `ThumbsDone`，UI 不入队）
+  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `RestoreSystemWallpaper`（托盘「恢复系统壁纸」：释放全部显示器指派并拆除 Gesso 壁纸窗口）（另有引擎内部的 `ThumbsDone`，UI 不入队）
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
 
-## 4.2 软件更新子系统（§4.7，2026-10-11）
+## 4.1 类型与命令的单一事实源
 
-自建更新（非 Tauri，无 updater 插件）：检查/下载跑在 `crates/app/src/update.rs` 自有线程，
+- 类型 ↔ 扩展名 ↔ MIME ↔ 缩略图策略：查 `gesso_core::content::{content_type, kind_from_ext, mime_for_ext}`，**不要**在 app/ui 里另列扩展名清单。
+- 引擎 → 宿主页命令：构造 `HostCommand`（`app/host_cmd.rs`），序列化只在 `to_js`；不要手拼 `__gesso.xxx(...)` 字符串。
+- 宿主页 WebGL 上下文以 `preserveDrawingBuffer: true` 创建（缩略图采集依赖跨任务 toDataURL）；缩略图采集的注入 JS 由 `capture.rs` 持有（Rust 侧字符串），宿主页只承载壁纸运行时契约。
+
+## 4.2 软件更新子系统
+
+自建更新：检查/下载跑在 `crates/app/src/update.rs` 自有线程，
 状态真源 = 模块全局（代数计数），主循环每拍比对、变化即回灌快照 + `refresh_windows`。
 
 - **读**：`GessoState.update`（`ui::data::UpdateView`，六态投影）——快照注入，UI 不直接触碰模块全局
@@ -102,19 +108,13 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 系统通知在检查线程内 best-effort 发出（macOS osascript / Windows toast）；应用内 toast
   与托盘 tooltip 由主循环在状态代数变化时补发（`consume_available_toast` 每代数去重一次）
 
-## 4.1 类型与命令的单一事实源
-
-- 类型 ↔ 扩展名 ↔ MIME ↔ 缩略图策略：查 `gesso_core::content::{content_type, kind_from_ext, mime_for_ext}`，**不要**在 app/ui 里另列扩展名清单。
-- 引擎 → 宿主页命令：构造 `HostCommand`（`app/host_cmd.rs`），序列化只在 `to_js`；不要手拼 `__gesso.xxx(...)` 字符串。
-- 宿主页 WebGPU/WebGL 上下文以 `preserveDrawingBuffer: true` 创建（缩略图采集依赖跨任务 toDataURL，见工程笔记 #41）；缩略图采集的注入 JS 由 `capture.rs` 持有（Rust 侧字符串），宿主页只承载壁纸运行时契约。
-
 ## 5. 已知限制（别在这上面浪费轮次）
 
 | 事项 | 状态 |
 |---|---|
-| `gesso://` 自定义协议 | **已打通**（lb-wry ≥0.53，`bf3c294`）：宿主页走 `gesso://host`，条目资源走 `gesso://library/<entry>/…`；视频支持 Range(206)（惰性切片 + 开放范围 512KB 部分响应，M4-W）。零拷贝直引已上线（`gesso://steam/<entry-id>`，M6） |
-| 壁纸窗口 | 纯 AppKit 非 GPUI 窗口（M1.5 定稿），UI 无法也不应嵌入它 |
+| `gesso://` 自定义协议 | 宿主页走 `gesso://host`，条目资源走 `gesso://library/<entry>/…`；视频支持 Range(206)（惰性切片 + 开放范围 512KB 部分响应）。WE 零拷贝直引使用 `gesso://steam/<entry-id>` |
+| 壁纸窗口 | 纯原生窗口，非 GPUI 窗口；UI 无法也不应嵌入它 |
 | 渲染器 | 四类全部生效：video / image（gif/webp/jpg/jpeg/png/avif）/ shader（WebGL2 + Shadertoy 子集）/ html（沙箱 iframe）；静态图 Direct 直引源文件，其余类型有真实采集的静态 + hover 帧 |
-| 显示器重配 | epoch 事件驱动收敛（2026-10-11 定稿）：平台拓扑事件 + 1.5s 去抖 + 两段式提交，机制见 ARCHITECTURE §2 |
-| 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；**自动暂停事件源已接（M5）**：全屏 CGWindowList 轮询 + 电池 IOKit，经 `apply_autopause` 驱动；光标 feed 与空闲降帧已接（M5）：NSEvent 位置 + HID 按键/空闲，纯轮询无需授权 |
+| 显示器重配 | epoch 事件驱动收敛：平台拓扑事件 + 去抖 + 两段式提交，机制见 ARCHITECTURE §2 |
+| 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；全屏、电池、光标和空闲状态由系统数据桥提供，纯轮询无需授权 |
 | 导入 I/O 失败反馈 | UI 已把 ImportError（Unsupported/Mkv/Hevc/Io）映射为 i18n 文案提示（`strings.rs`），不再静默 |

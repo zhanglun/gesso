@@ -20,10 +20,9 @@ packaging/
 ├─ windows/                  # Windows：便携 zip + 安装器
 │  ├─ build_portable.ps1     # 打成 Gesso-<version>-x64-portable.zip（打印 SHA-256）；
 │  │                         #   找到 NSIS 则顺带出 Gesso-<version>-x64-setup.exe
-│  └─ gesso.nsi              # 安装器脚本（NSIS 3，per-user 免管理员；与 Tauri 项目的
-│                            #   setup.exe 同形态；CI runner 预装 NSIS）
+│  └─ gesso.nsi              # 安装器脚本（NSIS 3，per-user 免管理员；CI runner 预装 NSIS）
 └─ release-notes/
-   └─ v0.1.1.md              # GitHub Release 文案（下载/校验值/未签名首次打开）
+   └─ v<tag>.md              # GitHub Release 文案（下载/校验值/未签名首次打开），每版一份
 ```
 
 ## macOS
@@ -55,7 +54,7 @@ TMPHOME=$(mktemp -d)
 HOME="$TMPHOME" GESSO_LOCK=dev \
   target/release-bundle/Gesso.app/Contents/MacOS/gesso > /tmp/g.log 2>&1 &
 sleep 9
-grep -c "内置样例已入库" /tmp/g.log    # 应为 6
+grep -c "预置壁纸已入库" /tmp/g.log    # 应为 10（视频 1 + shader 8 + html 1）
 grep -iE "panic|error|404" /tmp/g.log  # 应无输出
 # 结束后清理
 pkill -f release-bundle/Gesso.app; rm -rf "$TMPHOME" /tmp/g.log
@@ -78,7 +77,7 @@ packaging\windows\build_portable.ps1 -SkipBuild   # 复用已有 release，只�
 
 ## Release notes
 
-`release-notes/v0.1.1.md` 是当前 GitHub Release 的正式文案，已包含：
+`release-notes/` 下每个 tag 一份正式文案（当前最新 `v0.1.2.md`），已包含：
 下载清单、两平台未签名首次打开说明、已知限制。CI 按 tag 名读取对应文件
 （`packaging/release-notes/<tag>.md`）；**SHA-256 不用手填**——CI 自动生成并附上
 `checksums.txt`。发新版本时复制一份改成对应 tag 名即可。

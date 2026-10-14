@@ -34,7 +34,7 @@ GPUI 落地：两套 `Theme` Entity + 系统主题监听（Win 注册表 / mac `
 
 ## 组件（12 件，六态齐全；基础控件用 gpui-kit，业务件自绘）
 
-**来源分层**（2026-10 采用 gpui-kit 0.7，Apache-2.0）：Button/Input/Form/Menu/Tab/List/Dropdown/Switch/Popover 等**基础控件用 kit**（含 Lucide 图标 = 本设计的线性 1.5px 图标规格）；**业务组件自绘**——库卡片、屏卡片、空状态、角标（信息密度和状态语义是我们的；托盘快速面板已随 2026-10-03 撤销）。主题：DESIGN token 映射到 kit 语义主题（M0.5 ④ 验证），亮暗随系统。
+**来源分层**（2026-10 采用 gpui-kit 0.7，Apache-2.0）：Button/Input/Form/Menu/Tab/List/Dropdown/Switch/Popover 等**基础控件用 kit**（含 Lucide 图标 = 本设计的线性 1.5px 图标规格）；**业务组件自绘**——库卡片、屏卡片、空状态、角标（信息密度和状态语义是我们的；托盘快速面板已随 2026-10-03 撤销）。主题：DESIGN token 映射到 kit 语义主题（spike 验证），亮暗随系统。
 
 按钮×3（主/次/文字，高按档位 Small 24 / Medium 32，圆角 6）· 开关（36×20）· 下拉 · 输入 · 页签 · 右键菜单（elevated + 阴影 + 分隔线，破坏项红字置底）· Toast（底部居中，2.6s）· 库卡片（16:9 预览 + 56px 信息条 + 3px 语义指示条）· 显示器小像（沙盘，2026-10-04 改版：屏内控件移出，画布主体）· 角标（10px 胶囊）· 空状态（区分"无结果"与"库为空"）。
 

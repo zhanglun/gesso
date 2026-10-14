@@ -10,7 +10,7 @@
 //!    等待一律用定时器挂起让出 runloop，不阻塞 UI。
 //! 2. **采集窗口进程级持久、永不 close**：快照 completion 悬挂期间关闭窗口 =
 //!    WebKit 异步回调摸已释放层 → autorelease 池排出时 over-release SIGSEGV
-//!    （2026-10-04 崩溃实证，同 thumb.rs v1 指纹）。
+//!    （已由历史崩溃实证确认）。
 //! 3. **全局串行**：同一时刻只有一个采集任务在跑（并发多 webview 是崩溃放大器）。
 
 #[cfg(target_os = "macos")]
@@ -22,7 +22,7 @@ use std::sync::Mutex;
 use gesso_core::WallpaperKind;
 
 // 快照实现依赖 AppKit/WKWebView（Apple 专属）：以下导入与实现项全部 macOS 门控，
-// 非 macOS 平台由 capture_entry 兜底空转（Windows 采集随 M1 接入 WebView2）。
+// Windows 采集使用 capture_win.rs 的 WebView2 抽帧实现。
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -119,7 +119,7 @@ fn take_window(mtm: MainThreadMarker) -> CaptureWindow {
 
         let content = window.contentView().expect("contentView 缺失");
         let handle = ViewHandle(Retained::as_ptr(&content) as *mut NSView);
-        // 首帧中立页（同 M2 教训：首帧 URL 必须必然成功），导航由调用方显式发起
+        // 首帧加载 about:blank；导航由调用方显式发起
         let webview = crate::protocol::create_webview(handle, "about:blank").expect("wry 创建失败");
         webview
             .set_bounds(lb_wry::Rect {
@@ -202,7 +202,7 @@ pub(crate) async fn capture_entry(
     written
 }
 
-/// 非 macOS：Windows 走 webview 抽帧管线（capture_win.rs，M4-W）。
+/// Windows 走 webview 抽帧管线（capture_win.rs）。
 #[cfg(target_os = "windows")]
 pub(crate) async fn capture_entry(
     bg: gpui_kit::gpui::BackgroundExecutor,

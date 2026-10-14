@@ -156,7 +156,7 @@ fn extract_frames_inner(source_dir: &str) -> ThumbOutcome {
     }
 
     let gen = unsafe { AVAssetImageGenerator::assetImageGeneratorWithAsset(&asset) };
-    // 帧精度 + 免裁剪原分辨率（v1 定稿参数，SPIKE-REPORT M1.5）
+    // 帧精度 + 免裁剪原分辨率（定稿参数，见 docs/archive/SPIKE-REPORT.md）
     unsafe {
         gen.setRequestedTimeToleranceBefore(CMTime::new(0, 600));
         gen.setRequestedTimeToleranceAfter(CMTime::new(0, 600));

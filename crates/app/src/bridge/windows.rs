@@ -1,4 +1,4 @@
-//! Windows 桥实现（M5-W）：Win32 纯轮询，无需任何权限（对照 macOS 桥的两条纪律）。
+//! Windows 桥实现：Win32 纯轮询，无需任何权限（对照 macOS 桥的两条纪律）。
 //!
 //! - 光标：GetCursorPos（顶左原点物理像素，与 MonitorInfo.frame 同系）+
 //!   GetAsyncKeyState 按键 + GetLastInputInfo 空闲时长（含键盘活动——比 macOS
@@ -42,7 +42,7 @@ struct FsState<'a> {
     out: &'a mut BTreeSet<String>,
 }
 
-/// 正被全屏应用覆盖的显示器 ID（`win-<DISPLAYn>`，与 MonitorInfo.id 同源）。
+/// 正被全屏应用覆盖的显示器 ID，与 `MonitorInfo.id` 同源。
 pub fn fullscreen_displays() -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let monitors = pin::windows::enumerate_monitors();

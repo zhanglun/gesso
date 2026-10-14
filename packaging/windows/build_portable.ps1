@@ -78,7 +78,7 @@ $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
 Write-Host ">> 完成：$zip"
 Write-Host "   SHA-256: $hash"
 
-# 安装器（NSIS 3，per-user，与 Tauri 项目同形态）：找到 makensis 就出
+# 安装器（NSIS 3，per-user 免管理员）：找到 makensis 就出
 # setup exe；本地未装则跳过（GitHub Windows runner 预装 NSIS）。
 $makensis = @(
     (Get-Command makensis -ErrorAction SilentlyContinue).Source,

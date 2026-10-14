@@ -1,79 +1,59 @@
-# 0.1.2 Release Checklist
+# Release Checklist
 
-Gesso 0.1.2 修复版本的发布清单。按顺序执行；流程与 0.1.1 相同（GitHub Actions
-自动打包发布），这里只跟踪本版本的状态。
+> 当前发布流程。已完成版本的命令输出、旧 tag 和历史重发记录见 `docs/archive/releases/`。
 
-> 发布由 **GitHub Actions 自动完成**：推送 `v*` tag → `release.yml` 在两平台
-> matrix 跑打包脚本 → 汇总自动创建 GitHub Release，附产物 + `checksums.txt` + release notes。
->
-> 目标产物：
-> - **macOS**：`Gesso-<version>-arm64.dmg`
-> - **Windows**：`Gesso-<version>-x64-portable.zip` + `Gesso-<version>-x64-setup.exe`（NSIS 安装包）
-> - 一个 GitHub Release（`.dmg` + `.zip` + `.exe` + `checksums.txt` + notes）
->
-> **不做代码签名 / 公证**：两平台产物均为未签名，release notes 写清首次打开方式。
+## 发布前
 
-## 阶段 0 — 发布决策
-
-- [x] 沿用 0.1.1 的决策：macOS 仅 arm64、Windows 安装包 + 便携 zip、产物不签名不公证。
-
-## 阶段 1 — 代码冻结与质量门
-
-- [x] 合入 0.1.2 全部内容：填充模式、桌面桥接过渡窗重构（运行时永不写系统桌面）、随机换一张修复、
-      显示器页打磨（v0.1.1..HEAD）。
-- [x] `cargo fmt --all --check` / clippy（core+app，`-D warnings`）/ build / test 全绿
-      （fmt 与 Windows clippy 红灯已修：`ed547f3`、`d0b4a37`；CI run 38348937763 双平台绿）。
-- [x] 发布收口提交：`chore(release): 0.1.2`（版本号 + CHANGELOG 冻结 + notes + README；本提交）。
-- [x] 收口提交推送后 CI 复验全绿。
-
-## 阶段 2 — 实机冒烟
-
-- [x] 填充模式三态（macOS AVLayerVideoGravity / Windows quad 管线）实机验证（2026-10-13 用户确认）。
-- [x] 过渡窗重配无缝 + 双击/随机不冻结 + 退出/「恢复系统壁纸」瞬时（实机验证；分辨率切换已自动化验证）。
-- [ ] Windows 多显示器重配实机验证（沿袭 0.1.1 已知限制，不阻塞本版本）。
-
-## 阶段 3 — 版本号与变更记录
-
-- [x] `Cargo.toml` workspace version → `0.1.2`（NSIS/打包脚本注入，无散落硬编码）。
-- [x] `CHANGELOG.md`：`[Unreleased]` → `[0.1.2] - 2026-10-13`，重建空 Unreleased。
-- [x] release notes：`packaging/release-notes/v0.1.2.md`（workflow 按 tag 名读取）。
-- [x] README 双语状态行 → v0.1.2 发布候选。
-
-## 阶段 6 — 触发 CI 发布
-
-- [x] **干跑**：手动触发 Release workflow（`workflow_dispatch`，只打包不发布），确认三产物齐全
-      （[run 38351122277](https://github.com/zhanglun/gesso/actions/runs/38351122277)，2026-10-13：dmg / setup.exe / portable.zip 全部出齐）。
-- [x] 打 tag 并推送（2026-10-13，`v0.1.2` → `9cebdaf`）：
+- [ ] 确认 `git status --short` 中只有本次发布内容。
+- [ ] 更新 workspace 版本号和对应 release notes。
+- [ ] 更新 `CHANGELOG.md`：将 Unreleased 冻结到目标版本。
+- [ ] 更新 README 和其他用户文案中引用的版本号。
+- [ ] 运行质量门：
   ```bash
-  git tag -a v0.1.2 -m "Release 0.1.2"
-  git push origin v0.1.2
+  cargo fmt --all --check
+  cargo clippy -p gesso-core -p gesso-app --all-targets -- -D warnings
+  cargo build -p gesso-app --all-targets
+  cargo test -p gesso-core -p gesso-app
+  git diff --check
   ```
-- [x] CI 自动创建 Release 并上传产物；Actions 页确认三 job 全绿；确认正式发布
-      （首发 [run 38351683395](https://github.com/zhanglun/gesso/actions/runs/38351683395)；
-      **2026-10-13 覆盖重发**：发布后 1 小时内实机反馈更新器三缺陷（下载不读系统代理/os error 60、
-      下载失败后重试死锁、失败态不清），修复入 `c6cbd2b`+`fa5099a` 后删 tag/Release 重发——
-      [run 38355072298](https://github.com/zhanglun/gesso/actions/runs/38355072298)，
-      最终 Release https://github.com/zhanglun/gesso/releases/tag/v0.1.2，tag → `fa5099a`）。
-      代价：已装首发 0.1.2 的机器不会再次被提示（同版本号），需手动重下。
-      **2026-10-13 第二次覆盖重发**：发布后实机反馈双击/随机换壁纸 UI 冻结——根因是运行时把
-      系统桌面写进换图循环（壁纸代理 FIFO 拥堵后 setDesktopImageURL 单次 ~2s）。终局重构：
-      运行时永不写系统桌面，重配无缝改由自家过渡窗（预解码静帧）承担。删 tag/Release 重发
-      （tag → `1ba3215` 之后的收口提交）。
+- [ ] 完成对应平台实机冒烟；未完成的硬件验证写入 Roadmap，不隐瞒。
 
-## 阶段 7 — 发布后
+## 本地冒烟
 
-- [ ] 从 Release 页面下载产物，干净机器各装一遍。
-- [ ] 公告渠道。
-- [ ] 0.2 规划（0.1.x 反馈整理进 ROADMAP）。
+- [ ] 双击和随机换壁纸不冻结。
+- [ ] 分辨率变化、唤醒、合盖/开盖或外接屏插拔至少验证可用场景。
+- [ ] 重配期间过渡窗显示静帧，真实壁纸窗稳定后过渡窗消失。
+- [ ] 右键移除、“恢复系统壁纸”和退出只拆除 Gesso 窗口，不等待系统桌面换图。
+- [ ] 设置页没有“桌面桥接”开关。
+- [ ] 启动时旧版本桥接残留清理路径有日志且不会阻塞正常启动。
 
----
+## GitHub Actions 发布
 
-## 0.1.1 发布记录（2026-10-12，已完成）
+推送 `v*` tag 后，`.github/workflows/release.yml` 会：
 
-- tag `v0.1.1` → [release run 38196885084](https://github.com/zhanglun/gesso/actions/runs/38196885084) 三 job 全绿 →
-  [Release v0.1.1](https://github.com/zhanglun/gesso/releases/tag/v0.1.1) 附 `.dmg` / `.zip` / `.exe` / `checksums.txt`。
-- 干跑记录：[run 38195110710](https://github.com/zhanglun/gesso/actions/runs/38195110710)。
-- 遗留：干净机安装验证、公告、0.2 规划（并入上方阶段 7）。
+1. 在 macOS 构建 `Gesso-<version>-arm64.dmg`；
+2. 在 Windows 构建 portable zip 和 NSIS setup.exe；
+3. 生成 `checksums.txt`；
+4. 创建 GitHub Release 并读取 `packaging/release-notes/<tag>.md`。
 
-> 原则：0.1.x 先保证"两平台能下载、安装、跑起来"；不做签名/公证。未签名产物
-> 在 release notes 写清打开方式即可。
+产物不签名、不公证，release notes 必须说明首次打开方式。
+
+```bash
+git tag -a vX.Y.Z -m "Release X.Y.Z"
+git push origin vX.Y.Z
+```
+
+覆盖已有 Release 时，先明确确认无人依赖旧资产，再删除旧 Release 和远程 tag，重建 tag 后检查：
+
+```bash
+gh release view vX.Y.Z --json assets,tagName
+```
+
+## 当前版本记录
+
+- `v0.1.2`：已发布。最终覆盖版本指向 `ace16c2`，包含过渡窗终局和同步后的 release notes。
+- Windows 多显示器真实硬件验证仍是已知缺口，不阻塞当前 macOS/Windows 单屏产物发布，但必须保留在 Roadmap。
+
+## 归档
+
+- `docs/archive/releases/0.1.2-history.md`：0.1.2 首发、更新器修复和覆盖重发流水。

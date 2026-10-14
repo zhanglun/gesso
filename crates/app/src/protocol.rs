@@ -359,7 +359,7 @@ pub fn host_url() -> &'static str {
 
 /// 创建挂到给定原生视图的壁纸 webview（注册 gesso:// 协议）。
 ///
-/// 壁纸默认静音（ContentSpec.audio = muted，技术方案 §5.2）。Windows 用引擎级
+/// 壁纸默认静音（ContentSpec.audio = muted）。Windows 用引擎级
 /// `--mute-audio`：媒体照常自动播放，音频输出在浏览器引擎层关断——网页/html
 /// 壁纸出不了声，muted 视频与采集抽帧零影响。**不要用
 /// `--autoplay-policy=user-gesture-required` 做静音**：实测（2026-10-11，
