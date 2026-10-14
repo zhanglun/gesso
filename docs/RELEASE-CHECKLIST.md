@@ -35,7 +35,10 @@
 1. 在 macOS 构建 `Gesso-<version>-arm64.dmg`；
 2. 在 Windows 构建 portable zip 和 NSIS setup.exe；
 3. 生成 `checksums.txt`；
-4. 创建 GitHub Release 并读取 `packaging/release-notes/<tag>.md`。
+4. 生成 `latest.json` 静态更新清单（版本、发布说明、各平台安装包名称/大小/下载地址）；
+5. 创建 GitHub Release 并读取 `packaging/release-notes/<tag>.md`，同时上传安装包、校验文件和 `latest.json`。
+
+应用日常检查优先读取 `https://github.com/zhanglun/gesso/releases/latest/download/latest.json`，不访问限流的 GitHub REST API；旧 Release 没有该资产时自动回退 API。
 
 产物不签名、不公证，release notes 必须说明首次打开方式。
 

@@ -8,7 +8,9 @@
 //! 检查/下载跑在独立线程（阻塞 IO，见 `spawn_check`/`spawn_download`），引擎主循环
 //! 每拍比对代数、变化即回灌快照 + 刷新窗口——与 150ms 动作轮询同一节奏，无额外通道。
 //!
-//! 纯函数（`version_newer`/`parse_release`/`pick_asset`）带单测，网络路径不测。
+//! 检查优先读取 release 资产里的静态 `latest.json`（不访问限流 API）；旧 release
+//! 没有清单时才回退 GitHub API。纯函数（`version_newer`/`parse_release`/`parse_manifest`/
+//! `pick_asset`）带单测，网络路径不测。
 
 use std::io::{Read as _, Write as _};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -16,8 +18,12 @@ use std::sync::Mutex;
 
 use crate::ui::data::{UpdatePhase, UpdateView};
 
-/// 正式发布查询（GitHub API 自动排除 draft/prerelease；UA 为 GitHub API 强制要求）。
+/// 旧 release 或静态清单不可用时的回退查询（GitHub API 自动排除 draft/prerelease）。
 pub const RELEASE_API: &str = "https://api.github.com/repos/zhanglun/gesso/releases/latest";
+/// 检查更新首选端点：release 自带的静态清单资产（`releases/latest/download/`
+/// 是 github.com 网页端点，不受 API 未认证限流约束；由 release.yml 随每次发布生成）。
+pub const RELEASE_MANIFEST: &str =
+    "https://github.com/zhanglun/gesso/releases/latest/download/latest.json";
 /// 发布页（弹窗「前往发布页」出口；手动下载兜底）。
 pub const RELEASE_PAGE: &str = "https://github.com/zhanglun/gesso/releases/latest";
 /// 自动检查抑制窗口（§4.7：启动首查后每 24h 一次）。
@@ -449,24 +455,35 @@ fn parse_windows_proxy_server(s: &str) -> Option<String> {
 }
 
 fn fetch_latest() -> Result<ReleaseInfo, String> {
-    // 开发验证钩子（仅 debug）：GESSO_RELEASE_API=<url> 覆盖检查端点——无头验证
-    // 走本地 mock（绕开 GitHub 匿名限额/离线造失败态），未来也可指向 staging 源
+    // 首选静态清单（github.com 网页端点，不受 api.github.com 未认证 60 次/小时
+    // IP 限流约束；Tauri updater 同款模式）；清单缺失/解析失败回退 REST API，
+    // 旧 release（无 latest.json 资产）与新版本无缝共存
     #[cfg(debug_assertions)]
-    let endpoint = std::env::var("GESSO_RELEASE_API").unwrap_or_else(|_| RELEASE_API.to_string());
-    #[cfg(not(debug_assertions))]
-    let endpoint = RELEASE_API;
-    let ua = user_agent();
-    let resp = http_agent()
-        .get(&endpoint)
-        .set("User-Agent", &ua)
-        .set("Accept", "application/vnd.github+json")
-        .timeout(std::time::Duration::from_secs(15))
-        .call()
-        .map_err(check_err_message)?;
-    let body = resp
-        .into_string()
-        .map_err(|e| format!("响应读取失败：{e}"))?;
+    if let Ok(url) = std::env::var("GESSO_RELEASE_API") {
+        // 开发验证钩子：覆盖端点作为唯一源（先按清单、再按 API 解析），不叠加回退
+        let body = fetch_text(&url, None)?;
+        return parse_manifest(&body).or_else(|_| parse_release(&body));
+    }
+    if let Ok(body) = fetch_text(RELEASE_MANIFEST, None) {
+        if let Ok(info) = parse_manifest(&body) {
+            return Ok(info);
+        }
+    }
+    let body = fetch_text(RELEASE_API, Some("application/vnd.github+json"))?;
     parse_release(&body)
+}
+
+/// GET 文本（共用 UA/代理/超时/错误文案；清单路径的失败由调用方降级，不直接见用户）
+fn fetch_text(url: &str, accept: Option<&str>) -> Result<String, String> {
+    let mut req = http_agent()
+        .get(url)
+        .set("User-Agent", &user_agent())
+        .timeout(std::time::Duration::from_secs(15));
+    if let Some(a) = accept {
+        req = req.set("Accept", a);
+    }
+    let resp = req.call().map_err(check_err_message)?;
+    resp.into_string().map_err(|e| format!("响应读取失败：{e}"))
 }
 
 /* ---------- 纯函数（单测覆盖） ---------- */
@@ -490,7 +507,7 @@ fn check_err_message(e: ureq::Error) -> String {
 fn rate_limit_message(reset_epoch: Option<u64>, now: u64) -> String {
     match reset_epoch {
         Some(reset) => {
-            let mins = (reset.saturating_sub(now) + 59) / 60;
+            let mins = reset.saturating_sub(now).div_ceil(60);
             format!(
                 "GitHub 接口限流：未认证请求按 IP 每小时 60 次，本 IP 配额已用尽，约 {mins} 分钟后重置；稍后重试，或前往发布页手动下载"
             )
@@ -554,6 +571,49 @@ pub fn parse_release(json: &str) -> Result<ReleaseInfo, String> {
                 a.get("name")?.as_str()?.to_string(),
                 a.get("size")?.as_u64()?,
                 a.get("browser_download_url")?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    let (asset_name, asset_size, asset_url) =
+        pick_asset(&list).ok_or("该发布没有本平台的安装包（dmg / portable zip / setup.exe）")?;
+    Ok(ReleaseInfo {
+        version,
+        notes,
+        asset_name,
+        asset_url,
+        asset_size,
+    })
+}
+
+/// 静态清单（latest.json，release.yml 随每次发布生成并作为 release 资产上传）
+/// → ReleaseInfo。结构自定但字段与 API 路径同构：`{version, notes, assets:[{name,size,url}]}`。
+/// 解析失败（清单缺失返回的 404 页/HTML）由调用方降级到 API，不直接见用户。
+pub fn parse_manifest(json: &str) -> Result<ReleaseInfo, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("更新清单解析失败：{e}"))?;
+    let version = v
+        .get("version")
+        .and_then(|t| t.as_str())
+        .ok_or("更新清单缺少 version")?
+        .trim()
+        .trim_start_matches('v')
+        .to_string();
+    let notes = v
+        .get("notes")
+        .and_then(|b| b.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let assets = v
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .ok_or("更新清单缺少 assets")?;
+    let list: Vec<(String, u64, String)> = assets
+        .iter()
+        .filter_map(|a| {
+            Some((
+                a.get("name")?.as_str()?.to_string(),
+                a.get("size")?.as_u64()?,
+                a.get("url")?.as_str()?.to_string(),
             ))
         })
         .collect();
@@ -822,6 +882,53 @@ mod tests {
         assert_eq!(r.asset_name, want_name, "arch 命中本平台安装包");
         assert_eq!(r.asset_size, want_size);
         assert_eq!(r.asset_url, want_url);
+    }
+
+    const SAMPLE_MANIFEST: &str = r###"{
+        "version": "v0.3.0",
+        "notes": "## 更新\n- 不再查询 GitHub API",
+        "pub_date": "2026-10-14T12:00:00Z",
+        "assets": [
+            {"name": "Gesso-0.3.0-arm64.dmg", "size": 49000000, "url": "https://x/manifest-arm64.dmg"},
+            {"name": "Gesso-0.3.0-x64.dmg", "size": 53000000, "url": "https://x/manifest-x64.dmg"},
+            {"name": "Gesso-0.3.0-x64-portable.zip", "size": 41000000, "url": "https://x/manifest-x64.zip"},
+            {"name": "Gesso-0.3.0-x64-setup.exe", "size": 43000000, "url": "https://x/manifest-x64-setup.exe"},
+            {"name": "checksums.txt", "size": 400, "url": "https://x/checksums.txt"}
+        ]
+    }"###;
+
+    #[test]
+    fn parse_manifest_extracts_version_notes_and_asset() {
+        let r = parse_manifest(SAMPLE_MANIFEST).expect("清单可解析");
+        assert_eq!(r.version, "0.3.0");
+        assert!(r.notes.contains("不再查询 GitHub API"));
+        if cfg!(target_os = "macos") {
+            assert!(r.asset_name.ends_with(".dmg"));
+            assert_eq!(
+                r.asset_size,
+                if cfg!(target_arch = "aarch64") {
+                    49000000
+                } else {
+                    53000000
+                }
+            );
+        } else {
+            assert_eq!(r.asset_name, "Gesso-0.3.0-x64-setup.exe");
+            assert_eq!(r.asset_size, 43000000);
+        }
+    }
+
+    #[test]
+    fn parse_manifest_rejects_malformed() {
+        assert!(parse_manifest("not json").is_err());
+        assert!(
+            parse_manifest(r#"{"version":"1.0.0"}"#).is_err(),
+            "缺 assets"
+        );
+        assert!(
+            parse_manifest(r#"{"notes":"x","assets":[]}"#).is_err(),
+            "缺 version"
+        );
     }
 
     #[test]

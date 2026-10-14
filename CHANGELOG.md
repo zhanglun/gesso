@@ -6,6 +6,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Added
 
+- 更新检查改为优先读取 GitHub Release 里的 `latest.json` 静态清单，避免日常检查消耗未认证 GitHub API 的共享 IP 配额；旧 Release 没有清单时仍回退 API。
+
 ### Changed
 
 ### Fixed

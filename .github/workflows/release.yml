@@ -87,6 +87,38 @@ jobs:
           } | sort -k2 > checksums.txt
           cat checksums.txt
 
+      - name: 生成 latest.json（静态更新清单）
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          repo = os.environ["REPO"]
+          dist = Path("dist")
+          assets = []
+          for path in sorted(dist.iterdir()):
+              if path.suffix.lower() in (".dmg", ".zip", ".exe"):
+                  assets.append({
+                      "name": path.name,
+                      "size": path.stat().st_size,
+                      "url": f"https://github.com/{repo}/releases/download/{tag}/{path.name}",
+                  })
+          manifest = {
+              "version": tag.removeprefix("v"),
+              "notes": Path("packaging/release-notes", f"{tag}.md").read_text(encoding="utf-8"),
+              "assets": assets,
+          }
+          Path("latest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(Path("latest.json").read_text(encoding="utf-8"))
+
       - name: 创建 Release 并上传资产
         uses: softprops/action-gh-release@v2
         with:
@@ -98,5 +130,6 @@ jobs:
             dist/*.zip
             dist/*.exe
             checksums.txt
+            latest.json
           # 安装器缺失（Inno 异常）不阻塞发布——zip/dmg 永远在
           fail_on_unmatched_files: false
