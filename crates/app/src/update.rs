@@ -462,7 +462,7 @@ fn fetch_latest() -> Result<ReleaseInfo, String> {
         .set("Accept", "application/vnd.github+json")
         .timeout(std::time::Duration::from_secs(15))
         .call()
-        .map_err(|e| format!("无法连接 GitHub（{e}）；请检查网络后重试，或前往发布页手动下载"))?;
+        .map_err(check_err_message)?;
     let body = resp
         .into_string()
         .map_err(|e| format!("响应读取失败：{e}"))?;
@@ -470,6 +470,41 @@ fn fetch_latest() -> Result<ReleaseInfo, String> {
 }
 
 /* ---------- 纯函数（单测覆盖） ---------- */
+
+/// 检查失败 → 用户文案。403 且配额耗尽（`x-ratelimit-remaining: 0`）时给限流
+/// 专属说法（含重置倒计时）——共享出口 IP（VPN/代理/运营商 NAT）下同出口所有
+///设备共吃 60 次/小时，与“连不上”的处置完全不同，不能混为一谈。
+fn check_err_message(e: ureq::Error) -> String {
+    if let ureq::Error::Status(403, resp) = &e {
+        if resp.header("x-ratelimit-remaining") == Some("0") {
+            let reset = resp
+                .header("x-ratelimit-reset")
+                .and_then(|v| v.parse::<u64>().ok());
+            return rate_limit_message(reset, now_unix());
+        }
+    }
+    format!("无法连接 GitHub（{e}）；请检查网络后重试，或前往发布页手动下载")
+}
+
+/// 限流文案：按重置时刻算剩余分钟（向上取整、至少 1）；拿不到重置头就给通用说法。
+fn rate_limit_message(reset_epoch: Option<u64>, now: u64) -> String {
+    match reset_epoch {
+        Some(reset) => {
+            let mins = (reset.saturating_sub(now) + 59) / 60;
+            format!(
+                "GitHub 接口限流：未认证请求按 IP 每小时 60 次，本 IP 配额已用尽，约 {mins} 分钟后重置；稍后重试，或前往发布页手动下载"
+            )
+        }
+        None => "GitHub 接口限流：未认证请求按 IP 每小时 60 次，本 IP 配额已用尽；稍后重试，或前往发布页手动下载".into(),
+    }
+}
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// 语义版本三元组比较；任一侧无法解析（含预发布后缀剥离后仍非法）保守返回 false。
 pub fn version_newer(current: &str, candidate: &str) -> bool {
@@ -905,6 +940,16 @@ mod tests {
         );
         // 开了但缺地址：不产半截 URI
         assert_eq!(parse_scutil_proxy("HTTPEnable : 1\n HTTPPort : 7890"), None);
+    }
+
+    #[test]
+    fn rate_limit_message_minutes() {
+        // 剩余 1–60 秒 → 1 分钟；整分钟向上取整；无重置头 → 通用说法
+        assert!(rate_limit_message(Some(1000), 999).contains("约 1 分钟后重置"));
+        assert!(rate_limit_message(Some(1120), 1000).contains("约 2 分钟后重置"));
+        assert!(rate_limit_message(Some(940), 1000).contains("稍后重试")); // 已过期也给 1 分钟
+        assert!(rate_limit_message(None, 1000).contains("配额已用尽"));
+        assert!(!rate_limit_message(None, 1000).contains("分钟后"));
     }
 
     #[test]

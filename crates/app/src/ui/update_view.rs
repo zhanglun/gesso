@@ -11,9 +11,10 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::progress::{Progress, ProgressCircle};
 use gpui_kit::component::{h_flex, v_flex, Sizable as _, Size};
 use gpui_kit::gpui::{
-    div, px, size, AnyElement, App, AppContext as _, Bounds, Context, FocusHandle, Focusable,
-    FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    div, px, size, AnyElement, App, AppContext as _, Bounds, ClipboardItem, Context, FocusHandle,
+    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, TitlebarOptions, Window, WindowBounds,
+    WindowOptions,
 };
 use gpui_kit::AnyWindowHandle;
 
@@ -27,6 +28,8 @@ static UPDATE_WINDOW: Mutex<Option<AnyWindowHandle>> = Mutex::new(None);
 
 pub struct UpdateModal {
     focus: FocusHandle,
+    /// 「复制错误详情」点击后的短暂反馈态（1.6s 自动退回，同设置页重置确认的模式）
+    copied: bool,
 }
 
 impl Focusable for UpdateModal {
@@ -70,6 +73,7 @@ pub fn open(cx: &mut App) {
             let _ = window;
             UpdateModal {
                 focus: cx.focus_handle(),
+                copied: false,
             }
         })
     }) {
@@ -274,6 +278,41 @@ impl Render for UpdateModal {
                         .text_size(px(12.))
                         .text_color(t.danger)
                         .child(update_failed_detail(&u.error))
+                        .into_any_element(),
+                );
+                // 复制错误详情：错误文案不可选中（GPUI 文本无选择语义），给一颗
+                // 小按钮把「标题+版本+错误」落剪贴板，便于反馈/报 issue
+                let err_detail = u.error.clone();
+                let copied = self.copied;
+                body.push(
+                    Button::new("upd-copy-err")
+                        .label(if copied {
+                            UPD_COPIED()
+                        } else {
+                            UPD_COPY_ERROR()
+                        })
+                        .text()
+                        .with_size(Size::Small)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(format!(
+                                "Gesso {} · {}\n{}",
+                                env!("CARGO_PKG_VERSION"),
+                                UPDATE_TITLE(),
+                                err_detail
+                            )));
+                            this.copied = true;
+                            cx.notify();
+                            cx.spawn(async move |this, cx| {
+                                cx.background_executor()
+                                    .timer(std::time::Duration::from_millis(1600))
+                                    .await;
+                                let _ = this.update(cx, |this, cx| {
+                                    this.copied = false;
+                                    cx.notify();
+                                });
+                            })
+                            .detach();
+                        }))
                         .into_any_element(),
                 );
                 footer.push(

@@ -183,6 +183,8 @@ pub struct Texts {
     pub update_btn_install: &'static str,
     pub update_btn_reveal: &'static str,
     pub update_btn_close: &'static str,
+    pub update_copy_error: &'static str,
+    pub update_copied: &'static str,
     pub update_btn_retry: &'static str,
 }
 
@@ -290,6 +292,8 @@ pub const ZH: Texts = Texts {
     update_btn_install: "打开安装包",
     update_btn_reveal: "打开所在文件夹",
     update_btn_close: "关闭",
+    update_copy_error: "复制错误详情",
+    update_copied: "已复制 ✓",
     update_btn_retry: "重试",
 
     btn_redetect: "重新检测",
@@ -444,6 +448,8 @@ pub const EN: Texts = Texts {
     update_btn_install: "Open installer",
     update_btn_reveal: "Show in folder",
     update_btn_close: "Close",
+    update_copy_error: "Copy error details",
+    update_copied: "Copied ✓",
     update_btn_retry: "Retry",
 
 
@@ -600,6 +606,7 @@ accessors! {
     update_btn_later => UPD_BTN_LATER, update_btn_cancel_dl => UPD_BTN_CANCEL_DL,
     update_btn_install => UPD_BTN_INSTALL, update_btn_reveal => UPD_BTN_REVEAL,
     update_btn_close => UPD_BTN_CLOSE, update_btn_retry => UPD_BTN_RETRY,
+    update_copy_error => UPD_COPY_ERROR, update_copied => UPD_COPIED,
     btn_redetect => BTN_REDETECT, monitor_hover_note => MONITOR_HOVER_NOTE,
     st_select_wallpaper => ST_SELECT_WALLPAPER, monitors_empty_title => MONITORS_EMPTY_TITLE,
     edid_note_short => EDID_NOTE_SHORT, btn_change => BTN_CHANGE,
