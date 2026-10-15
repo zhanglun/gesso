@@ -60,7 +60,7 @@ GESSO_RESTORE_AFTER_SECS=10 ./target/debug/gesso # N 秒后模拟托盘「恢复
 
 按顺序排除（详见 ENGINEERING-NOTES §3）：
 
-1. **截图权限**：系统设置 → 隐私与安全性 → 屏幕录制 → 给终端授权。未授权时 `screencapture` 只拍到桌面壁纸，像素判读全部失真（本项目踩过的最大的坑）。
+1. **截图权限**（macOS）：系统设置 → 隐私与安全性 → 屏幕录制 → 给终端授权。未授权时 `screencapture` 只拍到桌面壁纸，像素判读全部失真（本项目踩过的最大的坑）。Windows 无对应权限门槛，实机截图直接可用（`PrintWindow` 对 flip 呈现的视频窗可能拿到黑帧，勿单凭它下结论）。
 2. **验证窗口存在**：`osascript -e 'tell application "System Events" to tell process "gesso" to get {position, size, name} of every window'`
 3. **别用裁剪截图测像素**——窗口可能不在你以为的位置（曾因此误判三轮）。要么用 `screencapture -R x,y,w,h` 精确到窗口区域，要么直接看屏幕。
 4. **区分“加载失败”与“播放失败”**：看 `[session]` / `[protocol]` 日志。视频条目先检查平台原生视频窗：macOS 是 `MacVideoWindow`/AVPlayerLayer，Windows 是 `WinVideoWindow`/Media Foundation + DXGI；shader/html/image 才检查宿主页 WebView。宿主页调试底色已移除，勿再引入。（`GESSO_VIDEO_DIAG=1` 帧率探针对原生视频窗当前无输出，待接原生统计后再用。）

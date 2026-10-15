@@ -53,7 +53,7 @@ crates/app      应用：
   ├─ protocol.rs  gesso:// 资源协议（已打通：host 统一宿主页 + library 条目资源，视频 Range）
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
-  ├─ update.rs    应用自更新（GitHub Releases 检查/下载/交付；状态真源在模块全局，代数计数回灌）
+  ├─ update.rs    应用自更新（静态 latest.json 清单检查 + 下载/交付；状态真源在模块全局，代数计数回灌）
   ├─ ui/          管理窗口 UI（gpui-kit；strings.rs 双语包；update_view.rs 更新小窗）
   └─ assets/      宿主页（host/index.html）/ 预置壁纸（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）
 docs/           工程文档 + design/（当前设计源；历史资料在 docs/archive/）
