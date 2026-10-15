@@ -433,7 +433,9 @@ fn system_proxy_uri() -> Option<String> {
 
 #[cfg(any(target_os = "windows", test))]
 fn parse_windows_proxy_server(s: &str) -> Option<String> {
-    let s = s.trim();
+    // RegGetValueW 的 pcbData 含结尾 NUL，截出的串带着它——带 NUL 的代理 URI
+    // 会被对端拒绝（CONNECT 隧道建不起来，报 Proxy failed to connect）。
+    let s = s.trim_end_matches(' ').trim();
     if s.is_empty() {
         return None;
     }

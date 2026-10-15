@@ -10,6 +10,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Fixed
 
+- **Windows 系统代理下更新检查恒失败（Proxy failed to connect）**：从注册表读取系统代理时，`RegGetValueW` 返回的字节计数含结尾 NUL 终止符，截出的代理 URI 带着它传给了 HTTP 库——带 NUL 的 CONNECT 隧道建不起来，更新检查在配置了系统代理的 Windows 上**从未成功过**（0.1.2 起一直如此），且重试无效（代理地址被进程内缓存）。现解析前剥掉 NUL 并加回归测试；经系统代理实测检查成功（远端 v0.1.3 → 「已是最新」）。
+
 ## [0.1.3] - 2026-10-15
 
 ### Added
