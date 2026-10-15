@@ -72,9 +72,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows, FindWindowExW, FindWindowW,
     GetClientRect, GetWindowRect, IsWindowVisible, RegisterClassW, RegisterWindowMessageW,
     SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowPos, ShowWindow,
-    HTTRANSPARENT, HWND_BOTTOM, LWA_ALPHA, MONITORINFOF_PRIMARY, SMTO_NORMAL, SWP_NOACTIVATE,
-    SW_HIDE, SW_SHOWNA, WINDOW_EX_STYLE, WM_DISPLAYCHANGE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
+    SystemParametersInfoW, HTTRANSPARENT, HWND_BOTTOM, LWA_ALPHA, MONITORINFOF_PRIMARY,
+    SMTO_NORMAL, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_GETDESKWALLPAPER, SPI_SETDESKWALLPAPER,
+    SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE,
+    WM_DISPLAYCHANGE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
 };
 
 use super::{MonitorInfo, WallpaperWindow};
@@ -271,10 +273,32 @@ unsafe extern "system" fn enum_monitor_proc(
 // WorkerW 挂载阶梯
 // ---------------------------------------------------------------------------
 
-/// 触发 Explorer 生成壁纸 WorkerW 并找到挂载点（挂载阶梯 1–3）。
+/// 图标层宿主（含 SHELLDLL_DefView 子窗口的顶层窗口）之后的第一个 WorkerW = 壁纸层。
+fn find_worker_after_defview() -> Option<HWND> {
+    let mut defview_host: Option<HWND> = None;
+    // SAFETY: defview_host 为本栈帧局部
+    let _ = unsafe {
+        EnumWindows(
+            Some(find_defview_proc),
+            LPARAM(&mut defview_host as *mut Option<HWND> as isize),
+        )
+    };
+    let host = defview_host?;
+    // SAFETY: 类名为静态字面量
+    unsafe { FindWindowExW(None, Some(host), w!("WorkerW"), PCWSTR::null()).ok() }
+}
+
+/// 找到挂载点（挂载阶梯 1–3）。壁纸 WorkerW 已存在时**直接复用**——0x052C 会让
+/// Explorer 再生一个新的，反复发送堆积孤儿 WorkerW，还会触发桌面结构重组把
+/// 已挂载的壁纸窗孤儿化、把壁纸绘制挤到不可见层（实测 WindowDev：一晚上积累
+/// 14 个隐藏 WorkerW，壁纸层死黑直至 SPI 重设壁纸才恢复）。
 fn find_wallpaper_parent() -> (MountKind, Option<HWND>) {
     unsafe {
-        // SMTO_NORMAL 同步等 Explorer 处理（1s 上限）；跨进程 SendMessage 无死锁风险
+        if let Some(worker) = find_worker_after_defview() {
+            return (MountKind::WorkerW, Some(worker));
+        }
+        // 没有现成的才让 Explorer 生成一次。SMTO_NORMAL 同步等处理（1s 上限）；
+        // 跨进程 SendMessage 无死锁风险
         if let Ok(progman) = FindWindowW(w!("Progman"), PCWSTR::null()) {
             let mut result = 0usize;
             SendMessageTimeoutW(
@@ -287,16 +311,8 @@ fn find_wallpaper_parent() -> (MountKind, Option<HWND>) {
                 Some(&mut result),
             );
         }
-        // 图标层宿主（含 SHELLDLL_DefView 子窗口的顶层窗口）之后的第一个 WorkerW = 壁纸层
-        let mut defview_host: Option<HWND> = None;
-        let _ = EnumWindows(
-            Some(find_defview_proc),
-            LPARAM(&mut defview_host as *mut Option<HWND> as isize),
-        );
-        if let Some(host) = defview_host {
-            if let Ok(worker) = FindWindowExW(None, Some(host), w!("WorkerW"), PCWSTR::null()) {
-                return (MountKind::WorkerW, Some(worker));
-            }
+        if let Some(worker) = find_worker_after_defview() {
+            return (MountKind::WorkerW, Some(worker));
         }
         // 兜底：图标关闭（无 DefView）→ Progman 即壁纸层
         match FindWindowW(w!("Progman"), PCWSTR::null()) {
@@ -389,17 +405,10 @@ pub fn restore_desktop() {
             }
         }
         // 不走 find_wallpaper_parent：那会向 Progman 发 0x052C 再生一个 WorkerW，
-        // 退出时不应改变桌面结构。图标层宿主后的 WorkerW 此时仍在（挂载时创建），
-        // 直接静默查找即可；找不到也不阻塞退出。
-        let mut defview_host: Option<HWND> = None;
-        let _ = EnumWindows(
-            Some(find_defview_proc),
-            LPARAM(&mut defview_host as *mut Option<HWND> as isize),
-        );
-        if let Some(host) = defview_host {
-            if let Ok(worker) = FindWindowExW(None, Some(host), w!("WorkerW"), PCWSTR::null()) {
-                targets.push(worker);
-            }
+        // 退出时不应改变桌面结构。find_worker_after_defview 只静默查找不生成，
+        // 复用之；找不到也不阻塞退出。
+        if let Some(worker) = find_worker_after_defview() {
+            targets.push(worker);
         }
         for h in &targets {
             let _ = InvalidateRect(Some(*h), None, true);
@@ -408,8 +417,34 @@ pub fn restore_desktop() {
         // 区域若被 WorkerW 以黑底擦除，只有逼全部窗口重绘才能让原壁纸回来
         //（退出瞬间的一次全屏重绘，换桌面恢复正常）。
         let _ = InvalidateRect(None, None, true);
+        // DWM 合成残尸清理（WindowDev/RX580 31.0.12044.3 实测）：跨进程子窗
+        // 从壁纸 WorkerW 移除后，DWM 不重新合成该子树，屏幕残留已销毁窗口的
+        // 最后一帧（flip 窗即黑底），上面的失效重绘唤不醒。同文件重设一次
+        // 系统壁纸，让 Explorer 重载重绘——这是实测唯一可靠的唤醒路径。读
+        // 当前壁纸失败则跳过（尽力而为，不影响退出）。
+        let mut buf = [0u16; 1024];
+        if SystemParametersInfoW(
+            SPI_GETDESKWALLPAPER,
+            (buf.len()) as u32,
+            Some(buf.as_mut_ptr().cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+        .is_ok()
+        {
+            let path = String::from_utf16_lossy(&buf);
+            let path = path.trim_end_matches('\0');
+            if !path.is_empty() {
+                let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+                let _ = SystemParametersInfoW(
+                    SPI_SETDESKWALLPAPER,
+                    0,
+                    Some(wide.as_ptr() as *mut core::ffi::c_void),
+                    SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
+                );
+            }
+        }
         println!(
-            "[pin] 桌面还原：{} 个 shell 窗口已无效化 + 全屏失效",
+            "[pin] 桌面还原：{} 个 shell 窗口已无效化 + 全屏失效 + 壁纸重设",
             targets.len()
         );
     }
