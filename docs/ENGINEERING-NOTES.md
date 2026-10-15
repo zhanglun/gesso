@@ -22,10 +22,11 @@
 | WE 导入 | 仅解析用户在导入对话框主动选定的 `project.json`；不扫描 Steam/工坊。video/web 零拷贝只读直引，`source_dir` 只能通过库中不可猜的条目 ID 访问。 |
 | 窗口销毁 | 所有仍存活进程内的拆窗路径，先 `set_visible(false)` 再 Drop；隐藏 webview 不能替代隐藏原生窗口。 |
 | 显示器重配 | 事件只递增 epoch；由会话层去抖后收敛。几何过时的窗口先隐藏，稳定拓扑后再重施层级和几何；过渡只能使用 Gesso 自己的窗口，运行时不写系统桌面。 |
-| Windows 贴壁 | 先将 Win32 窗口挂到 WorkerW，再创建 WebView2；Explorer 重启后重建窗口；在任何窗口创建前声明 PerMonitorV2 DPI awareness。 |
+| Windows 贴壁 | 先将 Win32 窗口挂到 WorkerW，再创建 WebView2；Explorer 重启后重建窗口；在任何窗口创建前声明 PerMonitorV2 DPI awareness。壁纸 WorkerW 已存在时直接复用，0x052C 只在找不到时发一次——反复发送会堆积孤儿 WorkerW、重组桌面结构并把已挂载壁纸窗孤儿化。跨进程子窗从壁纸 WorkerW 移除后，部分驱动 + DWM 组合不重新合成该子树（残留最后一帧或黑底，失效重绘唤不醒）：退出清理在 InvalidateRect 之后必须同文件重设一次系统壁纸（SPI_SETDESKWALLPAPER）才能露出原壁纸。 |
+| Windows 原生视频窗 | D3D11 呈现三要素缺一即全黑且零报错：Draw 前显式 `IASetPrimitiveTopology`（默认拓扑 UNDEFINED 时 Draw 静默不画）；顶点数据必须走顶点缓冲（不绑 VB、仅凭 SV_VertexID 生成的 Draw 在部分 AMD 驱动上同样静默不画，WindowDev/RX580 31.0.12044.3 实测）；常量缓冲必须 `PSSetConstantBuffers` 绑到 PS 槽位（漏绑读全零，fit 缩放除零全屏落越界黑）。此三类失败 Present 仍返回成功，日志全绿，只有实机截图能发现。 |
 | macOS UI | AppKit/wry/WKWebView 操作只在主线程；异步快照完成前不关闭采集窗口。ObjC 使用 objc2 绑定，后台任务放在 autoreleasepool 内。 |
 | 采集 | 采集窗口保持可见但近乎透明，且不被壁纸遮挡；任务全局串行。WebGL 采集需 `preserveDrawingBuffer: true`。 |
-| 视频 | macOS 使用 AVPlayerLayer，Windows 使用 Media Foundation + DXGI；循环视频小于等于 256 MB 时由媒体服务缓存到内存。 |
+| 视频 | macOS 使用 AVPlayerLayer，Windows 使用 Media Foundation + DXGI；循环视频小于等于 256 MB 时由媒体服务缓存到内存（服务 webview 媒体与 macOS 原生视频窗；Windows 原生视频窗直读本地文件，不依赖该服务）。 |
 | 宿主页命令 | Rust 仅用 `HostCommand` 生成脚本；光标 30 Hz 推送，宿主页保存最新目标并自行平滑。 |
 | 数据完整性 | 清单解析失败时不得回退为空库再写回；临时输出写入 `.tmp` 后原子 rename；环境变量测试须持有共享锁。 |
 | UI 细节 | `overflow_y_scroll` 必须在 `.id(...)` 后调用；`AtomicBool` 切换用 `fetch_xor(true)`，不要用 `swap(true)`。 |

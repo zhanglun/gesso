@@ -47,6 +47,13 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 
 > ⚠️ 多实例会叠多个壁纸窗口与托盘，验证完记得 `pkill -f "target/debug/gesso"`。
 
+**调试钩子**（仅 debug 构建存在，release 零开销）：
+
+```bash
+GESSO_QUIT_AFTER_SECS=10 ./target/debug/gesso    # N 秒后走托盘同款优雅退出（拆会话 → restore_desktop → 退进程）
+GESSO_RESTORE_AFTER_SECS=10 ./target/debug/gesso # N 秒后模拟托盘「恢复系统壁纸」（释放全部指派，进程存活）
+```
+
 ## 3. 调试手册
 
 ### 3.1 壁纸窗口"看不见/不渲染"
@@ -89,6 +96,7 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 |------|------|------|
 | 桌面纯白 | 宿主页加载失败（协议/URL 非法） | 看 `[protocol]` 日志；资源经 gesso:// 路由，路径由 handler 内部解析 |
 | 桌面显示系统壁纸（静止） | webview 未挂载 / 页面透明 | `[diag]` 看 subview 数量与 frame；Windows 查 WorkerW 挂载后再创建 WebView2 |
+| 桌面纯黑（连壁纸也没有）且日志全绿 | Windows 原生视频窗 D3D 静默失败（拓扑 / 顶点缓冲 / 常量绑定三要素，见 ENGINEERING-NOTES「Windows 原生视频窗」），或退出后的 DWM 合成残尸 | 唯一取证手段是实机截图；残尸用托盘退出（触发壁纸重设）或重设壁纸唤醒 |
 | 视频壁纸不动（有画面） | 原生视频窗未创建 / 媒体服务或解码失败 | macOS 查 `MacVideoWindow`/AVPlayerLayer，Windows 查 `WinVideoWindow`/MF/DXGI；再看 `[session]` 与媒体服务日志 |
 | 图标点不动 | 穿透标志丢失 | 查 `setIgnoresMouseEvents(true)` 是否生效 |
 | 顶部菜单栏带露馅 | 窗口几何未按全屏 frame（含菜单栏带）施加 | 看 `[diag]` 行 frame；托盘「重新检测显示器」（走 epoch 收敛） |

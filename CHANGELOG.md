@@ -10,6 +10,10 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Fixed
 
+- **Windows 视频壁纸全黑（0.1.2 quad 管线三处叠加缺陷）**：0.1.2 引入的全屏 quad 管线在本机实测一个像素都画不出来——Draw 前未设图元拓扑（D3D11 默认 UNDEFINED，Draw 静默不画）、着色器用不绑顶点缓冲的 SV_VertexID 生成顶点（部分 AMD 驱动同样静默吞掉该 Draw）、fit 常量缓冲从未 `PSSetConstantBuffers` 绑到像素着色器（读到全零常量，缩放除零全屏落「越界黑」）。三处失败都不报错、Present 照常成功、解码正常循环，日志全绿。现改为顶点缓冲全屏三角（uv 随顶点走、画面方向随之转正）、显式设拓扑与 CullNone、绑定常量缓冲，实机验证视频正常播放、填充三态数学不变。
+- **Windows 桌面壳层被挂载流程搞乱：孤儿 WorkerW 堆积 + 退出后壁纸不回来**。两处根因一起修：其一，`find_wallpaper_parent` 每次挂载都无条件向 Progman 发一次 0x052C，Explorer 每次都新生成一个壁纸 WorkerW——一晚上实测堆积 14+ 个隐藏孤儿，还会触发桌面结构重组、把已挂载的壁纸窗孤儿化。现改为先找现成的壁纸 WorkerW，找不到才生成一次（三轮启动退出实测 WorkerW 数量零新增）。其二，部分驱动 + DWM 组合下（WindowDev/RX580 实测），跨进程子窗从壁纸 WorkerW 移除后 DWM 不重新合成该子树，屏幕残留已销毁窗口的最后一帧或黑底，失效重绘唤不醒——连普通 GDI 子窗都如此，非 Gesso 特有。退出清理在失效重绘之后追加「同文件重设一次系统壁纸」，让 Explorer 重载重绘；实测优雅退出（含 panic 清场路径）桌面完整恢复。
+
+
 ## [0.1.2] - 2026-10-13
 
 ### Added
