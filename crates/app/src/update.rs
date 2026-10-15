@@ -8,9 +8,8 @@
 //! 检查/下载跑在独立线程（阻塞 IO，见 `spawn_check`/`spawn_download`），引擎主循环
 //! 每拍比对代数、变化即回灌快照 + 刷新窗口——与 150ms 动作轮询同一节奏，无额外通道。
 //!
-//! 检查优先读取 release 资产里的静态 `latest.json`（不访问限流 API）；旧 release
-//! 没有清单时才回退 GitHub API。纯函数（`version_newer`/`parse_release`/`parse_manifest`/
-//! `pick_asset`）带单测，网络路径不测。
+//! 更新检查只读取 release 资产里的静态 `latest.json`，不访问 GitHub REST API。
+//! 纯函数（`version_newer`/`parse_manifest`/`pick_asset`）带单测，网络路径不测。
 
 use std::io::{Read as _, Write as _};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -18,10 +17,8 @@ use std::sync::Mutex;
 
 use crate::ui::data::{UpdatePhase, UpdateView};
 
-/// 旧 release 或静态清单不可用时的回退查询（GitHub API 自动排除 draft/prerelease）。
-pub const RELEASE_API: &str = "https://api.github.com/repos/zhanglun/gesso/releases/latest";
-/// 检查更新首选端点：release 自带的静态清单资产（`releases/latest/download/`
-/// 是 github.com 网页端点，不受 API 未认证限流约束；由 release.yml 随每次发布生成）。
+/// 检查更新端点：release 自带的静态清单资产（`releases/latest/download/`
+/// 是 github.com 网页端点；由 release.yml 随每次发布生成）。
 pub const RELEASE_MANIFEST: &str =
     "https://github.com/zhanglun/gesso/releases/latest/download/latest.json";
 /// 发布页（弹窗「前往发布页」出口；手动下载兜底）。
@@ -38,7 +35,7 @@ pub struct ReleaseInfo {
     pub notes: String,
     pub asset_name: String,
     pub asset_url: String,
-    /// 字节（API 提供的资产大小；Content-Length 缺失时进度条兜底用它）。
+    /// 字节（清单提供的资产大小；Content-Length 缺失时进度条兜底用它）。
     pub asset_size: u64,
 }
 
@@ -127,6 +124,8 @@ pub fn spawn_check() {
         println!("[update] 已有检查/下载进行中，忽略本次检查请求");
         return;
     }
+    // 先切到 Checking，再打开窗口/启动线程，避免窗口第一帧沿用上一次 Failed 的红字。
+    set(UpdateState::Checking);
     std::thread::spawn(run_check);
 }
 
@@ -208,7 +207,6 @@ pub fn spawn_download() {
 fn run_check() {
     // BUSY 已由 spawn_check 持有；LAST_CHECK 在发起时刷新（失败也不至高频重试）
     LAST_CHECK.store(unix_secs(), Ordering::SeqCst);
-    set(UpdateState::Checking);
     let current = env!("CARGO_PKG_VERSION");
     match fetch_latest() {
         Ok(release) => {
@@ -455,72 +453,36 @@ fn parse_windows_proxy_server(s: &str) -> Option<String> {
 }
 
 fn fetch_latest() -> Result<ReleaseInfo, String> {
-    // 首选静态清单（github.com 网页端点，不受 api.github.com 未认证 60 次/小时
-    // IP 限流约束；Tauri updater 同款模式）；清单缺失/解析失败回退 REST API，
-    // 旧 release（无 latest.json 资产）与新版本无缝共存
     #[cfg(debug_assertions)]
-    if let Ok(url) = std::env::var("GESSO_RELEASE_API") {
-        // 开发验证钩子：覆盖端点作为唯一源（先按清单、再按 API 解析），不叠加回退
-        let body = fetch_text(&url, None)?;
-        return parse_manifest(&body).or_else(|_| parse_release(&body));
-    }
-    if let Ok(body) = fetch_text(RELEASE_MANIFEST, None) {
-        if let Ok(info) = parse_manifest(&body) {
-            return Ok(info);
-        }
-    }
-    let body = fetch_text(RELEASE_API, Some("application/vnd.github+json"))?;
-    parse_release(&body)
+    let endpoint =
+        std::env::var("GESSO_RELEASE_MANIFEST").unwrap_or_else(|_| RELEASE_MANIFEST.to_string());
+    #[cfg(not(debug_assertions))]
+    let endpoint = RELEASE_MANIFEST;
+
+    let body = fetch_text(&endpoint)?;
+    parse_manifest(&body)
+        .map_err(|e| format!("GitHub 更新清单格式无效（{e}）；请前往发布页手动下载"))
 }
 
-/// GET 文本（共用 UA/代理/超时/错误文案；清单路径的失败由调用方降级，不直接见用户）
-fn fetch_text(url: &str, accept: Option<&str>) -> Result<String, String> {
-    let mut req = http_agent()
+/// GET 文本（共用 UA/代理/超时/错误文案）。
+fn fetch_text(url: &str) -> Result<String, String> {
+    let resp = http_agent()
         .get(url)
         .set("User-Agent", &user_agent())
-        .timeout(std::time::Duration::from_secs(15));
-    if let Some(a) = accept {
-        req = req.set("Accept", a);
-    }
-    let resp = req.call().map_err(check_err_message)?;
+        .timeout(std::time::Duration::from_secs(15))
+        .call()
+        .map_err(check_err_message)?;
     resp.into_string().map_err(|e| format!("响应读取失败：{e}"))
 }
 
 /* ---------- 纯函数（单测覆盖） ---------- */
 
-/// 检查失败 → 用户文案。403 且配额耗尽（`x-ratelimit-remaining: 0`）时给限流
-/// 专属说法（含重置倒计时）——共享出口 IP（VPN/代理/运营商 NAT）下同出口所有
-///设备共吃 60 次/小时，与“连不上”的处置完全不同，不能混为一谈。
+/// 清单请求失败的用户文案；更新路径不访问 GitHub REST API，因此不会出现 API 限流误导。
 fn check_err_message(e: ureq::Error) -> String {
-    if let ureq::Error::Status(403, resp) = &e {
-        if resp.header("x-ratelimit-remaining") == Some("0") {
-            let reset = resp
-                .header("x-ratelimit-reset")
-                .and_then(|v| v.parse::<u64>().ok());
-            return rate_limit_message(reset, now_unix());
-        }
+    if matches!(e, ureq::Error::Status(404, _)) {
+        return "GitHub 更新清单暂未发布；请前往发布页手动下载".into();
     }
-    format!("无法连接 GitHub（{e}）；请检查网络后重试，或前往发布页手动下载")
-}
-
-/// 限流文案：按重置时刻算剩余分钟（向上取整、至少 1）；拿不到重置头就给通用说法。
-fn rate_limit_message(reset_epoch: Option<u64>, now: u64) -> String {
-    match reset_epoch {
-        Some(reset) => {
-            let mins = reset.saturating_sub(now).div_ceil(60);
-            format!(
-                "GitHub 接口限流：未认证请求按 IP 每小时 60 次，本 IP 配额已用尽，约 {mins} 分钟后重置；稍后重试，或前往发布页手动下载"
-            )
-        }
-        None => "GitHub 接口限流：未认证请求按 IP 每小时 60 次，本 IP 配额已用尽；稍后重试，或前往发布页手动下载".into(),
-    }
-}
-
-fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    format!("无法获取 GitHub 更新清单（{e}）；请检查网络后重试，或前往发布页手动下载")
 }
 
 /// 语义版本三元组比较；任一侧无法解析（含预发布后缀剥离后仍非法）保守返回 false。
@@ -544,50 +506,9 @@ fn triplet(v: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-/// 从 GitHub Release JSON 提取本平台可交付信息。
-pub fn parse_release(json: &str) -> Result<ReleaseInfo, String> {
-    let v: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| format!("发布信息解析失败：{e}"))?;
-    let version = v
-        .get("tag_name")
-        .and_then(|t| t.as_str())
-        .ok_or("发布信息缺少 tag_name")?
-        .trim()
-        .trim_start_matches('v')
-        .to_string();
-    let notes = v
-        .get("body")
-        .and_then(|b| b.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let assets = v
-        .get("assets")
-        .and_then(|a| a.as_array())
-        .ok_or("发布信息缺少 assets")?;
-    let list: Vec<(String, u64, String)> = assets
-        .iter()
-        .filter_map(|a| {
-            Some((
-                a.get("name")?.as_str()?.to_string(),
-                a.get("size")?.as_u64()?,
-                a.get("browser_download_url")?.as_str()?.to_string(),
-            ))
-        })
-        .collect();
-    let (asset_name, asset_size, asset_url) =
-        pick_asset(&list).ok_or("该发布没有本平台的安装包（dmg / portable zip / setup.exe）")?;
-    Ok(ReleaseInfo {
-        version,
-        notes,
-        asset_name,
-        asset_url,
-        asset_size,
-    })
-}
-
 /// 静态清单（latest.json，release.yml 随每次发布生成并作为 release 资产上传）
-/// → ReleaseInfo。结构自定但字段与 API 路径同构：`{version, notes, assets:[{name,size,url}]}`。
-/// 解析失败（清单缺失返回的 404 页/HTML）由调用方降级到 API，不直接见用户。
+/// → ReleaseInfo。结构为 `{version, notes, assets:[{name,size,url}]}`。
+/// 解析失败（清单缺失返回的 404 页/HTML）直接提示用户前往发布页，不访问 API。
 pub fn parse_manifest(json: &str) -> Result<ReleaseInfo, String> {
     let v: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("更新清单解析失败：{e}"))?;
@@ -851,43 +772,9 @@ mod tests {
         assert!(!version_newer("0.1.1", "0.1.1-beta"), "同版本预发布不算新");
     }
 
-    const SAMPLE_JSON: &str = r###"{
-        "tag_name": "v0.2.0",
-        "body": "## Fixes\n- 竖版适配",
-        "assets": [
-            {"name": "Gesso-0.2.0-arm64.dmg", "size": 48000000, "browser_download_url": "https://x/arm64.dmg"},
-            {"name": "Gesso-0.2.0-x64.dmg", "size": 52000000, "browser_download_url": "https://x/x64.dmg"},
-            {"name": "Gesso-0.2.0-x64-portable.zip", "size": 41000000, "browser_download_url": "https://x/x64.zip"},
-            {"name": "Gesso-0.2.0-x64-setup.exe", "size": 43000000, "browser_download_url": "https://x/x64-setup.exe"},
-            {"name": "checksums.txt", "size": 400, "browser_download_url": "https://x/checksums.txt"}
-        ]
-    }"###;
-
-    #[test]
-    fn parse_release_extracts_version_notes_and_asset() {
-        let r = parse_release(SAMPLE_JSON).expect("样例可解析");
-        assert_eq!(r.version, "0.2.0");
-        assert!(r.notes.contains("竖版适配"));
-        // 资产按本机平台挑选（§4.7 规则：macOS=dmg / Windows=setup.exe，arch
-        // 命中优先）——期望值按 arch_tag() 动态推导，断言在双平台 CI 都成立
-        let (want_name, want_size, want_url): (&str, u64, &str) = if cfg!(target_os = "macos") {
-            ("Gesso-0.2.0-arm64.dmg", 48000000, "https://x/arm64.dmg")
-        } else {
-            (
-                "Gesso-0.2.0-x64-setup.exe",
-                43000000,
-                "https://x/x64-setup.exe",
-            )
-        };
-        assert_eq!(r.asset_name, want_name, "arch 命中本平台安装包");
-        assert_eq!(r.asset_size, want_size);
-        assert_eq!(r.asset_url, want_url);
-    }
-
     const SAMPLE_MANIFEST: &str = r###"{
         "version": "v0.3.0",
         "notes": "## 更新\n- 不再查询 GitHub API",
-        "pub_date": "2026-10-14T12:00:00Z",
         "assets": [
             {"name": "Gesso-0.3.0-arm64.dmg", "size": 49000000, "url": "https://x/manifest-arm64.dmg"},
             {"name": "Gesso-0.3.0-x64.dmg", "size": 53000000, "url": "https://x/manifest-x64.dmg"},
@@ -929,17 +816,6 @@ mod tests {
             parse_manifest(r#"{"notes":"x","assets":[]}"#).is_err(),
             "缺 version"
         );
-    }
-
-    #[test]
-    fn parse_release_rejects_malformed() {
-        assert!(parse_release("not json").is_err());
-        assert!(
-            parse_release(r#"{"tag_name": "v1.0.0"}"#).is_err(),
-            "缺 assets"
-        );
-        let no_asset = r#"{"tag_name": "v1.0.0", "assets": [{"name": "checksums.txt", "size": 1, "browser_download_url": "https://x"}]}"#;
-        assert!(parse_release(no_asset).is_err(), "无本平台资产 → 明确报错");
     }
 
     #[test]
@@ -1047,16 +923,6 @@ mod tests {
         );
         // 开了但缺地址：不产半截 URI
         assert_eq!(parse_scutil_proxy("HTTPEnable : 1\n HTTPPort : 7890"), None);
-    }
-
-    #[test]
-    fn rate_limit_message_minutes() {
-        // 剩余 1–60 秒 → 1 分钟；整分钟向上取整；无重置头 → 通用说法
-        assert!(rate_limit_message(Some(1000), 999).contains("约 1 分钟后重置"));
-        assert!(rate_limit_message(Some(1120), 1000).contains("约 2 分钟后重置"));
-        assert!(rate_limit_message(Some(940), 1000).contains("稍后重试")); // 已过期也给 1 分钟
-        assert!(rate_limit_message(None, 1000).contains("配额已用尽"));
-        assert!(!rate_limit_message(None, 1000).contains("分钟后"));
     }
 
     #[test]

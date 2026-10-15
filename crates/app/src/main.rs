@@ -59,22 +59,26 @@ fn tray_icon_rgba() -> (Vec<u8>, u32, u32) {
     (buf, info.width, info.height)
 }
 
-/// cargo run 时让 Dock 显示真实应用图标（打包分发后由 bundle 的 Gesso.icns 接管）。
+/// macOS 菜单栏常驻配置：从 Cmd+Tab/Dock 隐去应用，但保留托盘打开普通窗口的能力；
+///窗口图标仍使用真实 Gesso.icns（打包分发后由 bundle 接管）。
 #[cfg(target_os = "macos")]
-fn apply_dock_icon() {
+fn configure_macos_app() {
     use objc2::AnyThread as _;
-    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSImage};
     use objc2_foundation::{MainThreadMarker, NSData};
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
+    // 先设置常驻策略；即使图标资源加载失败，也不能退回 Regular 而出现在 Cmd+Tab。
+    let app = NSApplication::sharedApplication(mtm);
+    let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     let data = NSData::with_bytes(include_bytes!("../assets/icons/mac/Gesso.icns"));
     let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
         return;
     };
     // SAFETY: 主线程（mtm）且 NSApplication 已由 GPUI 启动，官方约束满足
     unsafe {
-        NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
+        app.setApplicationIconImage(Some(&image));
     }
 }
 
@@ -923,8 +927,25 @@ fn focus_or_reopen_main(cx: &mut gpui_kit::gpui::App) {
     }
     if !activated {
         open_main_window(cx);
+        if let Some(handle) = MAIN_WINDOW.lock().ok().and_then(|g| *g) {
+            activate_main_window(handle, cx);
+        }
         println!("[ui] 管理窗口已重建");
     }
+}
+
+fn activate_main_window(handle: gpui_kit::AnyWindowHandle, cx: &mut gpui_kit::gpui::App) {
+    let _ = handle.update(
+        cx,
+        |_: gpui_kit::gpui::AnyView, window, cx: &mut gpui_kit::gpui::App| {
+            cx.activate(true);
+            window.activate_window();
+            window.defer(cx, |window, cx| {
+                window.activate_window();
+                cx.activate(true);
+            });
+        },
+    );
 }
 
 fn apply_autostart(enable: bool) {
@@ -1096,7 +1117,7 @@ fn main() {
             gpui_kit::init(cx);
             ui::theme::init(cx);
             #[cfg(target_os = "macos")]
-            apply_dock_icon();
+            configure_macos_app();
 
             // 显示器拓扑监听先于会话建立：唤醒/重配事件驱动收敛（ARCHITECTURE §2），
             // 事件只翻转纪元代数，下方引擎心跳去抖消费

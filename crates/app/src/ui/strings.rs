@@ -293,7 +293,7 @@ pub const ZH: Texts = Texts {
     update_btn_reveal: "打开所在文件夹",
     update_btn_close: "关闭",
     update_copy_error: "复制错误详情",
-    update_copied: "已复制 ✓",
+    update_copied: "已复制",
     update_btn_retry: "重试",
 
     btn_redetect: "重新检测",
@@ -449,7 +449,7 @@ pub const EN: Texts = Texts {
     update_btn_reveal: "Show in folder",
     update_btn_close: "Close",
     update_copy_error: "Copy error details",
-    update_copied: "Copied ✓",
+    update_copied: "Copied",
     update_btn_retry: "Retry",
 
 
