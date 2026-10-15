@@ -34,19 +34,22 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use windows::core::{w, Interface as _, BOOL, PCSTR, PCWSTR};
+use windows::core::{s, w, Interface as _, BOOL, PCSTR, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDeviceAndSwapChain, ID3D11Buffer, ID3D11RenderTargetView, ID3D11Texture2D,
-    D3D11_BIND_CONSTANT_BUFFER, D3D11_BIND_SHADER_RESOURCE, D3D11_BUFFER_DESC,
-    D3D11_COMPARISON_NEVER, D3D11_CREATE_DEVICE_FLAG, D3D11_FILTER_MIN_MAG_MIP_LINEAR,
-    D3D11_SAMPLER_DESC, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_TEXTURE_ADDRESS_CLAMP,
-    D3D11_USAGE_DEFAULT, D3D11_VIEWPORT,
+    D3D11CreateDeviceAndSwapChain, ID3D11Buffer, ID3D11InputLayout, ID3D11RasterizerState,
+    ID3D11RenderTargetView, ID3D11Texture2D, D3D11_BIND_CONSTANT_BUFFER,
+    D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_VERTEX_BUFFER, D3D11_BUFFER_DESC,
+    D3D11_COMPARISON_NEVER, D3D11_CREATE_DEVICE_FLAG, D3D11_CULL_NONE, D3D11_FILL_SOLID,
+    D3D11_FILTER_MIN_MAG_MIP_LINEAR, D3D11_INPUT_ELEMENT_DESC, D3D11_INPUT_PER_VERTEX_DATA,
+    D3D11_RASTERIZER_DESC, D3D11_SAMPLER_DESC, D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA,
+    D3D11_TEXTURE2D_DESC, D3D11_TEXTURE_ADDRESS_CLAMP, D3D11_USAGE_DEFAULT, D3D11_VIEWPORT,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_MODE_SCALING_UNSPECIFIED,
-    DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
+    DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_UNKNOWN,
+    DXGI_MODE_SCALING_UNSPECIFIED, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_RATIONAL,
+    DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::{
     IDXGISwapChain1, DXGI_PRESENT, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_FLAG,
@@ -1190,6 +1193,68 @@ unsafe fn video_render_loop(
     device.CreateBuffer(&cbuf_desc, None, Some(&mut cbuf))?;
     let cbuf = cbuf.unwrap();
 
+    // 全屏大三角的绕向是实现细节——默认光栅化状态 CullMode=Back 只认一种
+    // 绕向为正面，赌错即整面被剔除且无任何报错。CullNone 是这类三角形的
+    // 标准姿态，让正确性不依赖绕向记忆。
+    let rs_desc = D3D11_RASTERIZER_DESC {
+        FillMode: D3D11_FILL_SOLID,
+        CullMode: D3D11_CULL_NONE,
+        FrontCounterClockwise: BOOL(0),
+        DepthBias: 0,
+        DepthBiasClamp: 0.0,
+        SlopeScaledDepthBias: 0.0,
+        DepthClipEnable: BOOL(1),
+        ScissorEnable: BOOL(0),
+        MultisampleEnable: BOOL(0),
+        AntialiasedLineEnable: BOOL(0),
+    };
+    let mut rs: Option<ID3D11RasterizerState> = None;
+    device.CreateRasterizerState(&rs_desc, Some(&mut rs))?;
+    let rs = rs.unwrap();
+
+    // 全屏大三角顶点缓冲 + 输入布局（顶点见 VIDEO_VERTICES；不用 SV_VertexID，
+    // 原因见 VIDEO_VS 注释——本机实测该路径被驱动静默吞掉）
+    let vb_desc = D3D11_BUFFER_DESC {
+        ByteWidth: (VIDEO_VERTICES.len() * 4) as u32,
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: D3D11_BIND_VERTEX_BUFFER.0 as u32,
+        CPUAccessFlags: 0,
+        MiscFlags: 0,
+        StructureByteStride: 0,
+    };
+    let vb_init = D3D11_SUBRESOURCE_DATA {
+        pSysMem: VIDEO_VERTICES.as_ptr().cast(),
+        SysMemPitch: 0,
+        SysMemSlicePitch: 0,
+    };
+    let mut vb: Option<ID3D11Buffer> = None;
+    device.CreateBuffer(&vb_desc, Some(&vb_init), Some(&mut vb))?;
+    let vb = vb.unwrap();
+    let il_desc = [D3D11_INPUT_ELEMENT_DESC {
+        SemanticName: s!("POSITION"),
+        SemanticIndex: 0,
+        Format: DXGI_FORMAT_R32G32B32A32_FLOAT,
+        InputSlot: 0,
+        AlignedByteOffset: 0,
+        InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
+        InstanceDataStepRate: 0,
+    }];
+    let mut layout: Option<ID3D11InputLayout> = None;
+    device.CreateInputLayout(&il_desc, blob_bytes(&vs_code), Some(&mut layout))?;
+    let layout = layout.unwrap();
+    context.IASetPrimitiveTopology(
+        windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+    );
+    context.IASetInputLayout(&layout);
+    let vb_stride = 16u32;
+    let vb_offset = 0u32;
+    let vb_slot: Option<ID3D11Buffer> = Some(vb);
+    context.IASetVertexBuffers(0, 1, Some(&vb_slot), Some(&vb_stride), Some(&vb_offset));
+    // fit 常量绑进 PS 的 b0——漏绑时 cbuffer 读到空槽全零（scale=0 → tuv=Inf →
+    // 全屏落越界黑），这是 0.1.2 黑屏的另一根因
+    context.PSSetConstantBuffers(0, Some(&[Some(cbuf.clone())]));
+    context.RSSetState(Some(&rs));
+
     let mut backbuffer: Option<ID3D11Texture2D> = Some(swapchain.GetBuffer(0)?);
     let mut rtv: Option<ID3D11RenderTargetView> = None;
     device.CreateRenderTargetView(backbuffer.as_ref().unwrap(), None, Some(&mut rtv))?;
@@ -1342,16 +1407,27 @@ unsafe fn video_render_loop(
     Ok(())
 }
 
-// 填充模式 quad 着色器（§4.4 填充下拉，2026-10-12）：VS 用 SV_VertexID 生成
-// 全屏大三角（免顶点缓冲）；PS 按常量 (scale, offset) 把画布 UV 逆变换到源帧
+// 填充模式 quad 着色器（§4.4 填充下拉，2026-10-12）：VS 从顶点缓冲取全屏
+// 大三角（免顶点循环）；PS 按常量 (scale, offset) 把画布 UV 逆变换到源帧
 // UV 采样，越界落黑 = contain 留边。cover 裁切与 fill 拉伸是同一数学的退化情形。
+// 顶点布局 pos.xy + uv.xy 打包 float4；三个顶点的 uv 与 clip 空间位置同平面
+// 插值，屏幕像素处 uv = (clip+1)/2 与旧 SV_VertexID 写法等价。
+// 不用 SV_VertexID 的原因（2026-10-14 实测 WindowDev/RX580 31.0.12044.3）：
+// 不绑顶点缓冲、仅凭 SV_VertexID 的 Draw 会被驱动静默吞掉——建着色器、
+// Draw 全部无错误，就是一个像素不上屏；顶点缓冲路径同一环境正常。
 const VIDEO_VS: &str = r#"
-void vsMain(uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEXCOORD0) {
-  float2 p = float2((id << 1) & 2, id & 2);
-  uv = p;
-  pos = float4(p * float2(2.0, 2.0) - float2(1.0, 1.0), 0.0, 1.0);
+float4 vsMain(float4 data : POSITION, out float2 uv : TEXCOORD0) : SV_Position {
+  uv = data.zw;
+  return float4(data.xy, 0.0, 1.0);
 }
 "#;
+
+// 全屏大三角（CW 绕向）：clip (-1,-1) (-1,3) (3,-1)，uv 与位置同仿射
+const VIDEO_VERTICES: [f32; 12] = [
+    -1.0, -1.0, 0.0, 1.0, // 左下（屏幕底 = 视频末行）
+    -1.0, 3.0, 0.0, -1.0, // 左上（屏幕顶 = 视频首行；越界补满）
+    3.0, -1.0, 2.0, 1.0, // 右下（越界补满）
+];
 
 const VIDEO_PS: &str = r#"
 Texture2D src : register(t0);
