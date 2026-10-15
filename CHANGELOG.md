@@ -6,7 +6,11 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Added
 
+- 更新器根据 App 当前语言显示双语发布说明，并兼容旧版静态清单格式。
+
 ### Changed
+
+- 发布清单保留旧客户端使用的 `notes`，同时增加 `notes_localized.zh/en` 供新版本按语言选择。
 
 ### Fixed
 

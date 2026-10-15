@@ -108,11 +108,32 @@ jobs:
                       "size": path.stat().st_size,
                       "url": f"https://github.com/{repo}/releases/download/{tag}/{path.name}",
                   })
+          notes = Path("packaging/release-notes", f"{tag}.md").read_text(encoding="utf-8")
+
+          def hidden_notes(marker):
+              try:
+                  content = notes.split(marker, 1)[1].split("-->", 1)[0]
+              except (IndexError, ValueError) as exc:
+                  raise SystemExit(f"{marker} block missing from release notes") from exc
+              return content.strip()
+
+          localized = {
+              "zh": hidden_notes("<!-- GESSO_UPDATE_ZH"),
+              "en": hidden_notes("<!-- GESSO_UPDATE_EN"),
+          }
+          # Keep the legacy string for already-installed clients. New clients
+          # prefer notes_localized and choose one language in the app.
+          fallback_notes = notes.split("<!-- GESSO_UPDATE_ZH", 1)[0].strip()
           manifest = {
               "version": tag.removeprefix("v"),
-              "notes": Path("packaging/release-notes", f"{tag}.md").read_text(encoding="utf-8"),
+              "notes": fallback_notes,
+              "notes_localized": localized,
               "assets": assets,
           }
+          # The visible release body stays bilingual; the hidden blocks above
+          # keep the in-app updater localized without duplicating both languages.
+          if not localized["zh"] or not localized["en"]:
+              raise SystemExit("localized update notes must not be empty")
           Path("latest.json").write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",

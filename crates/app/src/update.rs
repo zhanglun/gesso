@@ -26,13 +26,36 @@ pub const RELEASE_PAGE: &str = "https://github.com/zhanglun/gesso/releases/lates
 /// 自动检查抑制窗口（§4.7：启动首查后每 24h 一次）。
 const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 3600;
 
+/// 发布说明的双语内容。新客户端按当前 App 语言选择；旧清单仍可回退到同一份文本。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseNotes {
+    pub zh: String,
+    pub en: String,
+}
+
+impl ReleaseNotes {
+    fn localized(&self) -> String {
+        if crate::ui::strings::lang() == 1 {
+            if self.en.is_empty() {
+                self.zh.clone()
+            } else {
+                self.en.clone()
+            }
+        } else if self.zh.is_empty() {
+            self.en.clone()
+        } else {
+            self.zh.clone()
+        }
+    }
+}
+
 /// 一次发布的可交付信息（已选定本平台安装包）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseInfo {
     /// 不带 v 前缀的语义版本，如 "0.1.2"。
     pub version: String,
-    /// release body（按纯文本展示）。
-    pub notes: String,
+    /// 发布说明的双语内容，投影到 UI 时按当前 App 语言选择。
+    pub notes: ReleaseNotes,
     pub asset_name: String,
     pub asset_url: String,
     /// 字节（清单提供的资产大小；Content-Length 缺失时进度条兜底用它）。
@@ -509,8 +532,10 @@ fn triplet(v: &str) -> Option<(u64, u64, u64)> {
 }
 
 /// 静态清单（latest.json，release.yml 随每次发布生成并作为 release 资产上传）
-/// → ReleaseInfo。结构为 `{version, notes, assets:[{name,size,url}]}`。
-/// 解析失败（清单缺失返回的 404 页/HTML）直接提示用户前往发布页，不访问 API。
+/// → ReleaseInfo。新结构为 `{version, notes, notes_localized:{zh,en}, assets:[...]}`。
+/// `notes` 保留给旧客户端；新客户端优先读取 `notes_localized`。旧版只有
+/// `notes: "..."` 的清单也继续兼容。解析失败（清单缺失返回的 404 页/HTML）直接
+/// 提示用户前往发布页，不访问 API。
 pub fn parse_manifest(json: &str) -> Result<ReleaseInfo, String> {
     let v: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("更新清单解析失败：{e}"))?;
@@ -522,10 +547,9 @@ pub fn parse_manifest(json: &str) -> Result<ReleaseInfo, String> {
         .trim_start_matches('v')
         .to_string();
     let notes = v
-        .get("notes")
-        .and_then(|b| b.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .get("notes_localized")
+        .map(|value| parse_notes(Some(value)))
+        .unwrap_or_else(|| parse_notes(v.get("notes")));
     let assets = v
         .get("assets")
         .and_then(|a| a.as_array())
@@ -549,6 +573,31 @@ pub fn parse_manifest(json: &str) -> Result<ReleaseInfo, String> {
         asset_url,
         asset_size,
     })
+}
+
+fn parse_notes(value: Option<&serde_json::Value>) -> ReleaseNotes {
+    match value {
+        Some(serde_json::Value::Object(map)) => ReleaseNotes {
+            zh: map
+                .get("zh")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            en: map
+                .get("en")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        },
+        Some(serde_json::Value::String(text)) => ReleaseNotes {
+            zh: text.clone(),
+            en: text.clone(),
+        },
+        _ => ReleaseNotes {
+            zh: String::new(),
+            en: String::new(),
+        },
+    }
 }
 
 /// 本机构建对应的发布资产 arch 标记（与 packaging 产物命名对齐：
@@ -701,7 +750,7 @@ pub fn public_view() -> UpdateView {
             phase: UpdatePhase::Available,
             current_version: current.into(),
             version: r.version.into(),
-            notes: r.notes.into(),
+            notes: r.notes.localized().into(),
             asset_name: r.asset_name.into(),
             asset_size: r.asset_size,
             ..UpdateView::default()
@@ -776,7 +825,11 @@ mod tests {
 
     const SAMPLE_MANIFEST: &str = r###"{
         "version": "v0.3.0",
-        "notes": "## 更新\n- 不再查询 GitHub API",
+        "notes": "legacy notes",
+        "notes_localized": {
+            "zh": "## 更新\n- 不再查询 GitHub API",
+            "en": "## Updates\n- No GitHub API requests"
+        },
         "assets": [
             {"name": "Gesso-0.3.0-arm64.dmg", "size": 49000000, "url": "https://x/manifest-arm64.dmg"},
             {"name": "Gesso-0.3.0-x64.dmg", "size": 53000000, "url": "https://x/manifest-x64.dmg"},
@@ -790,7 +843,8 @@ mod tests {
     fn parse_manifest_extracts_version_notes_and_asset() {
         let r = parse_manifest(SAMPLE_MANIFEST).expect("清单可解析");
         assert_eq!(r.version, "0.3.0");
-        assert!(r.notes.contains("不再查询 GitHub API"));
+        assert!(r.notes.zh.contains("不再查询 GitHub API"));
+        assert!(r.notes.en.contains("No GitHub API requests"));
         if cfg!(target_os = "macos") {
             assert!(r.asset_name.ends_with(".dmg"));
             assert_eq!(
@@ -805,6 +859,36 @@ mod tests {
             assert_eq!(r.asset_name, "Gesso-0.3.0-x64-setup.exe");
             assert_eq!(r.asset_size, 43000000);
         }
+    }
+
+    #[test]
+    fn release_notes_follow_app_language_with_fallback() {
+        let notes = ReleaseNotes {
+            zh: "中文".into(),
+            en: "English".into(),
+        };
+        crate::ui::strings::set_lang(gesso_core::config::Language::Zh);
+        assert_eq!(notes.localized(), "中文");
+        crate::ui::strings::set_lang(gesso_core::config::Language::En);
+        assert_eq!(notes.localized(), "English");
+        let only_zh = ReleaseNotes {
+            zh: "中文".into(),
+            en: String::new(),
+        };
+        assert_eq!(only_zh.localized(), "中文");
+        crate::ui::strings::set_lang(gesso_core::config::Language::Zh);
+    }
+
+    #[test]
+    fn parse_manifest_legacy_notes_fall_back_to_both_languages() {
+        let json = r#"{
+            "version":"0.3.0",
+            "notes":"legacy notes",
+            "assets":[{"name":"Gesso-0.3.0-arm64.dmg","size":1,"url":"https://x/a.dmg"}]
+        }"#;
+        let r = parse_manifest(json).expect("旧版清单可解析");
+        assert_eq!(r.notes.zh, "legacy notes");
+        assert_eq!(r.notes.en, "legacy notes");
     }
 
     #[test]
@@ -873,7 +957,10 @@ mod tests {
         // 进入 Available：首次通知，同代数去重
         set(UpdateState::Available(ReleaseInfo {
             version: "0.2.0".into(),
-            notes: String::new(),
+            notes: ReleaseNotes {
+                zh: String::new(),
+                en: String::new(),
+            },
             asset_name: "a.dmg".into(),
             asset_url: "https://x".into(),
             asset_size: 1,
@@ -885,7 +972,10 @@ mod tests {
         set(UpdateState::Checking);
         set(UpdateState::Available(ReleaseInfo {
             version: "0.3.0".into(),
-            notes: String::new(),
+            notes: ReleaseNotes {
+                zh: String::new(),
+                en: String::new(),
+            },
             asset_name: "a.dmg".into(),
             asset_url: "https://x".into(),
             asset_size: 1,
