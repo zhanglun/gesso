@@ -26,8 +26,8 @@
 cargo build -p gesso-app                  # 构建
 cargo run   -p gesso-app                  # 运行（托盘 + 管理窗口 + 壁纸）
 cargo test  -p gesso-core -p gesso-app    # 单测（core + app 全量）
-cargo clippy -p gesso-core --all-targets -- -D warnings
-cargo fmt -p gesso-core
+cargo clippy -p gesso-core -p gesso-app --all-targets -- -D warnings
+cargo fmt --all
 pkill -f "target/debug/gesso"             # 退出（有单实例锁）
 ```
 
@@ -50,7 +50,7 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 **调试钩子**（仅 debug 构建存在，release 零开销）：
 
 ```bash
-GESSO_QUIT_AFTER_SECS=10 ./target/debug/gesso    # N 秒后走托盘同款优雅退出（拆会话 → restore_desktop → 退进程）
+GESSO_QUIT_AFTER_SECS=10 ./target/debug/gesso    # N 秒后走托盘同款优雅退出（拆会话 → 按平台清理窗口/桌面壳层 → 退进程）
 GESSO_RESTORE_AFTER_SECS=10 ./target/debug/gesso # N 秒后模拟托盘「恢复系统壁纸」（释放全部指派，进程存活）
 ```
 
