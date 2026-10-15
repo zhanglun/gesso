@@ -458,7 +458,7 @@ fn system_proxy_uri() -> Option<String> {
 fn parse_windows_proxy_server(s: &str) -> Option<String> {
     // RegGetValueW 的 pcbData 含结尾 NUL，截出的串带着它——带 NUL 的代理 URI
     // 会被对端拒绝（CONNECT 隧道建不起来，报 Proxy failed to connect）。
-    let s = s.trim_end_matches(' ').trim();
+    let s = s.trim_end_matches('\x00').trim();
     if s.is_empty() {
         return None;
     }
@@ -884,7 +884,10 @@ mod tests {
         let json = r#"{
             "version":"0.3.0",
             "notes":"legacy notes",
-            "assets":[{"name":"Gesso-0.3.0-arm64.dmg","size":1,"url":"https://x/a.dmg"}]
+            "assets":[
+                {"name":"Gesso-0.3.0-arm64.dmg","size":1,"url":"https://x/a.dmg"},
+                {"name":"Gesso-0.3.0-x64-setup.exe","size":1,"url":"https://x/a.exe"}
+            ]
         }"#;
         let r = parse_manifest(json).expect("旧版清单可解析");
         assert_eq!(r.notes.zh, "legacy notes");
