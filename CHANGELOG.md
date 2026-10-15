@@ -6,6 +6,14 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.1.3] - 2026-10-15
+
+### Added
+
 - 更新检查只读取 GitHub Release 里的 `latest.json` 静态清单，不再访问未认证 GitHub API；清单不可用时显示明确失败原因并提供发布页入口。
 
 ### Changed

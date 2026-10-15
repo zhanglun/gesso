@@ -77,7 +77,7 @@ packaging\windows\build_portable.ps1 -SkipBuild   # 复用已有 release，只�
 
 ## Release notes
 
-`release-notes/` 下每个 tag 一份正式文案（当前最新 `v0.1.2.md`），已包含：
+`release-notes/` 下每个 tag 一份正式文案（当前最新 `v0.1.3.md`），已包含：
 下载清单、两平台未签名首次打开说明、已知限制。CI 按 tag 名读取对应文件
 （`packaging/release-notes/<tag>.md`）；**SHA-256 不用手填**——CI 自动生成并附上
 `checksums.txt`。发新版本时复制一份改成对应 tag 名即可。

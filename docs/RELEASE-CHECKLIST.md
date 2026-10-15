@@ -55,7 +55,7 @@ gh release view vX.Y.Z --json assets,tagName
 
 ## 当前版本记录
 
-- `v0.1.2`：已发布。最终覆盖版本指向 `ace16c2`，包含过渡窗终局和同步后的 release notes。
+- `v0.1.3`：已完成发布准备，尚未打 tag。代码质量门通过；待完成发布前实机冒烟后发布。
 - Windows 多显示器真实硬件验证仍是已知缺口，不阻塞当前 macOS/Windows 单屏产物发布，但必须保留在 Roadmap。
 
 ## 归档
