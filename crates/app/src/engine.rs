@@ -10,8 +10,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gesso_core::{
-    AdoptionEvent, AdoptionState, PetInteraction, PetPosition, PetSave, PetSpecies, PetStats,
-    Settings,
+    AdoptionEvent, AdoptionState, PetActivity, PetInteraction, PetPosition, PetSave, PetSize,
+    PetSpecies, PetStats, Settings,
 };
 use gpui_kit::Global;
 
@@ -180,6 +180,10 @@ pub enum EngineAction {
     SavePetPosition(PetPosition),
     /// 宠物窗口的戳/摸互动事件。
     PetInteraction(PetInteraction),
+    /// 更新宠物活动档位并持久化。
+    SetPetActivity(PetActivity),
+    /// 更新宠物尺寸并持久化。
+    SetPetSize(PetSize),
     /// 切换宠物用户可见状态并持久化。
     TogglePetVisibility,
     /// 托盘「管理窗口…」：激活主窗口。

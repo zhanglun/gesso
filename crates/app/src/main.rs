@@ -341,7 +341,11 @@ fn bootstrap() -> (session::SessionManager, bool) {
 
 /// 会话快照 → UI 状态（GessoState.demo=false）。库/显示器/指派/状态取自真源；
 /// 条目失效按素材目录缺失判定（优雅降级：预览灰底 + 红字，永不白屏）。
-fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) -> GessoState {
+fn snapshot_ui(
+    sm: &session::SessionManager,
+    thumbs: &engine::ThumbScheduler,
+    pet: &PetSave,
+) -> GessoState {
     let mut g = GessoState {
         demo: false, // 快照覆盖本地投影；调用方回灌时保留浏览状态
         ..GessoState::default()
@@ -363,6 +367,21 @@ fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) ->
         update_check: cs.update_check,
         desktop_bridge: cs.desktop_bridge,
         ..ui::data::Settings::default()
+    };
+    // 宠物投影：设置页只消费快照，不直接读取 AppState。
+    let pet_save = sm.config();
+    let _ = pet_save;
+    // 宠物投影：设置页只消费快照，不直接读取 AppState。
+    g.pet = ui::data::PetView {
+        adopted: pet.adoption.is_some(),
+        activity: pet.activity,
+        size: pet.size,
+        visible: pet.visible,
+        stats: ui::data::PetStats {
+            companion_seconds: pet.stats.companion_seconds,
+            touch_count: pet.stats.touch_count,
+            poke_count: pet.stats.poke_count,
+        },
     };
     // 软件更新投影（§4.7；真源 = update 模块全局，随快照单向回灌）
     g.update = update::public_view();
@@ -894,6 +913,20 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                 }
             }
         }
+        engine::EngineAction::SetPetActivity(activity) => {
+            if app.pet_save.adoption.is_some() {
+                app.pet_save.activity = activity;
+                app.pet_stats_dirty = true;
+                out.refresh_pet = true;
+            }
+        }
+        engine::EngineAction::SetPetSize(size) => {
+            if app.pet_save.adoption.is_some() {
+                app.pet_save.size = size;
+                app.pet_stats_dirty = true;
+                out.refresh_pet = true;
+            }
+        }
         engine::EngineAction::TogglePetVisibility => {
             if app.pet_save.adoption.is_some() {
                 let mut save = app.pet_save.clone();
@@ -1300,6 +1333,7 @@ fn main() {
             cx.set_global(snapshot_ui(
                 &cx.global::<engine::AppState>().sm,
                 &cx.global::<engine::AppState>().thumbs,
+                &cx.global::<engine::AppState>().pet_save,
             ));
 
             // 托盘（§4.1/§4.2）：左键 = 快速面板；右键 = 菜单。
@@ -1655,6 +1689,7 @@ fn main() {
                             let next = snapshot_ui(
                                 &cx.global::<engine::AppState>().sm,
                                 &cx.global::<engine::AppState>().thumbs,
+                                &cx.global::<engine::AppState>().pet_save,
                             );
                             cx.update_global::<GessoState, _>(|g, _| merge_snapshot(g, next));
                             cx.refresh_windows();
