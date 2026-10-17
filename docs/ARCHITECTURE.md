@@ -45,6 +45,8 @@ The webview (`lb-wry`, the gpui-kit ecosystem fork of wry) is attached as a chil
 
 GPUI owns the manager window and the tray. Both run in the same process/event loop; AppKit windows created by `pin/` coexist with the GPUI app (creation order matters: after `gpui_kit::init`, before GPUI windows — otherwise tray-icon init panics on `NSApplication`).
 
+The macOS desktop pet is a separate AppKit overlay managed by `crates/app/src/pet_window.rs`. It does not enter `SessionManager` or the wallpaper pin layer. Its current placeholder view overrides `hitTest:` so only the padded body rectangle receives mouse events; transparent window areas return `nil` and remain click-through. The rectangle is temporary: production assets should provide alpha/outline hit testing, and interaction classification remains a later `EngineAction` path.
+
 **Display reconfiguration is event-driven convergence, not polling discovery.** During sleep/wake the OS reconfigures displays and WindowServer re-homes desktop-level windows it finds orphaned (clamp/move) and can reset pin invariants — none of which is detectable from our bookkeeping alone. Polling (the old 2 s rescan) both delays the correction until the wrong geometry is visible and risks sampling a half-configured display set. Instead:
 
 - Platform topology events (`CGDisplayReconfigurationCallback` on macOS, `WM_DISPLAYCHANGE` on the hidden listener window on Windows) bump a process-wide epoch counter (`pin::topology_epoch`). The callback does nothing but increment — WindowServer holds locks during delivery.

@@ -15,6 +15,10 @@ mod desktop_bridge;
 mod encoding;
 mod engine;
 mod host_cmd;
+mod pet_adoption_view;
+mod pet_cache;
+mod pet_store;
+mod pet_window;
 mod pin;
 mod protocol;
 mod session;
@@ -26,7 +30,9 @@ mod we_shim;
 
 use std::time::{Duration, Instant};
 
-use gesso_core::{AppConfig, LibraryEntry, SessionState, StartupBehavior, WallpaperKind};
+use gesso_core::{
+    AppConfig, LibraryEntry, PetSave, PetSeed, SessionState, StartupBehavior, WallpaperKind,
+};
 
 use gpui_kit::BorrowAppContext as _;
 use ui::app_state::GessoState;
@@ -547,15 +553,39 @@ struct ActionOutcome {
     open_update_modal: bool,
     /// 界面语言变化（托盘菜单文案需重建，见主循环）。
     lang_changed: bool,
+    /// 请求打开宠物领养小窗。
+    open_pet_adoption: bool,
 }
 
 /// 托盘菜单（文案唯一出处 = ui::strings；语言切换后主循环重建整个菜单，
 /// 事件经全局 handler 按 id 路由，重建不影响逻辑）。
-fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
+fn build_tray_menu_with_pet(
+    autostart_on: bool,
+    adopted: bool,
+    pet_visible: bool,
+) -> tray_icon::menu::Menu {
     use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
     let menu = Menu::new();
     let mi_pause = MenuItem::with_id("pause", ui::strings::TRAY_PAUSE_ALL(), true, None);
     let mi_cycle = MenuItem::with_id("cycle", ui::strings::TRAY_RANDOM(), true, None);
+    let pet_label = if adopted {
+        ui::strings::TRAY_PET_SETTINGS()
+    } else {
+        ui::strings::TRAY_PET_ADOPT()
+    };
+    let mi_pet = MenuItem::with_id("pet-adopt", pet_label, true, None);
+    let mi_pet_visibility = adopted.then(|| {
+        MenuItem::with_id(
+            "pet-toggle",
+            if pet_visible {
+                ui::strings::TRAY_PET_HIDE()
+            } else {
+                ui::strings::TRAY_PET_SHOW()
+            },
+            true,
+            None,
+        )
+    });
     let mi_main = MenuItem::with_id("main", ui::strings::TRAY_MAIN_WINDOW(), true, None);
     let mi_update = MenuItem::with_id("check-update", ui::strings::TRAY_CHECK_UPDATE(), true, None);
     let mi_auto = CheckMenuItem::with_id(
@@ -572,19 +602,22 @@ fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
         true,
         None,
     );
-    menu.append_items(&[
-        &mi_pause,
-        &mi_cycle,
-        &PredefinedMenuItem::separator(),
-        &mi_main,
-        &mi_update,
-        &PredefinedMenuItem::separator(),
-        &mi_auto,
-        &PredefinedMenuItem::separator(),
-        &mi_restore,
-        &mi_quit,
-    ])
-    .expect("菜单");
+    let sep_pet = PredefinedMenuItem::separator();
+    let sep_settings = PredefinedMenuItem::separator();
+    let sep_exit = PredefinedMenuItem::separator();
+    let mut items: Vec<&dyn tray_icon::menu::IsMenuItem> =
+        vec![&mi_pause, &mi_cycle, &sep_pet, &mi_pet];
+    if let Some(item) = mi_pet_visibility.as_ref() {
+        items.push(item);
+    }
+    items.push(&mi_main);
+    items.push(&mi_update);
+    items.push(&sep_settings);
+    items.push(&mi_auto);
+    items.push(&sep_exit);
+    items.push(&mi_restore);
+    items.push(&mi_quit);
+    menu.append_items(&items).expect("菜单");
     menu
 }
 
@@ -602,6 +635,8 @@ fn install_tray_menu_handler() {
                 engine::enqueue(EngineAction::PauseAll(paused));
             }
             "cycle" => engine::enqueue(EngineAction::CycleMain),
+            "pet-adopt" => engine::enqueue(EngineAction::OpenPetAdoption),
+            "pet-toggle" => engine::enqueue(EngineAction::TogglePetVisibility),
             "main" => engine::enqueue(EngineAction::FocusMainWindow),
             // 逃生门：全量恢复系统壁纸（重新指派壁纸会按设置再次接管）
             "restore-wallpaper" => engine::enqueue(EngineAction::RestoreSystemWallpaper),
@@ -623,12 +658,20 @@ fn install_tray_menu_handler() {
 }
 
 /// 构建托盘本体（菜单文案取当前语言；图标平台差异见内注）。
-fn build_tray(autostart_on: bool) -> tray_icon::TrayIcon {
+fn build_tray_with_pet(
+    autostart_on: bool,
+    adopted: bool,
+    pet_visible: bool,
+) -> tray_icon::TrayIcon {
     let (rgba, w, h) = tray_icon_rgba();
     let icon = tray_icon::Icon::from_rgba(rgba, w, h).unwrap();
     let mut tray_builder = tray_icon::TrayIconBuilder::new()
         .with_tooltip("Gesso")
-        .with_menu(Box::new(build_tray_menu(autostart_on)));
+        .with_menu(Box::new(build_tray_menu_with_pet(
+            autostart_on,
+            adopted,
+            pet_visible,
+        )));
     // macOS：黑字形 + template 标志，随菜单栏亮暗自适应；
     // Windows：彩色 compact 应用图标（与任务栏图标同稿，描边字形在托盘尺寸读不出）
     #[cfg(target_os = "macos")]
@@ -641,6 +684,80 @@ fn build_tray(autostart_on: bool) -> tray_icon::TrayIcon {
     }
     // 左/右键都弹菜单（§4.1，2026-10-03 决策：纯菜单形态）
     tray_builder.build().expect("托盘")
+}
+
+fn unix_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
+}
+
+fn persist_pet_adoption(
+    app: &mut engine::AppState,
+    candidates: gesso_core::CandidateSet,
+) -> gesso_core::AdoptionState {
+    let Some(index) = candidates.selected else {
+        return gesso_core::AdoptionState::CandidateSelected(candidates);
+    };
+    if app.pet_storage_blocked {
+        let message = "宠物存档不可写，原文件已保留".to_string();
+        eprintln!("[pet] {message}");
+        app.pet_error = Some(message);
+        return gesso_core::adoption_transition(
+            gesso_core::AdoptionState::Persisting { candidates },
+            gesso_core::AdoptionEvent::PersistFailed,
+        );
+    }
+
+    let candidate = candidates.candidates[index].clone();
+    let pet_id = format!("pet-{}", PetSeed::random().to_hex());
+    let pet = match gesso_core::PetIndividual::from_candidate(candidate, pet_id, unix_timestamp()) {
+        Ok(pet) => pet,
+        Err(error) => {
+            let message = error.to_string();
+            eprintln!("[pet] 领养个体创建失败：{message}");
+            app.pet_error = Some(message);
+            return gesso_core::adoption_transition(
+                gesso_core::AdoptionState::Persisting { candidates },
+                gesso_core::AdoptionEvent::PersistFailed,
+            );
+        }
+    };
+    let cache = pet_cache::PetCacheStore::new(protocol::pet_cache_dir());
+    let cache_dir = match cache.commit(&pet) {
+        Ok(path) => path,
+        Err(error) => {
+            let message = error.to_string();
+            eprintln!("[pet] 领养缓存失败：{message}");
+            app.pet_error = Some(message);
+            return gesso_core::adoption_transition(
+                gesso_core::AdoptionState::Persisting { candidates },
+                gesso_core::AdoptionEvent::PersistFailed,
+            );
+        }
+    };
+    let mut save = app.pet_save.clone();
+    save.adoption = Some(pet);
+    match app.pet_store.save(&save) {
+        Ok(()) => {
+            app.pet_error = None;
+            app.pet_save = save;
+            gesso_core::adoption_transition(
+                gesso_core::AdoptionState::Persisting { candidates },
+                gesso_core::AdoptionEvent::PersistSucceeded,
+            )
+        }
+        Err(error) => {
+            let _ = cache.remove(&cache_dir);
+            let message = error.to_string();
+            eprintln!("[pet] 领养存档失败：{message}");
+            app.pet_error = Some(message);
+            gesso_core::adoption_transition(
+                gesso_core::AdoptionState::Persisting { candidates },
+                gesso_core::AdoptionEvent::PersistFailed,
+            )
+        }
+    }
 }
 
 /// 执行一条引擎动作：只改引擎状态 + 返回需延后的副作用。
@@ -728,6 +845,62 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
             println!("[engine] {monitor_id} fps = {fps}");
             sm.set_fps(&monitor_id, fps);
+        }
+        engine::EngineAction::OpenPetAdoption => out.open_pet_adoption = true,
+        engine::EngineAction::StartPetAdoption { species } => {
+            let event = gesso_core::AdoptionEvent::Start {
+                species,
+                session_seed: PetSeed::random(),
+                generator_version: gesso_core::GENERATOR_VERSION,
+                asset_version: gesso_core::ASSET_VERSION,
+            };
+            app.pet_adoption = gesso_core::adoption_transition(
+                std::mem::replace(&mut app.pet_adoption, gesso_core::AdoptionState::NotAdopted),
+                event,
+            );
+        }
+        engine::EngineAction::PetAdoption(event) => {
+            let current =
+                std::mem::replace(&mut app.pet_adoption, gesso_core::AdoptionState::NotAdopted);
+            let next = gesso_core::adoption_transition(current, event);
+            let gesso_core::AdoptionState::Persisting { candidates } = next else {
+                app.pet_adoption = next;
+                return out;
+            };
+
+            app.pet_adoption = persist_pet_adoption(app, candidates);
+        }
+        engine::EngineAction::SavePetPosition(position) => {
+            let mut save = app.pet_save.clone();
+            save.position = Some(position);
+            match app.pet_store.save(&save) {
+                Ok(()) => {
+                    app.pet_save = save;
+                    app.pet_error = None;
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    eprintln!("[pet] 位置存档失败：{message}");
+                    app.pet_error = Some(message);
+                }
+            }
+        }
+        engine::EngineAction::TogglePetVisibility => {
+            if app.pet_save.adoption.is_some() {
+                let mut save = app.pet_save.clone();
+                save.visible = !save.visible;
+                match app.pet_store.save(&save) {
+                    Ok(()) => {
+                        app.pet_error = None;
+                        app.pet_save = save;
+                    }
+                    Err(error) => {
+                        let message = error.to_string();
+                        eprintln!("[pet] 显示状态保存失败：{message}");
+                        app.pet_error = Some(message);
+                    }
+                }
+            }
         }
         engine::EngineAction::FocusMainWindow => out.focus_main = true,
         // 软件更新（§4.7）：检查/下载在 update 模块自有线程执行（阻塞 IO），
@@ -1096,7 +1269,25 @@ fn main() {
             // 引擎全局（API.md §4：cx.set_global(AppState::new(sm))）+ UI 快照注入
             let autostart_on = sm.config().settings.autostart;
             AUTOSTART_HINT.store(autostart_on, std::sync::atomic::Ordering::SeqCst);
-            cx.set_global(engine::AppState::new(sm));
+            let pet_store = pet_store::PetStore::new(protocol::pet_save_path());
+            let (pet_save, pet_storage_blocked) = match pet_store.load() {
+                Ok(save) => (save, false),
+                Err(error @ pet_store::PetStoreError::CorruptBackedUp { .. }) => {
+                    eprintln!("[pet] 存档已备份，使用空存档启动：{error}");
+                    (PetSave::default(), false)
+                }
+                Err(error) => {
+                    eprintln!("[pet] 存档未加载，宠物存档进入只读保护：{error}");
+                    (PetSave::default(), true)
+                }
+            };
+            cx.set_global(engine::AppState::new(
+                sm,
+                pet_store,
+                pet_save,
+                pet_storage_blocked,
+            ));
+            cx.set_global(pet_window::PetWindowManager::default());
             cx.set_global(snapshot_ui(
                 &cx.global::<engine::AppState>().sm,
                 &cx.global::<engine::AppState>().thumbs,
@@ -1106,7 +1297,15 @@ fn main() {
             // 事件处理器全局按 id 路由，一次注册即可；语言切换后主循环
             // 用同一 build_tray 重建菜单（id 不变，处理逻辑无需重挂）。
             install_tray_menu_handler();
-            let tray: &'static tray_icon::TrayIcon = Box::leak(Box::new(build_tray(autostart_on)));
+            let (pet_adopted, pet_visible) = {
+                let app = cx.global::<engine::AppState>();
+                (app.pet_save.adoption.is_some(), app.pet_save.visible)
+            };
+            let tray: &'static tray_icon::TrayIcon = Box::leak(Box::new(build_tray_with_pet(
+                autostart_on,
+                pet_adopted,
+                pet_visible,
+            )));
 
             cx.spawn(async move |cx| {
                 // 定时基准：150ms 一拍。各周期用拍数命名，不再出现裸魔数。
@@ -1166,6 +1365,7 @@ fn main() {
                     if !engine_actions.is_empty() {
                         let mut focus_main = false;
                         let mut open_update_modal = false;
+                        let mut open_pet_adoption = false;
                         let mut lang_changed = false;
                         cx.update(|cx| {
                             for a in engine_actions {
@@ -1178,19 +1378,28 @@ fn main() {
                                 if out.open_update_modal {
                                     open_update_modal = true;
                                 }
+                                if out.open_pet_adoption {
+                                    open_pet_adoption = true;
+                                }
                                 if out.lang_changed {
                                     lang_changed = true;
                                 }
                             }
-                            // 语言切换：以新语言重建托盘菜单（勾选态取真源 config）
+                            // 语言切换：以新语言重建托盘菜单（勾选态和宠物状态取真源）。
                             if lang_changed {
-                                let autostart_on = cx
-                                    .global::<engine::AppState>()
-                                    .sm
-                                    .config()
-                                    .settings
-                                    .autostart;
-                                tray.set_menu(Some(Box::new(build_tray_menu(autostart_on))));
+                                let (autostart_on, adopted, pet_visible) = {
+                                    let app = cx.global::<engine::AppState>();
+                                    (
+                                        app.sm.config().settings.autostart,
+                                        app.pet_save.adoption.is_some(),
+                                        app.pet_save.visible,
+                                    )
+                                };
+                                tray.set_menu(Some(Box::new(build_tray_menu_with_pet(
+                                    autostart_on,
+                                    adopted,
+                                    pet_visible,
+                                ))));
                             }
                         });
                         // FocusMainWindow 需 window/cx：借用结束后兑现
@@ -1200,6 +1409,9 @@ fn main() {
                         // 更新小窗同理（托盘「检查更新…」入口的 open_modal 兑现）
                         if open_update_modal {
                             cx.update(ui::update_view::open);
+                        }
+                        if open_pet_adoption {
+                            cx.update(pet_adoption_view::open);
                         }
                     }
 
@@ -1288,11 +1500,13 @@ fn main() {
                     if tick != 0 && tick % AUTOPAUSE_EVERY == AUTOPAUSE_OFFSET {
                         let changed = cx.update(|cx| {
                             let snap = bridge::sample();
-                            cx.global_mut::<engine::AppState>().sm.apply_autopause(
-                                snap.locked,
-                                &snap.fullscreen,
-                                snap.on_battery,
-                            )
+                            let app = cx.global_mut::<engine::AppState>();
+                            let pet_fullscreen = !snap.fullscreen.is_empty();
+                            let pet_changed = app.pet_fullscreen != pet_fullscreen;
+                            app.pet_fullscreen = pet_fullscreen;
+                            app.sm
+                                .apply_autopause(snap.locked, &snap.fullscreen, snap.on_battery)
+                                || pet_changed
                         });
                         refresh_ui |= changed;
                     }
@@ -1356,7 +1570,35 @@ fn main() {
                             });
                         }
                     }
+                    let pet_position = cx.update(|cx| {
+                        let (mut save, monitors) = {
+                            let app = cx.global::<engine::AppState>();
+                            (app.pet_save.clone(), app.sm.monitors())
+                        };
+                        if cx.global::<engine::AppState>().pet_fullscreen {
+                            save.visible = false;
+                        }
+                        cx.global_mut::<pet_window::PetWindowManager>()
+                            .sync(&save, &monitors)
+                    });
+                    if let Some(position) = pet_position {
+                        engine::enqueue(engine::EngineAction::SavePetPosition(position));
+                        refresh_ui = true;
+                    }
                     if refresh_ui {
+                        let (autostart_on, adopted, pet_visible) = cx.update(|cx| {
+                            let app = cx.global::<engine::AppState>();
+                            (
+                                app.sm.config().settings.autostart,
+                                app.pet_save.adoption.is_some(),
+                                app.pet_save.visible,
+                            )
+                        });
+                        tray.set_menu(Some(Box::new(build_tray_menu_with_pet(
+                            autostart_on,
+                            adopted,
+                            pet_visible,
+                        ))));
                         // 会话 → UI 单向回灌（托盘/界面动作 / 显示器热插拔后的跨面同步）
                         cx.update(|cx| {
                             let next = snapshot_ui(

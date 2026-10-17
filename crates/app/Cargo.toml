@@ -54,6 +54,7 @@ windows = { version = "0.62", features = [
   "Win32_UI_HiDpi",                 # PerMonitorV2（main.rs 进程级 DPI 声明）
   "Win32_System_LibraryLoader",     # GetModuleHandleW（窗口类注册）
   "Win32_Storage_Xps",              # PrintWindow（缩略图截图，capture_win）
+  "Win32_Storage_FileSystem",        # PetStore 原子替换
   "Win32_UI_Input_KeyboardAndMouse", # 光标 feed：GetAsyncKeyState/GetLastInputInfo（M5-W）
   "Win32_System_Power",             # 电池：GetSystemPowerStatus（M5-W）
   "Win32_System_RemoteDesktop",     # 锁屏：WTSQuerySessionInformationW（M5-W）
@@ -95,5 +96,6 @@ objc2-core-media = "0.3"
 # shader 缩略图采集（shader_thumb.rs）：WKWebView 快照把宿主页渲染落成 PNG
 objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKSnapshotConfiguration"] }
 block2 = "0.6"
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["CALayer", "objc2-core-foundation", "objc2-core-graphics"] }
 
 

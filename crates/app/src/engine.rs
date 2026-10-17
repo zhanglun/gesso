@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use gesso_core::Settings;
+use gesso_core::{AdoptionEvent, AdoptionState, PetPosition, PetSave, PetSpecies, Settings};
 use gpui_kit::Global;
 
 use crate::session::SessionManager;
@@ -16,14 +16,39 @@ use crate::session::SessionManager;
 /// 引擎全局（API.md §4：cx.set_global(AppState::new(sm))）。
 pub struct AppState {
     pub sm: SessionManager,
+    pub pet_save: PetSave,
+    pub pet_adoption: AdoptionState,
+    pub pet_store: crate::pet_store::PetStore,
+    /// 启动读取失败时禁止用默认值覆盖原存档。
+    pub pet_storage_blocked: bool,
+    /// 最近一次领养存档错误，仅供领养窗口显示。
+    pub pet_error: Option<String>,
+    /// 全屏应用出现时隐藏宠物窗口，但不改写用户的 visible 偏好。
+    pub pet_fullscreen: bool,
     /// 缩略图抽帧调度簿记（主线程独占，见 `ThumbScheduler`）。
     pub thumbs: ThumbScheduler,
 }
 
 impl AppState {
-    pub fn new(sm: SessionManager) -> Self {
+    pub fn new(
+        sm: SessionManager,
+        pet_store: crate::pet_store::PetStore,
+        pet_save: PetSave,
+        pet_storage_blocked: bool,
+    ) -> Self {
+        let pet_adoption = if pet_save.adoption.is_some() {
+            AdoptionState::Adopted
+        } else {
+            AdoptionState::NotAdopted
+        };
         AppState {
             sm,
+            pet_save,
+            pet_adoption,
+            pet_store,
+            pet_storage_blocked,
+            pet_error: None,
+            pet_fullscreen: false,
             thumbs: ThumbScheduler::default(),
         }
     }
@@ -103,6 +128,16 @@ pub enum EngineAction {
     UpdateDownload,
     /// 取消进行中的下载（回到 Available 态并清理 .part）。
     UpdateCancelDownload,
+    /// 打开宠物领养窗口。
+    OpenPetAdoption,
+    /// 创建一轮临时候选。
+    StartPetAdoption { species: PetSpecies },
+    /// 领养 UI 的选择、刷新和确认。
+    PetAdoption(AdoptionEvent),
+    /// 保存宠物窗口拖动后的显示器归属和屏内位置。
+    SavePetPosition(PetPosition),
+    /// 切换宠物用户可见状态并持久化。
+    TogglePetVisibility,
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
     /// 托盘「恢复系统壁纸」：桌面桥接全量恢复（逃生门——怀疑接管残留时用；

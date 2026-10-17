@@ -1,0 +1,376 @@
+//! macOS 宠物窗口：独立 AppKit overlay，不经 GPUI/SessionManager。
+//!
+//! 当前只提供无互动的程序化占位外观；窗口生命周期和显示状态由引擎主循环同步。
+
+use crate::pin::MonitorInfo;
+use gesso_core::{PetSave, PetSpecies};
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{define_class, msg_send, MainThreadOnly};
+    use objc2_app_kit::{
+        NSColor, NSFloatingWindowLevel, NSView, NSWindow, NSWindowCollectionBehavior,
+        NSWindowStyleMask,
+    };
+    use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
+    use objc2_quartz_core::CALayer;
+
+    use super::{MonitorInfo, PetSave, PetSpecies};
+
+    const WINDOW_W: f64 = 180.0;
+    const WINDOW_H: f64 = 180.0;
+    const BODY_W: f64 = 92.0;
+    const BODY_H: f64 = 100.0;
+
+    const HIT_PADDING: f64 = 8.0;
+
+    define_class!(
+        #[unsafe(super(NSView))]
+        #[thread_kind = MainThreadOnly]
+        #[ivars = ()]
+        struct PetHitView;
+
+        impl PetHitView {
+            #[unsafe(method(hitTest:))]
+            fn hit_test(&self, point: NSPoint) -> *mut AnyObject {
+                let body = NSRect::new(
+                    NSPoint::new(44.0 - HIT_PADDING, 32.0 - HIT_PADDING),
+                    NSSize::new(BODY_W + HIT_PADDING * 2.0, BODY_H + HIT_PADDING * 2.0),
+                );
+                let inside = point.x >= body.origin.x
+                    && point.x <= body.origin.x + body.size.width
+                    && point.y >= body.origin.y
+                    && point.y <= body.origin.y + body.size.height;
+                if inside {
+                    self as *const Self as *mut AnyObject
+                } else {
+                    std::ptr::null_mut()
+                }
+            }
+        }
+    );
+
+    impl PetHitView {
+        fn new(frame: NSRect, mtm: MainThreadMarker) -> Retained<Self> {
+            let view: Retained<Self> = unsafe { msg_send![Self::alloc(mtm), initWithFrame: frame] };
+            view.setWantsLayer(true);
+            view
+        }
+    }
+
+    #[derive(Default)]
+    pub struct PetWindowManager {
+        window: Option<Retained<NSWindow>>,
+        pet_id: Option<String>,
+        last_reported_position: Option<(String, f32, f32)>,
+        last_applied_origin: Option<(f64, f64)>,
+    }
+
+    impl gpui_kit::Global for PetWindowManager {}
+
+    impl PetWindowManager {
+        pub fn sync(
+            &mut self,
+            save: &PetSave,
+            monitors: &[MonitorInfo],
+        ) -> Option<gesso_core::PetPosition> {
+            let Some(pet) = save.adoption.as_ref() else {
+                self.hide();
+                return None;
+            };
+            if !save.visible {
+                self.hide();
+                return None;
+            }
+            let Some(monitor) = choose_monitor(save, monitors) else {
+                self.hide();
+                return None;
+            };
+
+            if self.pet_id.as_deref() != Some(&pet.pet_id) {
+                self.hide();
+                self.window = Some(create_window(pet.species, &pet.appearance));
+                self.pet_id = Some(pet.pet_id.clone());
+                self.last_reported_position = None;
+                self.last_applied_origin = None;
+            }
+            let window = self.window.as_ref()?;
+            let (x, y, w, h) = monitor.frame;
+            let (rx, ry) = save
+                .position
+                .as_ref()
+                .filter(|position| position.monitor_id == monitor.id)
+                .map(|position| {
+                    (
+                        position.x.clamp(0.0, 1.0) as f64,
+                        position.y.clamp(0.0, 1.0) as f64,
+                    )
+                })
+                .unwrap_or((0.88, 0.08));
+            let (px, py) = window_origin((x, y, w, h), rx, ry);
+            let actual = window.frame();
+            let at_target =
+                (actual.origin.x - px).abs() <= 2.0 && (actual.origin.y - py).abs() <= 2.0;
+            if !at_target {
+                let target_changed = self.last_applied_origin.is_some_and(|applied| {
+                    (applied.0 - px).abs() > 2.0 || (applied.1 - py).abs() > 2.0
+                });
+                if !target_changed {
+                    if let Some(applied) = self.last_applied_origin {
+                        let moved = (actual.origin.x - applied.0).abs() > 2.0
+                            || (actual.origin.y - applied.1).abs() > 2.0;
+                        if moved {
+                            if let Some(position) = position_for_frame(actual, monitors) {
+                                let key = (position.monitor_id.clone(), position.x, position.y);
+                                if self.last_reported_position.as_ref() != Some(&key) {
+                                    self.last_reported_position = Some(key);
+                                    return Some(position);
+                                }
+                            }
+                            // 等待引擎把新位置写回后再施加目标，避免拖动被旧存档抢回。
+                            return None;
+                        }
+                    }
+                }
+                window.setFrame_display(
+                    NSRect::new(NSPoint::new(px, py), NSSize::new(WINDOW_W, WINDOW_H)),
+                    true,
+                );
+            }
+            self.last_reported_position = None;
+            self.last_applied_origin = Some((px, py));
+            window.setLevel(NSFloatingWindowLevel);
+            window.orderFrontRegardless();
+            None
+        }
+
+        fn hide(&self) {
+            if let Some(window) = &self.window {
+                window.orderOut(None);
+            }
+        }
+    }
+
+    fn window_origin((x, y, w, h): (f64, f64, f64, f64), rx: f64, ry: f64) -> (f64, f64) {
+        (
+            x + ((w - WINDOW_W).max(0.0) * rx),
+            y + ((h - WINDOW_H).max(0.0) * ry),
+        )
+    }
+
+    fn position_for_frame(
+        frame: objc2_foundation::NSRect,
+        monitors: &[MonitorInfo],
+    ) -> Option<gesso_core::PetPosition> {
+        let center = (
+            frame.origin.x + frame.size.width / 2.0,
+            frame.origin.y + frame.size.height / 2.0,
+        );
+        let monitor = monitors
+            .iter()
+            .find(|m| {
+                center.0 >= m.frame.0
+                    && center.0 <= m.frame.0 + m.frame.2
+                    && center.1 >= m.frame.1
+                    && center.1 <= m.frame.1 + m.frame.3
+            })
+            .or_else(|| {
+                monitors.iter().min_by(|a, b| {
+                    distance_sq(center, a.frame).total_cmp(&distance_sq(center, b.frame))
+                })
+            })?;
+        let x = ((frame.origin.x - monitor.frame.0) / (monitor.frame.2 - WINDOW_W).max(1.0))
+            .clamp(0.0, 1.0);
+        let y = ((frame.origin.y - monitor.frame.1) / (monitor.frame.3 - WINDOW_H).max(1.0))
+            .clamp(0.0, 1.0);
+        Some(gesso_core::PetPosition {
+            monitor_id: monitor.id.clone(),
+            x: x as f32,
+            y: y as f32,
+        })
+    }
+
+    fn distance_sq(point: (f64, f64), frame: (f64, f64, f64, f64)) -> f64 {
+        let x = point.0.clamp(frame.0, frame.0 + frame.2);
+        let y = point.1.clamp(frame.1, frame.1 + frame.3);
+        (point.0 - x).powi(2) + (point.1 - y).powi(2)
+    }
+
+    fn choose_monitor<'a>(save: &PetSave, monitors: &'a [MonitorInfo]) -> Option<&'a MonitorInfo> {
+        save.position
+            .as_ref()
+            .and_then(|position| monitors.iter().find(|m| m.id == position.monitor_id))
+            .or_else(|| monitors.iter().find(|m| m.is_main))
+            .or_else(|| monitors.first())
+    }
+
+    fn color(red: f64, green: f64, blue: f64) -> Retained<NSColor> {
+        NSColor::colorWithSRGBRed_green_blue_alpha(red, green, blue, 1.0)
+    }
+
+    fn add_layer(root: &CALayer, frame: NSRect, fill: &NSColor, radius: f64) {
+        let layer = CALayer::layer();
+        layer.setFrame(frame);
+        let cg_color = fill.CGColor();
+        layer.setBackgroundColor(Some(&cg_color));
+        layer.setCornerRadius(radius);
+        layer.setMasksToBounds(true);
+        root.addSublayer(&layer);
+    }
+
+    fn create_window(
+        species: PetSpecies,
+        appearance: &gesso_core::AppearanceParams,
+    ) -> Retained<NSWindow> {
+        let mtm = MainThreadMarker::new().expect("宠物窗口必须在主线程创建");
+        let window = unsafe { NSWindow::new(mtm) };
+        window.setStyleMask(NSWindowStyleMask::Borderless);
+        window.setOpaque(false);
+        window.setHasShadow(false);
+        window.setBackgroundColor(Some(&NSColor::clearColor()));
+        window.setIgnoresMouseEvents(false);
+        window.setMovable(true);
+        window.setMovableByWindowBackground(false);
+        window.setLevel(NSFloatingWindowLevel);
+        window.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::Stationary
+                | NSWindowCollectionBehavior::FullScreenAuxiliary
+                | NSWindowCollectionBehavior::IgnoresCycle,
+        );
+
+        let content = window.contentView().expect("宠物窗口 contentView 缺失");
+        let hit_view = PetHitView::new(
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(WINDOW_W, WINDOW_H)),
+            mtm,
+        );
+        content.addSubview(&hit_view);
+        let root = hit_view.layer().expect("宠物窗口 layer 缺失");
+        root.setFrame(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(WINDOW_W, WINDOW_H),
+        ));
+        root.setMasksToBounds(false);
+
+        let coat = match species {
+            PetSpecies::Cat => {
+                let palettes = [(0.95, 0.67, 0.45), (0.72, 0.52, 0.38), (0.88, 0.79, 0.62)];
+                palettes[usize::from(appearance.coat_color) % palettes.len()]
+            }
+            PetSpecies::Jelly => (0.42, 0.78, 0.95),
+        };
+        let body = color(coat.0, coat.1, coat.2);
+        let face = color(0.12, 0.10, 0.14);
+        let highlight = color(1.0, 1.0, 1.0);
+        let accent = match species {
+            PetSpecies::Cat => color(0.96, 0.44, 0.43),
+            PetSpecies::Jelly => color(0.72, 0.44, 0.95),
+        };
+
+        add_layer(
+            &root,
+            NSRect::new(NSPoint::new(44.0, 32.0), NSSize::new(BODY_W, BODY_H)),
+            &body,
+            if species == PetSpecies::Cat {
+                34.0
+            } else {
+                24.0
+            },
+        );
+        add_layer(
+            &root,
+            NSRect::new(NSPoint::new(62.0, 83.0), NSSize::new(12.0, 18.0)),
+            &face,
+            6.0,
+        );
+        add_layer(
+            &root,
+            NSRect::new(NSPoint::new(106.0, 83.0), NSSize::new(12.0, 18.0)),
+            &face,
+            6.0,
+        );
+        add_layer(
+            &root,
+            NSRect::new(NSPoint::new(65.0, 91.0), NSSize::new(4.0, 5.0)),
+            &highlight,
+            2.0,
+        );
+        add_layer(
+            &root,
+            NSRect::new(NSPoint::new(109.0, 91.0), NSSize::new(4.0, 5.0)),
+            &highlight,
+            2.0,
+        );
+        add_layer(
+            &root,
+            NSRect::new(NSPoint::new(84.0, 68.0), NSSize::new(12.0, 7.0)),
+            &accent,
+            4.0,
+        );
+
+        window
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::window_origin;
+        use crate::pin::MonitorInfo;
+
+        #[test]
+        fn pet_window_origin_stays_inside_monitor_when_normalized() {
+            assert_eq!(
+                window_origin((0.0, 0.0, 1440.0, 900.0), 0.88, 0.08),
+                (1108.8, 57.6)
+            );
+            assert_eq!(
+                window_origin((10.0, -20.0, 100.0, 100.0), 1.0, 1.0),
+                (10.0, -20.0)
+            );
+        }
+
+        #[test]
+        fn position_is_clamped_to_monitor_bounds() {
+            let monitors = [MonitorInfo {
+                id: "main".into(),
+                name: "Main".into(),
+                frame: (0.0, 0.0, 1440.0, 900.0),
+                is_main: true,
+            }];
+            let position = super::position_for_frame(
+                objc2_foundation::NSRect::new(
+                    objc2_foundation::NSPoint::new(-100.0, 850.0),
+                    objc2_foundation::NSSize::new(180.0, 180.0),
+                ),
+                &monitors,
+            )
+            .unwrap();
+            assert_eq!(position.monitor_id, "main");
+            assert_eq!(position.x, 0.0);
+            assert_eq!(position.y, 1.0);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod macos {
+    use super::{MonitorInfo, PetSave};
+
+    #[derive(Default)]
+    pub struct PetWindowManager;
+
+    impl gpui_kit::Global for PetWindowManager {}
+
+    impl PetWindowManager {
+        pub fn sync(
+            &mut self,
+            _save: &PetSave,
+            _monitors: &[MonitorInfo],
+        ) -> Option<gesso_core::PetPosition> {
+            None
+        }
+    }
+}
+
+pub use macos::PetWindowManager;
