@@ -1,14 +1,25 @@
+<div align="center">
+  <img src="docs/assets/logo.png" width="128" alt="Gesso app icon" />
+</div>
+
 # Gesso
 
 **A cross-platform dynamic wallpaper engine for Windows and macOS.**
 Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — written in Rust with [GPUI](https://gpui.rs).
 
-[AGENTS.md](AGENTS.md)（AI 会话指南） · [简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+[Download](https://github.com/zhanglun/gesso/releases) · [简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md)
 
-> **Status: v0.1.3 released (2026-10-15)** — [GitHub Releases](https://github.com/zhanglun/gesso/releases) (macOS dmg / Windows installer + portable zip, unsigned).
-> macOS and Windows are working. Windows single-display use is verified; multi-display hardware remains a roadmap item.
+> **Status: v0.1.3 released (2026-10-15)** — macOS and Windows are working (unsigned builds). Windows single-display use is verified; multi-display hardware remains a roadmap item.
 
 ---
+
+## What it looks like
+
+<!-- TODO: app screenshots (capture real windows only, see docs/RELEASE-CHECKLIST.md):
+     ![Gesso manager window — wallpaper library](docs/assets/screenshot-manager.png)
+-->
+
+Gesso lives in the menu bar / tray. The manager window holds the wallpaper library, monitor mapping and settings; the wallpaper itself is pinned below the desktop icon layer — your icons stay on top, visible and clickable, while video / shader / web content keeps playing underneath.
 
 ## What it does
 
@@ -18,6 +29,15 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 - **Real pause** — pausing stops the JS render loop and video decoding, not just the visuals. Full-screen apps and battery mode will pause automatically (see [Roadmap](docs/ROADMAP.md)).
 - **Tray-first UX** — pause/resume and switch wallpapers from the menu bar; open the manager window only when you want to manage content.
 - **No IPC into the app** — wallpaper content is treated as untrusted: it runs in a sandboxed webview and receives only the host's typed pause, frame-rate and input events.
+
+## Get it
+
+Download from [GitHub Releases](https://github.com/zhanglun/gesso/releases): macOS `.dmg`, Windows installer or portable `.zip`.
+
+Builds are **not signed or notarized** (see [Roadmap](docs/ROADMAP.md)), so the first launch needs one extra step:
+
+- **macOS**: right-click the app → **Open** → **Open** (or `xattr -dr com.apple.quarantine /Applications/Gesso.app` in Terminal).
+- **Windows**: SmartScreen → **More info** → **Run anyway**.
 
 ## Platform status
 
@@ -41,20 +61,39 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 | System data bridge (fullscreen/battery auto-pause · time · cursor · idle) | ✅ |
 | Wallpaper Engine `video`/`web` wallpapers (user-driven import, read-only) | ✅ — see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
-## Requirements
+## Built-in wallpapers
+
+Ten samples register on first launch, so the app is useful before you import anything: **Spectrum** (video), **Plasma**, **Aurora**, **Noise Flow**, **Cursor Glow**, **Tide**, **Starfield**, **Silk** and **Ember** (shaders), plus **Clock** (web page). Your own `mp4` / `webm` / `gif` / `webp` / `glsl` / `html` files — or any `https://` URL — can be added from the library.
+
+## For developers
+
+**Requirements**
 
 - **macOS**: Command Line Tools are enough — **Xcode is not required** (Metal shaders are compiled at runtime via the `runtime_shaders` feature in the GPUI snapshot we depend on).
 - **Windows**: MSVC toolchain (WebView2 SDK ships with it); runs verified on real hardware.
 - **Rust**: recent stable (developed on 1.99, matching CI).
 
-## Quick start
+**Quick start**
 
 ```bash
-git clone <this repo> && cd gesso
+git clone https://github.com/zhanglun/gesso.git && cd gesso
 cargo run -p gesso-app          # tray icon + manager window + wallpaper
 ```
 
-First launch registers a built-in sample wallpaper and assigns it to the main display. Everything the app creates lives under:
+First launch registers the built-in sample wallpapers and assigns one to the main display.
+
+**Useful commands**
+
+```bash
+cargo test  -p gesso-core -p gesso-app    # logic tests (fast)
+cargo clippy -p gesso-core --all-targets -- -D warnings
+pkill -f "target/debug/gesso"             # quit (single-instance lock)
+```
+
+<details>
+<summary><b>Where your files live</b></summary>
+
+Everything the app creates stays under:
 
 ```
 ~/Library/Application Support/Gesso/     # macOS   (Windows: %USERPROFILE%\.gesso)
@@ -64,30 +103,24 @@ First launch registers a built-in sample wallpaper and assigns it to the main di
                         # the host page is served by the app via gesso://host
 ```
 
-Useful commands:
+</details>
 
-```bash
-cargo test  -p gesso-core -p gesso-app    # logic tests (fast)
-cargo clippy -p gesso-core --all-targets -- -D warnings
-pkill -f "target/debug/gesso"             # quit (single-instance lock)
-```
-
-## Architecture at a glance
+**Architecture at a glance**
 
 ```
 tray + manager window ── GPUI ──────────┐
                                         │  EngineAction queue (UI → engine)
                                         ▼
-                              ┌──────────────────────┐
-                              │   SessionManager      │  one session per monitor
-                              │   state machine       │  Idle→Loading→Playing→Paused…
-                              └───────┬──────────────┘
+                              ┌────────────────────┐
+                              │   SessionManager    │  one session per monitor
+                              │   state machine     │  Idle→Loading→Playing→Paused…
+                              └───────┬────────────┘
                      pin layer (platform)         content library + config
                               │
               ┌───────────────▼───────────────────────────┐
               │  wallpaper windows = native platform windows │ macOS: AppKit / AVPlayerLayer
               │  WebView for non-video content              │ Windows: WorkerW / MF + DXGI
-              └───────────────────────────────────────────┘
+              └─────────────────────────────────────────────┘
 ```
 
 Key rule: **wallpaper windows are native windows we own, not GPUI windows.** GPUI manages the manager window and tray only — the macOS layering spike showed GPUI's window coordinator keeps rewriting desktop-level fullscreen window geometry, so wallpaper windows bypass it entirely. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · engine API: [crates/app/API.md](crates/app/API.md) · engineering rules & pitfalls: [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md).

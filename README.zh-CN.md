@@ -1,13 +1,24 @@
+<div align="center">
+  <img src="docs/assets/logo.png" width="128" alt="Gesso 应用图标" />
+</div>
+
 # Gesso
 
 **跨平台动态壁纸引擎（Windows / macOS）**——视频、动图、Shader、网页，钉在桌面图标层之下。Rust + [GPUI](https://gpui.rs)。
 
-[AGENTS.md](AGENTS.md)（AI 会话指南） · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [安全策略](SECURITY.md) · [参与开发](CONTRIBUTING.md)
+[下载](https://github.com/zhanglun/gesso/releases) · [English](README.md) · [架构](docs/ARCHITECTURE.md) · [路线图](docs/ROADMAP.md) · [安全策略](SECURITY.md) · [参与开发](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md)
 
-> **状态：v0.1.3 已发布（2026-10-15）** ——[GitHub Releases 下载](https://github.com/zhanglun/gesso/releases)（macOS dmg / Windows 安装包 + 便携 zip，未签名）。
-> macOS 与 Windows 均可用。Windows 单屏已真机验证，多屏硬件仍在路线图中。
+> **状态：v0.1.3 已发布（2026-10-15）**——macOS 与 Windows 均可用（产物未签名）。Windows 单屏已真机验证，多屏硬件仍在路线图中。
 
 ---
+
+## 它长什么样
+
+<!-- TODO: 应用截图（只截真实窗口，见 docs/RELEASE-CHECKLIST.md）：
+     ![Gesso 管理窗口——壁纸库](docs/assets/screenshot-manager.png)
+-->
+
+Gesso 常驻菜单栏/托盘。管理窗口负责壁纸库、显示器映射和设置；壁纸本体钉在桌面图标层之下——图标在最上面照常可见、可点，视频 / Shader / 网页在下面持续播放。
 
 ## 它做什么
 
@@ -17,6 +28,15 @@
 - **暂停是真停**：暂停时 JS 渲染循环停止、视频解码停止，画面定格而非淡出；全屏应用与电池模式下会自动暂停（见[路线图](docs/ROADMAP.md)）。
 - **托盘优先**：暂停/恢复、换壁纸都在菜单栏；管理窗口只用来管内容。
 - **壁纸内容零 IPC**：壁纸内容按不可信代码对待，运行在 webview 沙箱里，只接收宿主页转发的暂停、帧率和输入事件。
+
+## 下载安装
+
+从 [GitHub Releases](https://github.com/zhanglun/gesso/releases) 下载：macOS `.dmg`、Windows 安装包或便携 `.zip`。
+
+产物**未签名、未公证**（见[路线图](docs/ROADMAP.md)），首次打开需要多一步：
+
+- **macOS**：右键应用 → **打开** → **打开**（或在终端执行 `xattr -dr com.apple.quarantine /Applications/Gesso.app`）。
+- **Windows**：SmartScreen → **更多信息** → **仍要运行**。
 
 ## 平台状态
 
@@ -40,20 +60,39 @@
 | 系统数据桥（全屏/电池自动暂停 · 时间脉冲 · 光标跟随 · 空闲降帧） | ✅ |
 | Wallpaper Engine video/web 壁纸（用户主动导入，只读） | ✅，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
-## 环境要求
+## 内置壁纸
+
+首次启动自动注册十款样例，不导入任何东西也能直接用起来：**Spectrum**（视频）、**Plasma**、**Aurora**、**Noise Flow**、**Cursor Glow**、**Tide**、**Starfield**、**Silk**、**Ember**（Shader），以及 **Clock**（网页）。你自己的 `mp4` / `webm` / `gif` / `webp` / `glsl` / `html` 文件——或任意 `https://` 地址——都可以从壁纸库加入。
+
+## 开发者
+
+**环境要求**
 
 - **macOS**：Command Line Tools 即可，**不需要完整 Xcode**（Metal 着色器经 `runtime_shaders` 在运行时编译）。
 - **Windows**：MSVC 工具链（WebView2 SDK 随之提供），已在真机验证运行。
 - **Rust**：较新的 stable（开发用 1.99，与 CI 同步）。
 
-## 快速开始
+**快速开始**
 
 ```bash
-git clone <本仓库> && cd gesso
+git clone https://github.com/zhanglun/gesso.git && cd gesso
 cargo run -p gesso-app          # 托盘图标 + 管理窗口 + 壁纸
 ```
 
-首次启动会注册内置样例壁纸并指派到主显示器。应用生成的文件都在：
+首次启动会注册内置样例壁纸并指派一款到主显示器。
+
+**常用命令**
+
+```bash
+cargo test  -p gesso-core -p gesso-app    # 逻辑单测（秒级）
+cargo clippy -p gesso-core --all-targets -- -D warnings
+pkill -f "target/debug/gesso"             # 退出（有单实例锁）
+```
+
+<details>
+<summary><b>应用文件放在哪</b></summary>
+
+应用生成的文件都在：
 
 ```
 ~/Library/Application Support/Gesso/     # macOS（Windows：%USERPROFILE%\.gesso）
@@ -63,30 +102,24 @@ cargo run -p gesso-app          # 托盘图标 + 管理窗口 + 壁纸
                         # 宿主页由应用经 gesso://host 统一提供，不占用条目目录
 ```
 
-常用命令：
+</details>
 
-```bash
-cargo test  -p gesso-core -p gesso-app    # 逻辑单测（秒级）
-cargo clippy -p gesso-core --all-targets -- -D warnings
-pkill -f "target/debug/gesso"             # 退出（有单实例锁）
-```
-
-## 架构一屏
+**架构一屏**
 
 ```
 托盘 + 管理窗口 ── GPUI ────────────────┐
                                         │  EngineAction 动作队列（UI → 引擎）
                                         ▼
-                              ┌──────────────────────┐
-                              │   会话管理器          │  每显示器一个会话
-                              │   运行时状态机        │  Idle→Loading→Playing→Paused…
-                              └───────┬──────────────┘
+                              ┌────────────────────┐
+                              │   会话管理器        │  每显示器一个会话
+                              │   运行时状态机      │  Idle→Loading→Playing→Paused…
+                              └───────┬────────────┘
                           平台贴壁层             内容库 + 配置
                               │
               ┌───────────────▼───────────────────────────┐
               │  壁纸窗口 = 平台原生窗口                    │  macOS: AppKit / AVPlayerLayer
               │  非视频内容使用 WebView                    │  Windows: WorkerW / MF + DXGI
-              └───────────────────────────────────────────┘
+              └────────────────────────────────────────────┘
 ```
 
 关键限制：**壁纸窗口是自有原生窗口，不是 GPUI 窗口**。实测发现 GPUI 的窗口协调器会反复改写桌面级全屏窗口的位置，两者合不来。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · 引擎接口 [crates/app/API.md](crates/app/API.md) · 工程规则与踩坑 [docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)。

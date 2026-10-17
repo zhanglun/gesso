@@ -8,6 +8,7 @@
 - [ ] 更新 workspace 版本号和对应 release notes。
 - [ ] 更新 `CHANGELOG.md`：将 Unreleased 冻结到目标版本。
 - [ ] 更新 README 和其他用户文案中引用的版本号。
+- [ ] 维护 README 截图（`docs/assets/`）：截图统一为**真实应用窗口**（管理窗口、壁纸效果等），不是单张壁纸的渲染图。按窗口截取需终端有「屏幕录制」权限：`screencapture -x -l<窗口ID>`（gesso 的壁纸窗在图标层之下，整屏截图会带上用户桌面内容，不要用）。
 - [ ] 运行质量门：
   ```bash
   cargo fmt --all --check

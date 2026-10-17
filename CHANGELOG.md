@@ -10,6 +10,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Changed
 
+- README（中英）改版为产品门面：顶部应用图标、新增「下载安装」一节与内置壁纸清单；图片统一放在 `docs/assets/`，发布清单同步新增截图维护步骤。
 - 发布清单保留旧客户端使用的 `notes`，同时增加 `notes_localized.zh/en` 供新版本按语言选择。
 
 ### Fixed
