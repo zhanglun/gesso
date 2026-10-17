@@ -87,7 +87,7 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 引擎把 `SessionManager` 放进 `gpui` 全局状态（`crates/app/src/engine.rs`：`cx.set_global(engine::AppState::new(sm))`）
 - 读：`main.rs::snapshot_ui(&sm)` 生成 `ui::app_state::GessoState`（UI 投影），启动注入 + 轮询回灌（保留 tab/selected/query/filter 等浏览状态）
 - 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
-  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `RestoreSystemWallpaper`（托盘「恢复系统壁纸」逃生门）（另有引擎内部的 `ThumbsDone`，UI 不入队）
+  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `RestoreSystemWallpaper` / `OpenPetAdoption` / `StartPetAdoption` / `PetAdoption` / `SavePetPosition` / `PetInteraction` / `TogglePetVisibility`（宠物相关动作由引擎统一执行，UI 不直接写 `PetStore`；另有引擎内部的 `ThumbsDone`，UI 不入队）
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
 
 ## 4.2 软件更新子系统（§4.7，2026-10-11）
@@ -117,4 +117,5 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 | 渲染器 | 四类全部生效：video / image（gif/webp/jpg/jpeg/png/avif）/ shader（WebGL2 + Shadertoy 子集）/ html（沙箱 iframe）；静态图 Direct 直引源文件，其余类型有真实采集的静态 + hover 帧 |
 | 显示器重配 | epoch 事件驱动收敛（2026-10-11 定稿）：平台拓扑事件 + 1.5s 去抖 + 两段式提交，机制见 ARCHITECTURE §2 |
 | 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；**自动暂停事件源已接（M5）**：全屏 CGWindowList 轮询 + 电池 IOKit，经 `apply_autopause` 驱动；光标 feed 与空闲降帧已接（M5）：NSEvent 位置 + HID 按键/空闲，纯轮询无需授权 |
+| 桌面宠物互动 | macOS 已接入 `PetInteraction`、300ms 连点、6pt 拖动分流、透明区域穿透和约 1s 统计节流写盘；窗口层不直接写存档。Windows 宠物窗口暂不在本阶段 |
 | 导入 I/O 失败反馈 | UI 已把 ImportError（Unsupported/Mkv/Hevc/Io）映射为 i18n 文案提示（`strings.rs`），不再静默 |
