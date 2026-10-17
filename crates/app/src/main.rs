@@ -972,6 +972,18 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         // 拆会话 → 通知 shell 重绘露出原壁纸 → 退进程（此前托盘线程直接
         // process::exit，Drop 全跳过，桌面留黑底）。
         engine::EngineAction::Quit => {
+            if app.pet_stats_dirty && !app.pet_storage_blocked {
+                match app.pet_store.save(&app.pet_save) {
+                    Ok(()) => {
+                        app.pet_stats_dirty = false;
+                        app.pet_error = None;
+                    }
+                    Err(error) => {
+                        eprintln!("[pet] 退出前统计存档失败：{error}");
+                        app.pet_error = Some(error.to_string());
+                    }
+                }
+            }
             app.sm.teardown_all();
             #[cfg(target_os = "windows")]
             pin::windows::restore_desktop();
@@ -1316,6 +1328,10 @@ fn main() {
             let autostart_on = sm.config().settings.autostart;
             AUTOSTART_HINT.store(autostart_on, std::sync::atomic::Ordering::SeqCst);
             let pet_store = pet_store::PetStore::new(protocol::pet_save_path());
+            let cache = pet_cache::PetCacheStore::new(protocol::pet_cache_dir());
+            if let Err(error) = cache.recover() {
+                eprintln!("[pet] 缓存恢复失败，保留正式缓存：{error}");
+            }
             let (pet_save, pet_storage_blocked) = match pet_store.load() {
                 Ok(save) => (save, false),
                 Err(error @ pet_store::PetStoreError::CorruptBackedUp { .. }) => {

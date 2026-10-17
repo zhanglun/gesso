@@ -23,9 +23,8 @@ impl PetStore {
         if save.version != PET_SAVE_VERSION {
             return Err(PetStoreError::UnsupportedVersion(save.version));
         }
-        save.validate()
-            .map_err(|e| self.backup_and_error(PetStoreError::Invalid(e)))?;
-        Ok(save)
+        save.migrate()
+            .map_err(|e| self.backup_and_error(PetStoreError::Invalid(e)))
     }
 
     pub fn save(&self, save: &PetSave) -> Result<(), PetStoreError> {

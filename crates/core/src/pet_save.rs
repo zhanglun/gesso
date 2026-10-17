@@ -113,6 +113,15 @@ impl Default for PetSave {
 }
 
 impl PetSave {
+    /// 版本迁移入口；当前版本没有字段迁移，但所有加载与写入都经过这里。
+    pub fn migrate(self) -> Result<Self, PetSaveError> {
+        if self.version != PET_SAVE_VERSION {
+            return Err(PetSaveError::InvalidVersion);
+        }
+        self.validate()?;
+        Ok(self)
+    }
+
     pub fn record_interaction(&mut self, interaction: PetInteraction) {
         match interaction {
             PetInteraction::Poke => self.stats.poke_count += 1,
@@ -206,6 +215,21 @@ mod tests {
         save.record_interaction(PetInteraction::Touch);
         assert_eq!(save.stats.poke_count, 1);
         assert_eq!(save.stats.touch_count, 2);
+    }
+
+    #[test]
+    fn migrate_accepts_current_save() {
+        let save = PetSave::default();
+        assert_eq!(save.clone().migrate().unwrap(), save);
+    }
+
+    #[test]
+    fn migrate_rejects_unknown_version() {
+        let save = PetSave {
+            version: PET_SAVE_VERSION + 1,
+            ..PetSave::default()
+        };
+        assert!(matches!(save.migrate(), Err(PetSaveError::InvalidVersion)));
     }
 
     #[test]

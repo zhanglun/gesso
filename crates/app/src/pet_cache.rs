@@ -17,6 +17,39 @@ impl PetCacheStore {
         Self { root }
     }
 
+    /// 启动时清理本进程缓存提交留下的临时目录，不触碰正式缓存。
+    pub fn recover(&self) -> Result<(), PetCacheError> {
+        if !self.root.exists() {
+            return Ok(());
+        }
+        for version in std::fs::read_dir(&self.root).map_err(PetCacheError::Io)? {
+            let version = version.map_err(PetCacheError::Io)?;
+            if !version.file_type().map_err(PetCacheError::Io)?.is_dir() {
+                continue;
+            }
+            for asset_version in std::fs::read_dir(version.path()).map_err(PetCacheError::Io)? {
+                let asset_version = asset_version.map_err(PetCacheError::Io)?;
+                if !asset_version
+                    .file_type()
+                    .map_err(PetCacheError::Io)?
+                    .is_dir()
+                {
+                    continue;
+                }
+                for asset in std::fs::read_dir(asset_version.path()).map_err(PetCacheError::Io)? {
+                    let asset = asset.map_err(PetCacheError::Io)?;
+                    if asset.file_type().map_err(PetCacheError::Io)?.is_dir()
+                        && asset.file_name().to_string_lossy().starts_with('.')
+                        && asset.file_name().to_string_lossy().contains(".tmp-")
+                    {
+                        std::fs::remove_dir_all(asset.path()).map_err(PetCacheError::Io)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// 将当前正式个体的缓存元数据原子提交到版本化目录，返回正式目录。
     pub fn commit(&self, pet: &PetIndividual) -> Result<PathBuf, PetCacheError> {
         let version_dir = self
@@ -75,6 +108,12 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("gesso-pet-cache-{}", gesso_core::generate_id()));
         let store = PetCacheStore::new(root.clone());
+        std::fs::create_dir_all(root.join("v1/1/.pet-test.tmp-123")).unwrap();
+        std::fs::write(root.join("v1/1/.pet-test.tmp-123/partial"), b"x").unwrap();
+        std::fs::create_dir_all(root.join("v1/1/keep")).unwrap();
+        store.recover().unwrap();
+        assert!(!root.join("v1/1/.pet-test.tmp-123").exists());
+        assert!(root.join("v1/1/keep").exists());
         let pet = PetIndividual::from_candidate(
             generate_candidate(
                 PetSpecies::Cat,
