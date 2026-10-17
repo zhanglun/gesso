@@ -1,68 +1,218 @@
 //! macOS 宠物窗口：独立 AppKit overlay，不经 GPUI/SessionManager。
 //!
-//! 当前只提供无互动的程序化占位外观；窗口生命周期和显示状态由引擎主循环同步。
+//! 当前使用程序化占位外观；窗口事件通过 EngineAction 进入引擎，生命周期和显示状态由主循环同步。
 
 use crate::pin::MonitorInfo;
 use gesso_core::{PetSave, PetSpecies};
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use std::cell::{Cell, RefCell};
+    use std::time::{Duration, Instant};
+
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2::{define_class, msg_send, MainThreadOnly};
+    use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly, Message};
     use objc2_app_kit::{
-        NSColor, NSFloatingWindowLevel, NSView, NSWindow, NSWindowCollectionBehavior,
-        NSWindowStyleMask,
+        NSBackingStoreType, NSColor, NSEvent, NSFloatingWindowLevel, NSPanel, NSView,
+        NSWindowCollectionBehavior, NSWindowStyleMask,
     };
     use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
     use objc2_quartz_core::CALayer;
 
     use super::{MonitorInfo, PetSave, PetSpecies};
+    use crate::engine::{self, EngineAction};
+    use gesso_core::PetInteraction;
 
-    const WINDOW_W: f64 = 180.0;
-    const WINDOW_H: f64 = 180.0;
+    const DRAG_THRESHOLD: f64 = 6.0;
+    const DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(300);
+
+    fn rounded_rect_contains(point: NSPoint, rect: NSRect, radius: f64) -> bool {
+        if point.x < rect.origin.x
+            || point.x > rect.origin.x + rect.size.width
+            || point.y < rect.origin.y
+            || point.y > rect.origin.y + rect.size.height
+        {
+            return false;
+        }
+        let radius = radius
+            .min(rect.size.width / 2.0)
+            .min(rect.size.height / 2.0);
+        let left = rect.origin.x + radius;
+        let right = rect.origin.x + rect.size.width - radius;
+        let bottom = rect.origin.y + radius;
+        let top = rect.origin.y + rect.size.height - radius;
+        if (left..=right).contains(&point.x) || (bottom..=top).contains(&point.y) {
+            return true;
+        }
+        let corner_x = if point.x < left { left } else { right };
+        let corner_y = if point.y < bottom { bottom } else { top };
+        let dx = point.x - corner_x;
+        let dy = point.y - corner_y;
+        dx * dx + dy * dy <= radius * radius
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ClickOutcome {
+        Poke,
+        Touch,
+        Drag,
+    }
+
+    fn classify_click(distance: f64, elapsed_since_last_click: Option<Duration>) -> ClickOutcome {
+        if distance > DRAG_THRESHOLD {
+            ClickOutcome::Drag
+        } else if elapsed_since_last_click.is_some_and(|elapsed| elapsed <= DOUBLE_CLICK_WINDOW) {
+            ClickOutcome::Touch
+        } else {
+            ClickOutcome::Poke
+        }
+    }
+
+    struct PressState {
+        start: NSPoint,
+        mouse_down: Retained<NSEvent>,
+        dragged: bool,
+    }
+
+    #[derive(Default)]
+    struct PetHitIvars {
+        press: RefCell<Option<PressState>>,
+        pending_click: RefCell<Option<Instant>>,
+        hit_radius: Cell<f64>,
+    }
+
     const BODY_W: f64 = 92.0;
     const BODY_H: f64 = 100.0;
+    const WINDOW_W: f64 = BODY_W;
+    const WINDOW_H: f64 = BODY_H;
 
-    const HIT_PADDING: f64 = 8.0;
+    define_class!(
+        #[unsafe(super(NSPanel))]
+        #[thread_kind = MainThreadOnly]
+        struct PetPanel;
+
+        impl PetPanel {
+            #[unsafe(method(canBecomeKeyWindow))]
+            fn can_become_key_window(&self) -> bool {
+                false
+            }
+
+            #[unsafe(method(canBecomeMainWindow))]
+            fn can_become_main_window(&self) -> bool {
+                false
+            }
+        }
+    );
 
     define_class!(
         #[unsafe(super(NSView))]
         #[thread_kind = MainThreadOnly]
-        #[ivars = ()]
+        #[ivars = PetHitIvars]
         struct PetHitView;
 
         impl PetHitView {
             #[unsafe(method(hitTest:))]
             fn hit_test(&self, point: NSPoint) -> *mut AnyObject {
-                let body = NSRect::new(
-                    NSPoint::new(44.0 - HIT_PADDING, 32.0 - HIT_PADDING),
-                    NSSize::new(BODY_W + HIT_PADDING * 2.0, BODY_H + HIT_PADDING * 2.0),
-                );
-                let inside = point.x >= body.origin.x
-                    && point.x <= body.origin.x + body.size.width
-                    && point.y >= body.origin.y
-                    && point.y <= body.origin.y + body.size.height;
+                let body = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(BODY_W, BODY_H));
+                let inside = rounded_rect_contains(point, body, self.ivars().hit_radius.get());
                 if inside {
                     self as *const Self as *mut AnyObject
                 } else {
                     std::ptr::null_mut()
                 }
             }
+
+            #[unsafe(method(mouseDown:))]
+            fn mouse_down(&self, _event: &NSEvent) {
+                self.window().expect("宠物命中视图必须属于窗口");
+                let cursor = NSEvent::mouseLocation();
+                *self.ivars().press.borrow_mut() = Some(PressState {
+                    start: cursor,
+                    mouse_down: _event.retain(),
+                    dragged: false,
+                });
+            }
+
+            #[unsafe(method(mouseDragged:))]
+            fn mouse_dragged(&self, _event: &NSEvent) {
+                let Some(mut press) = self.ivars().press.borrow_mut().take() else {
+                    return;
+                };
+                let point = NSEvent::mouseLocation();
+                let dx = point.x - press.start.x;
+                let dy = point.y - press.start.y;
+                if !press.dragged
+                    && classify_click((dx * dx + dy * dy).sqrt(), None) == ClickOutcome::Drag
+                {
+                    press.dragged = true;
+                    self.ivars().pending_click.replace(None);
+                    // 一旦超过阈值交给 Window Server；不要再手动 setFrameOrigin，
+                    // 否则会和 AppKit 的拖动循环竞争而抖动。
+                    let window = self.window().expect("宠物命中视图必须属于窗口");
+                    window.performWindowDragWithEvent(&press.mouse_down);
+                }
+                *self.ivars().press.borrow_mut() = Some(press);
+            }
+
+            #[unsafe(method(mouseUp:))]
+            fn mouse_up(&self, _event: &NSEvent) {
+                let Some(press) = self.ivars().press.borrow_mut().take() else {
+                    return;
+                };
+                if press.dragged {
+                    return;
+                }
+                let now = Instant::now();
+                let mut pending = self.ivars().pending_click.borrow_mut();
+                match classify_click(
+                    0.0,
+                    pending.map(|last| now.duration_since(last)),
+                ) {
+                    ClickOutcome::Touch => {
+                        *pending = None;
+                        engine::enqueue(EngineAction::PetInteraction(PetInteraction::Touch));
+                    }
+                    ClickOutcome::Poke => *pending = Some(now),
+                    ClickOutcome::Drag => {}
+                }
+            }
         }
     );
 
     impl PetHitView {
-        fn new(frame: NSRect, mtm: MainThreadMarker) -> Retained<Self> {
-            let view: Retained<Self> = unsafe { msg_send![Self::alloc(mtm), initWithFrame: frame] };
+        fn new(frame: NSRect, mtm: MainThreadMarker, hit_radius: f64) -> Retained<Self> {
+            let allocated = Self::alloc(mtm).set_ivars(PetHitIvars {
+                hit_radius: Cell::new(hit_radius),
+                ..PetHitIvars::default()
+            });
+            let view: Retained<Self> = unsafe { msg_send![super(allocated), initWithFrame: frame] };
             view.setWantsLayer(true);
             view
+        }
+
+        fn is_dragging(&self) -> bool {
+            self.ivars().press.borrow().is_some()
+        }
+
+        fn flush_pending_click(&self) -> bool {
+            let mut pending = self.ivars().pending_click.borrow_mut();
+            if pending.is_some_and(|at| at.elapsed() > DOUBLE_CLICK_WINDOW) {
+                *pending = None;
+                if classify_click(0.0, None) == ClickOutcome::Poke {
+                    engine::enqueue(EngineAction::PetInteraction(PetInteraction::Poke));
+                }
+                true
+            } else {
+                false
+            }
         }
     }
 
     #[derive(Default)]
     pub struct PetWindowManager {
-        window: Option<Retained<NSWindow>>,
+        window: Option<Retained<PetPanel>>,
+        hit_view: Option<Retained<PetHitView>>,
         pet_id: Option<String>,
         last_reported_position: Option<(String, f32, f32)>,
         last_applied_origin: Option<(f64, f64)>,
@@ -91,12 +241,22 @@ mod macos {
 
             if self.pet_id.as_deref() != Some(&pet.pet_id) {
                 self.hide();
-                self.window = Some(create_window(pet.species, &pet.appearance));
+                let (window, hit_view) = create_window(pet.species, &pet.appearance);
+                self.window = Some(window);
+                self.hit_view = Some(hit_view);
                 self.pet_id = Some(pet.pet_id.clone());
                 self.last_reported_position = None;
                 self.last_applied_origin = None;
             }
             let window = self.window.as_ref()?;
+            if let Some(hit_view) = &self.hit_view {
+                hit_view.flush_pending_click();
+                // 鼠标事件和 150ms 主循环共享主线程；拖动期间禁止同步旧存档位置，
+                // 否则一次拖动会在手指位置与旧目标之间来回抢写，产生抖动。
+                if hit_view.is_dragging() {
+                    return None;
+                }
+            }
             let (x, y, w, h) = monitor.frame;
             let (rx, ry) = save
                 .position
@@ -223,15 +383,30 @@ mod macos {
     fn create_window(
         species: PetSpecies,
         appearance: &gesso_core::AppearanceParams,
-    ) -> Retained<NSWindow> {
+    ) -> (Retained<PetPanel>, Retained<PetHitView>) {
         let mtm = MainThreadMarker::new().expect("宠物窗口必须在主线程创建");
-        let window = unsafe { NSWindow::new(mtm) };
-        window.setStyleMask(NSWindowStyleMask::Borderless);
+        let window: Retained<PetPanel> = unsafe {
+            msg_send![
+                super(PetPanel::alloc(mtm).set_ivars(())),
+                initWithContentRect: NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(WINDOW_W, WINDOW_H),
+                ),
+                styleMask: NSWindowStyleMask::Borderless
+                    | NSWindowStyleMask::NonactivatingPanel,
+                backing: NSBackingStoreType::Buffered,
+                defer: false
+            ]
+        };
+        window.setStyleMask(NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel);
+        window.setFloatingPanel(true);
+        window.setBecomesKeyOnlyIfNeeded(true);
+        window.setHidesOnDeactivate(false);
         window.setOpaque(false);
         window.setHasShadow(false);
         window.setBackgroundColor(Some(&NSColor::clearColor()));
         window.setIgnoresMouseEvents(false);
-        window.setMovable(true);
+        window.setMovable(false);
         window.setMovableByWindowBackground(false);
         window.setLevel(NSFloatingWindowLevel);
         window.setCollectionBehavior(
@@ -241,12 +416,17 @@ mod macos {
                 | NSWindowCollectionBehavior::IgnoresCycle,
         );
 
-        let content = window.contentView().expect("宠物窗口 contentView 缺失");
+        let hit_radius = if species == PetSpecies::Cat {
+            34.0
+        } else {
+            24.0
+        };
         let hit_view = PetHitView::new(
             NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(WINDOW_W, WINDOW_H)),
             mtm,
+            hit_radius,
         );
-        content.addSubview(&hit_view);
+        window.setContentView(Some(&hit_view));
         let root = hit_view.layer().expect("宠物窗口 layer 缺失");
         root.setFrame(NSRect::new(
             NSPoint::new(0.0, 0.0),
@@ -271,7 +451,7 @@ mod macos {
 
         add_layer(
             &root,
-            NSRect::new(NSPoint::new(44.0, 32.0), NSSize::new(BODY_W, BODY_H)),
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(BODY_W, BODY_H)),
             &body,
             if species == PetSpecies::Cat {
                 34.0
@@ -281,52 +461,73 @@ mod macos {
         );
         add_layer(
             &root,
-            NSRect::new(NSPoint::new(62.0, 83.0), NSSize::new(12.0, 18.0)),
+            NSRect::new(NSPoint::new(18.0, 51.0), NSSize::new(12.0, 18.0)),
             &face,
             6.0,
         );
         add_layer(
             &root,
-            NSRect::new(NSPoint::new(106.0, 83.0), NSSize::new(12.0, 18.0)),
+            NSRect::new(NSPoint::new(62.0, 51.0), NSSize::new(12.0, 18.0)),
             &face,
             6.0,
         );
         add_layer(
             &root,
-            NSRect::new(NSPoint::new(65.0, 91.0), NSSize::new(4.0, 5.0)),
+            NSRect::new(NSPoint::new(21.0, 59.0), NSSize::new(4.0, 5.0)),
             &highlight,
             2.0,
         );
         add_layer(
             &root,
-            NSRect::new(NSPoint::new(109.0, 91.0), NSSize::new(4.0, 5.0)),
+            NSRect::new(NSPoint::new(65.0, 59.0), NSSize::new(4.0, 5.0)),
             &highlight,
             2.0,
         );
         add_layer(
             &root,
-            NSRect::new(NSPoint::new(84.0, 68.0), NSSize::new(12.0, 7.0)),
+            NSRect::new(NSPoint::new(40.0, 36.0), NSSize::new(12.0, 7.0)),
             &accent,
             4.0,
         );
 
-        window
+        (window, hit_view)
     }
 
     #[cfg(test)]
     mod tests {
-        use super::window_origin;
+        use super::{
+            classify_click, window_origin, ClickOutcome, DOUBLE_CLICK_WINDOW, DRAG_THRESHOLD,
+        };
         use crate::pin::MonitorInfo;
+        use std::time::Duration;
+
+        #[test]
+        fn click_classifier_distinguishes_poke_touch_and_drag() {
+            assert_eq!(classify_click(0.0, None), ClickOutcome::Poke);
+            assert_eq!(
+                classify_click(0.0, Some(DOUBLE_CLICK_WINDOW)),
+                ClickOutcome::Touch
+            );
+            assert_eq!(
+                classify_click(0.0, Some(DOUBLE_CLICK_WINDOW + Duration::from_millis(1))),
+                ClickOutcome::Poke
+            );
+            assert_eq!(classify_click(DRAG_THRESHOLD, None), ClickOutcome::Poke);
+            assert_eq!(
+                classify_click(DRAG_THRESHOLD + 0.001, None),
+                ClickOutcome::Drag
+            );
+        }
 
         #[test]
         fn pet_window_origin_stays_inside_monitor_when_normalized() {
             assert_eq!(
                 window_origin((0.0, 0.0, 1440.0, 900.0), 0.88, 0.08),
-                (1108.8, 57.6)
+                (1186.24, 64.0)
             );
             assert_eq!(
                 window_origin((10.0, -20.0, 100.0, 100.0), 1.0, 1.0),
-                (10.0, -20.0)
+                (18.0, -20.0)
             );
         }
 

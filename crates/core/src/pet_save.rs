@@ -6,6 +6,12 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PetInteraction {
+    Poke,
+    Touch,
+}
+
 use crate::pet::{AppearanceParams, Candidate, PetName, PetSeed, PetSpecies};
 
 pub const PET_SAVE_VERSION: u16 = 1;
@@ -107,6 +113,13 @@ impl Default for PetSave {
 }
 
 impl PetSave {
+    pub fn record_interaction(&mut self, interaction: PetInteraction) {
+        match interaction {
+            PetInteraction::Poke => self.stats.poke_count += 1,
+            PetInteraction::Touch => self.stats.touch_count += 1,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), PetSaveError> {
         if self.version == 0 {
             return Err(PetSaveError::InvalidVersion);
@@ -183,6 +196,16 @@ mod tests {
         assert_eq!(save.activity, PetActivity::Normal);
         assert_eq!(save.size, PetSize::Medium);
         assert!(save.visible);
+    }
+
+    #[test]
+    fn record_interaction_updates_only_matching_counter() {
+        let mut save = PetSave::default();
+        save.record_interaction(PetInteraction::Poke);
+        save.record_interaction(PetInteraction::Touch);
+        save.record_interaction(PetInteraction::Touch);
+        assert_eq!(save.stats.poke_count, 1);
+        assert_eq!(save.stats.touch_count, 2);
     }
 
     #[test]

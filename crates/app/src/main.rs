@@ -555,6 +555,8 @@ struct ActionOutcome {
     lang_changed: bool,
     /// 请求打开宠物领养小窗。
     open_pet_adoption: bool,
+    /// 互动统计已在引擎内更新，刷新宠物投影。
+    refresh_pet: bool,
 }
 
 /// 托盘菜单（文案唯一出处 = ui::strings；语言切换后主循环重建整个菜单，
@@ -869,6 +871,13 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             };
 
             app.pet_adoption = persist_pet_adoption(app, candidates);
+        }
+        engine::EngineAction::PetInteraction(interaction) => {
+            if app.pet_save.adoption.is_some() && !app.pet_storage_blocked {
+                app.pet_save.record_interaction(interaction);
+                app.pet_stats_dirty = true;
+                out.refresh_pet = true;
+            }
         }
         engine::EngineAction::SavePetPosition(position) => {
             let mut save = app.pet_save.clone();
@@ -1367,6 +1376,7 @@ fn main() {
                         let mut open_update_modal = false;
                         let mut open_pet_adoption = false;
                         let mut lang_changed = false;
+                        let mut refresh_pet = false;
                         cx.update(|cx| {
                             for a in engine_actions {
                                 let out =
@@ -1383,6 +1393,9 @@ fn main() {
                                 }
                                 if out.lang_changed {
                                     lang_changed = true;
+                                }
+                                if out.refresh_pet {
+                                    refresh_pet = true;
                                 }
                             }
                             // 语言切换：以新语言重建托盘菜单（勾选态和宠物状态取真源）。
@@ -1402,6 +1415,7 @@ fn main() {
                                 ))));
                             }
                         });
+                        refresh_ui |= refresh_pet;
                         // FocusMainWindow 需 window/cx：借用结束后兑现
                         if focus_main {
                             cx.update(focus_or_reopen_main);
@@ -1413,6 +1427,27 @@ fn main() {
                         if open_pet_adoption {
                             cx.update(pet_adoption_view::open);
                         }
+                    }
+
+                    // 互动统计低频落盘：内存先更新，约 1s 一次合并写盘。
+                    if tick.is_multiple_of(TIME_TICK_EVERY) {
+                        cx.update(|cx| {
+                            let app = cx.global_mut::<engine::AppState>();
+                            if !app.pet_stats_dirty || app.pet_storage_blocked {
+                                return;
+                            }
+                            match app.pet_store.save(&app.pet_save) {
+                                Ok(()) => {
+                                    app.pet_stats_dirty = false;
+                                    app.pet_error = None;
+                                }
+                                Err(error) => {
+                                    let message = error.to_string();
+                                    eprintln!("[pet] 互动统计存档失败：{message}");
+                                    app.pet_error = Some(message);
+                                }
+                            }
+                        });
                     }
 
                     // 导入触发的缩略图生成：统一标记在途，按策略起对应任务

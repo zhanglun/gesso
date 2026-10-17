@@ -8,7 +8,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use gesso_core::{AdoptionEvent, AdoptionState, PetPosition, PetSave, PetSpecies, Settings};
+use gesso_core::{
+    AdoptionEvent, AdoptionState, PetInteraction, PetPosition, PetSave, PetSpecies, Settings,
+};
 use gpui_kit::Global;
 
 use crate::session::SessionManager;
@@ -23,6 +25,8 @@ pub struct AppState {
     pub pet_storage_blocked: bool,
     /// 最近一次领养存档错误，仅供领养窗口显示。
     pub pet_error: Option<String>,
+    /// 互动统计已变更，等待主循环节流写盘。
+    pub pet_stats_dirty: bool,
     /// 全屏应用出现时隐藏宠物窗口，但不改写用户的 visible 偏好。
     pub pet_fullscreen: bool,
     /// 缩略图抽帧调度簿记（主线程独占，见 `ThumbScheduler`）。
@@ -48,6 +52,7 @@ impl AppState {
             pet_store,
             pet_storage_blocked,
             pet_error: None,
+            pet_stats_dirty: false,
             pet_fullscreen: false,
             thumbs: ThumbScheduler::default(),
         }
@@ -136,6 +141,8 @@ pub enum EngineAction {
     PetAdoption(AdoptionEvent),
     /// 保存宠物窗口拖动后的显示器归属和屏内位置。
     SavePetPosition(PetPosition),
+    /// 宠物窗口的戳/摸互动事件。
+    PetInteraction(PetInteraction),
     /// 切换宠物用户可见状态并持久化。
     TogglePetVisibility,
     /// 托盘「管理窗口…」：激活主窗口。

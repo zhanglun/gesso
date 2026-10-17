@@ -26,8 +26,8 @@ pub use pet::{
     PetName, PetSeed, PetSpecies, ASSET_VERSION, GENERATOR_VERSION,
 };
 pub use pet_save::{
-    PetActivity, PetIndividual, PetPosition, PetSave, PetSaveError, PetSize, PetStats,
-    PET_SAVE_VERSION,
+    PetActivity, PetIndividual, PetInteraction, PetPosition, PetSave, PetSaveError, PetSize,
+    PetStats, PET_SAVE_VERSION,
 };
 pub use session::{transfer, SessionEvent, SessionState};
 pub use spec::{AudioPolicy, ContentSpec, Fit, SpecMeta, WallpaperKind};
