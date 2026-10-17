@@ -10,6 +10,7 @@ pub mod content;
 pub mod error;
 pub mod library;
 pub mod pet;
+pub mod pet_behavior;
 pub mod pet_save;
 pub mod session;
 pub mod spec;
@@ -25,6 +26,7 @@ pub use pet::{
     generate_candidate, generate_candidates, AppearanceParams, Candidate, CandidateGenerationError,
     PetName, PetSeed, PetSpecies, ASSET_VERSION, GENERATOR_VERSION,
 };
+pub use pet_behavior::{PetBehavior, PetBehaviorEvent, PetBehaviorState};
 pub use pet_save::{
     PetActivity, PetIndividual, PetInteraction, PetPosition, PetSave, PetSaveError, PetSize,
     PetStats, PET_SAVE_VERSION,
