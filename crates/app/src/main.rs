@@ -368,10 +368,7 @@ fn snapshot_ui(
         desktop_bridge: cs.desktop_bridge,
         ..ui::data::Settings::default()
     };
-    // 宠物投影：设置页只消费快照，不直接读取 AppState。
-    let pet_save = sm.config();
-    let _ = pet_save;
-    // 宠物投影：设置页只消费快照，不直接读取 AppState。
+    // 宠物投影：宠物页只消费快照，不直接读取 AppState。
     g.pet = ui::data::PetView {
         adopted: pet.adoption.is_some(),
         activity: pet.activity,

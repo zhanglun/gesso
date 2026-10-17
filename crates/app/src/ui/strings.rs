@@ -17,6 +17,7 @@ pub struct Texts {
     // 页签
     pub tab_library: &'static str,
     pub tab_monitors: &'static str,
+    pub tab_pet: &'static str,
     pub tab_settings: &'static str,
 
     // 库页工具条
@@ -220,6 +221,7 @@ pub const ZH: Texts = Texts {
 
     tab_library: "壁纸库",
     tab_monitors: "显示器",
+    tab_pet: "宠物",
     tab_settings: "设置",
 
     search_placeholder: "搜索壁纸",
@@ -403,6 +405,7 @@ pub const EN: Texts = Texts {
 
     tab_library: "Library",
     tab_monitors: "Displays",
+    tab_pet: "Pet",
     tab_settings: "Settings",
 
     search_placeholder: "Search wallpapers",
@@ -640,7 +643,8 @@ macro_rules! accessors {
 }
 accessors! {
     app_name => APP_NAME,
-    tab_library => TAB_LIBRARY, tab_monitors => TAB_MONITORS, tab_settings => TAB_SETTINGS,
+    tab_library => TAB_LIBRARY, tab_monitors => TAB_MONITORS, tab_pet => TAB_PET,
+    tab_settings => TAB_SETTINGS,
     search_placeholder => SEARCH_PLACEHOLDER, btn_import => BTN_IMPORT,
     filter_all => FILTER_ALL, filter_we => FILTER_WE,
     hint_library => HINT_LIBRARY, empty_library_title => EMPTY_LIBRARY_TITLE,

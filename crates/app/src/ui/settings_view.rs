@@ -32,8 +32,6 @@ pub struct SettingsView {
     language: StringSelect,
     weather: StringSelect,
     weather_key_input: Entity<InputState>,
-    pet_activity: StringSelect,
-    pet_size: StringSelect,
     /// 重置的内联二次确认（§4.5：红字，先点一次进入确认态，3s 后自动退回）。
     reset_armed: bool,
     /// 构建下拉项时的语言序数。SelectState 持有构建时的选项字符串，
@@ -105,27 +103,6 @@ impl SettingsView {
             ],
             if s.weather_custom_key { 1 } else { 0 },
         );
-        let pet = state(cx).pet;
-        let pet_activity = make_select(
-            window,
-            cx,
-            vec![
-                PET_ACTIVITY_QUIET().to_string(),
-                PET_ACTIVITY_NORMAL().to_string(),
-                PET_ACTIVITY_LIVELY().to_string(),
-            ],
-            pet.activity as usize,
-        );
-        let pet_size = make_select(
-            window,
-            cx,
-            vec![
-                PET_SIZE_SMALL().to_string(),
-                PET_SIZE_MEDIUM().to_string(),
-                PET_SIZE_LARGE().to_string(),
-            ],
-            pet.size as usize,
-        );
 
         // 下拉确认 → 写回全局（全部即时生效）
         cx.subscribe(
@@ -195,38 +172,6 @@ impl SettingsView {
         )
         .detach();
         cx.subscribe(
-            &pet_activity,
-            |_, _, event: &SelectEvent<SearchableVec<String>>, _cx| {
-                if let SelectEvent::Confirm(Some(v)) = event {
-                    let activity = if v == PET_ACTIVITY_QUIET() {
-                        gesso_core::PetActivity::Quiet
-                    } else if v == PET_ACTIVITY_LIVELY() {
-                        gesso_core::PetActivity::Lively
-                    } else {
-                        gesso_core::PetActivity::Normal
-                    };
-                    crate::engine::enqueue(crate::engine::EngineAction::SetPetActivity(activity));
-                }
-            },
-        )
-        .detach();
-        cx.subscribe(
-            &pet_size,
-            |_, _, event: &SelectEvent<SearchableVec<String>>, _cx| {
-                if let SelectEvent::Confirm(Some(v)) = event {
-                    let size = if v == PET_SIZE_SMALL() {
-                        gesso_core::PetSize::Small
-                    } else if v == PET_SIZE_LARGE() {
-                        gesso_core::PetSize::Large
-                    } else {
-                        gesso_core::PetSize::Medium
-                    };
-                    crate::engine::enqueue(crate::engine::EngineAction::SetPetSize(size));
-                }
-            },
-        )
-        .detach();
-        cx.subscribe(
             &weather,
             |_, _, event: &SelectEvent<SearchableVec<String>>, cx| {
                 if let SelectEvent::Confirm(Some(v)) = event {
@@ -258,8 +203,6 @@ impl SettingsView {
             language,
             weather,
             weather_key_input,
-            pet_activity,
-            pet_size,
             reset_armed: false,
             built_lang: super::strings::lang(),
         }
@@ -343,71 +286,6 @@ impl Render for SettingsView {
         }
         let t = tokens(cx);
         let s = state(cx).settings.clone();
-
-        // —— 宠物 ——
-        let pet = state(cx).pet;
-        let pet_rows = if pet.adopted {
-            vec![
-                set_row(
-                    SET_PET_ACTIVITY(),
-                    Some(SET_PET_ACTIVITY_DESC()),
-                    select_slot(
-                        Select::new(&self.pet_activity)
-                            .with_size(Size::Small)
-                            .into_any_element(),
-                    ),
-                    cx,
-                ),
-                set_row(
-                    SET_PET_SIZE(),
-                    None,
-                    select_slot(
-                        Select::new(&self.pet_size)
-                            .with_size(Size::Small)
-                            .into_any_element(),
-                    ),
-                    cx,
-                ),
-                set_row(
-                    SET_PET_VISIBLE(),
-                    None,
-                    Switch::new("set-pet-visible")
-                        .checked(pet.visible)
-                        .on_click(|_, window, _cx| {
-                            crate::engine::enqueue(
-                                crate::engine::EngineAction::TogglePetVisibility,
-                            );
-                            window.refresh();
-                        })
-                        .into_any_element(),
-                    cx,
-                ),
-                set_row(
-                    PET_STATS(),
-                    None,
-                    v_flex()
-                        .gap_1()
-                        .child(format!(
-                            "{}：{} · {}：{} · {}：{}s",
-                            PET_TOUCH_COUNT(),
-                            pet.stats.touch_count,
-                            PET_POKE_COUNT(),
-                            pet.stats.poke_count,
-                            PET_COMPANION_TIME(),
-                            pet.stats.companion_seconds,
-                        ))
-                        .into_any_element(),
-                    cx,
-                ),
-            ]
-        } else {
-            vec![set_row(
-                PET_STATS(),
-                None,
-                div().child(PET_TITLE()).into_any_element(),
-                cx,
-            )]
-        };
 
         // —— 性能 ——
         let perf = vec![
@@ -669,7 +547,6 @@ impl Render for SettingsView {
             .min_h_0()
             .py_2()
             .text_color(t.text1)
-            .child(self.group(div().child(GROUP_PET()).into_any_element(), pet_rows, cx))
             .child(self.group(div().child(GROUP_PERF()).into_any_element(), perf, cx))
             .child(self.group(
                 div().child(GROUP_STARTUP()).into_any_element(),

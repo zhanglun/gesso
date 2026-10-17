@@ -6,9 +6,10 @@
 //! - `data`         数据类型定义
 //! - `app_state`    全局状态（唯一真源；M3 换 Entity 观察模式）
 //! - `widgets`      自绘业务小件（角标/预览/状态行/设置行）
-//! - `shell`        窗口壳：顶栏 + 三页签 + 键盘模型
+//! - `shell`        窗口壳：顶栏 + 四页签 + 键盘模型
 //! - `library_view` 壁纸库页（默认页）
 //! - `monitors_view`显示器页（拓扑 + 投放指派）
+//! - `pet_view`     宠物页（设置与统计，即时生效）
 //! - `settings_view`设置页（分组表单，即时生效）
 //! - `url_import`   「从 URL 导入」小窗（远端网页条目，2026-10-07）
 //! - `update_view`  「软件更新」小窗（§4.7 检查/下载/交付六态，2026-10-11）
@@ -19,6 +20,7 @@ pub mod app_state;
 pub mod data;
 pub mod library_view;
 pub mod monitors_view;
+pub mod pet_view;
 pub mod settings_view;
 pub mod shell;
 pub mod strings;
