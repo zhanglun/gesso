@@ -1538,17 +1538,33 @@ fn main() {
                             let app = cx.global_mut::<engine::AppState>();
                             let pet_fullscreen = !snap.fullscreen.is_empty();
                             let pet_changed = app.pet_fullscreen != pet_fullscreen;
+                            let lock_changed = app.pet_locked != snap.locked;
                             app.pet_fullscreen = pet_fullscreen;
+                            app.pet_locked = snap.locked;
                             app.sm
                                 .apply_autopause(snap.locked, &snap.fullscreen, snap.on_battery)
                                 || pet_changed
+                                || lock_changed
                         });
                         refresh_ui |= changed;
                     }
-                    // 时间脉冲（≈1.05s）：时钟类壁纸的挂钟由引擎驱动
+                    // 时间脉冲（≈1.05s）：时钟类壁纸的挂钟由引擎驱动；同时推进
+                    // 宠物陪伴时间。使用真实单调时间差，不把心跳次数当作秒数。
                     if tick.is_multiple_of(TIME_TICK_EVERY) {
                         cx.update(|cx| {
-                            cx.global_mut::<engine::AppState>().sm.broadcast_time_tick()
+                            let app = cx.global_mut::<engine::AppState>();
+                            app.sm.broadcast_time_tick();
+                            let active = app.pet_save.adoption.is_some()
+                                && app.pet_save.visible
+                                && !app.pet_fullscreen
+                                && !app.pet_locked;
+                            let now = Instant::now();
+                            if app
+                                .pet_companion_clock
+                                .advance(now, active, &mut app.pet_save.stats)
+                            {
+                                app.pet_stats_dirty = true;
+                            }
                         });
                     }
                     // 软件更新自动检查节拍（§4.7）：开关读引擎真源，发起与否由

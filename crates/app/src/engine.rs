@@ -7,9 +7,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use gesso_core::{
-    AdoptionEvent, AdoptionState, PetInteraction, PetPosition, PetSave, PetSpecies, Settings,
+    AdoptionEvent, AdoptionState, PetInteraction, PetPosition, PetSave, PetSpecies, PetStats,
+    Settings,
 };
 use gpui_kit::Global;
 
@@ -29,6 +31,10 @@ pub struct AppState {
     pub pet_stats_dirty: bool,
     /// 全屏应用出现时隐藏宠物窗口，但不改写用户的 visible 偏好。
     pub pet_fullscreen: bool,
+    /// 当前会话是否锁屏；锁屏期间不累计陪伴时间。
+    pub pet_locked: bool,
+    /// 陪伴时间的单调时钟与不足一秒的余数。
+    pub pet_companion_clock: PetCompanionClock,
     /// 缩略图抽帧调度簿记（主线程独占，见 `ThumbScheduler`）。
     pub thumbs: ThumbScheduler,
 }
@@ -54,12 +60,43 @@ impl AppState {
             pet_error: None,
             pet_stats_dirty: false,
             pet_fullscreen: false,
+            pet_locked: false,
+            pet_companion_clock: PetCompanionClock::default(),
             thumbs: ThumbScheduler::default(),
         }
     }
 }
 
 impl Global for AppState {}
+
+#[derive(Debug, Default)]
+pub struct PetCompanionClock {
+    last_at: Option<Instant>,
+    remainder: Duration,
+}
+
+impl PetCompanionClock {
+    /// 推进陪伴时间；inactive 时只重置时间基准，不补算暂停期间。
+    pub fn advance(&mut self, now: Instant, active: bool, stats: &mut PetStats) -> bool {
+        let elapsed = self
+            .last_at
+            .replace(now)
+            .map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
+        if !active {
+            self.remainder = Duration::ZERO;
+            return false;
+        }
+
+        self.remainder = self.remainder.saturating_add(elapsed);
+        let seconds = self.remainder.as_secs();
+        if seconds == 0 {
+            return false;
+        }
+        stats.companion_seconds = stats.companion_seconds.saturating_add(seconds);
+        self.remainder -= Duration::from_secs(seconds);
+        true
+    }
+}
 
 /// 抽帧调度簿记：在途去重 + 每目录重试上限（主线程独占，无锁）。
 ///
@@ -172,6 +209,35 @@ pub fn drain() -> Vec<EngineAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn companion_clock_counts_active_seconds_without_counting_pauses() {
+        let start = Instant::now();
+        let mut clock = PetCompanionClock::default();
+        let mut stats = PetStats::default();
+
+        assert!(!clock.advance(start, true, &mut stats));
+        assert!(clock.advance(start + Duration::from_secs(2), true, &mut stats));
+        assert_eq!(stats.companion_seconds, 2);
+        assert!(!clock.advance(start + Duration::from_secs(10), false, &mut stats));
+        assert_eq!(stats.companion_seconds, 2);
+        assert!(!clock.advance(start + Duration::from_millis(10_500), true, &mut stats));
+        assert!(clock.advance(start + Duration::from_millis(11_500), true, &mut stats));
+        assert_eq!(stats.companion_seconds, 3);
+    }
+
+    #[test]
+    fn companion_clock_saturates_at_u64_max() {
+        let start = Instant::now();
+        let mut clock = PetCompanionClock::default();
+        let mut stats = PetStats {
+            companion_seconds: u64::MAX,
+            ..PetStats::default()
+        };
+        clock.advance(start, true, &mut stats);
+        clock.advance(start + Duration::from_secs(1), true, &mut stats);
+        assert_eq!(stats.companion_seconds, u64::MAX);
+    }
 
     #[test]
     fn scheduler_dedups_in_flight() {
