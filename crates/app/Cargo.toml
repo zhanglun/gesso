@@ -73,6 +73,7 @@ windows = { version = "0.62", features = [
 objc2 = "0.6"
 # thumb.rs write_png：CGImage → PNG 落盘（Apple 专属，Windows 构建必须门控）
 objc2-core-graphics = "0.3"
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSWindow", "NSView", "NSWorkspace", "NSRunningApplication", "NSScreen", "NSColor", "NSResponder", "NSEvent", "libc"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSDictionary", "NSString", "NSURL"] }
 # 缩略图抽帧（thumb.rs）+ 原生视频壁纸窗（pin/macos.rs）：AVFoundation 走 objc2 生成绑定——所有权（init/copy 家族 →

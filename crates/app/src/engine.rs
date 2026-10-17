@@ -10,8 +10,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gesso_core::{
-    AdoptionEvent, AdoptionState, PetActivity, PetInteraction, PetPosition, PetSave, PetSize,
-    PetSpecies, PetStats, Settings,
+    AdoptionEvent, AdoptionState, PetActivity, PetBehavior, PetBehaviorEvent, PetInteraction,
+    PetPosition, PetSave, PetSize, PetSpecies, PetStats, Settings,
 };
 use gpui_kit::Global;
 
@@ -35,6 +35,8 @@ pub struct AppState {
     pub pet_locked: bool,
     /// 陪伴时间的单调时钟与不足一秒的余数。
     pub pet_companion_clock: PetCompanionClock,
+    /// 互动反馈状态机；渲染层只消费当前状态。
+    pub pet_behavior: PetBehavior,
     /// 缩略图抽帧调度簿记（主线程独占，见 `ThumbScheduler`）。
     pub thumbs: ThumbScheduler,
 }
@@ -46,6 +48,7 @@ impl AppState {
         pet_save: PetSave,
         pet_storage_blocked: bool,
     ) -> Self {
+        let pet_behavior = PetBehavior::new(pet_save.activity);
         let pet_adoption = if pet_save.adoption.is_some() {
             AdoptionState::Adopted
         } else {
@@ -62,6 +65,7 @@ impl AppState {
             pet_fullscreen: false,
             pet_locked: false,
             pet_companion_clock: PetCompanionClock::default(),
+            pet_behavior,
             thumbs: ThumbScheduler::default(),
         }
     }
@@ -180,6 +184,8 @@ pub enum EngineAction {
     SavePetPosition(PetPosition),
     /// 宠物窗口的戳/摸互动事件。
     PetInteraction(PetInteraction),
+    /// 宠物窗口行为反馈事件。
+    PetBehavior(PetBehaviorEvent),
     /// 更新宠物活动档位并持久化。
     SetPetActivity(PetActivity),
     /// 更新宠物尺寸并持久化。

@@ -87,7 +87,7 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 引擎把 `SessionManager` 放进 `gpui` 全局状态（`crates/app/src/engine.rs`：`cx.set_global(engine::AppState::new(sm))`）
 - 读：`main.rs::snapshot_ui(&sm)` 生成 `ui::app_state::GessoState`（UI 投影），启动注入 + 轮询回灌（保留 tab/selected/query/filter 等浏览状态）
 - 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
-  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `RestoreSystemWallpaper` / `OpenPetAdoption` / `StartPetAdoption` / `PetAdoption` / `SavePetPosition` / `PetInteraction` / `TogglePetVisibility`（宠物相关动作由引擎统一执行，UI 不直接写 `PetStore`；另有引擎内部的 `ThumbsDone`，UI 不入队）
+  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `RestoreSystemWallpaper` / `OpenPetAdoption` / `StartPetAdoption` / `PetAdoption` / `SavePetPosition` / `PetInteraction` / `PetBehavior` / `TogglePetVisibility`（宠物相关动作由引擎统一执行，UI 不直接写 `PetStore`；另有引擎内部的 `ThumbsDone`，UI 不入队）
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
 
 ## 4.2 软件更新子系统（§4.7，2026-10-11）

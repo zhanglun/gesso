@@ -898,6 +898,9 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                 out.refresh_pet = true;
             }
         }
+        engine::EngineAction::PetBehavior(event) => {
+            app.pet_behavior.handle(event);
+        }
         engine::EngineAction::SavePetPosition(position) => {
             let mut save = app.pet_save.clone();
             save.position = Some(position);
@@ -916,6 +919,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::SetPetActivity(activity) => {
             if app.pet_save.adoption.is_some() {
                 app.pet_save.activity = activity;
+                app.pet_behavior.set_activity(activity);
                 app.pet_stats_dirty = true;
                 out.refresh_pet = true;
             }
@@ -1599,6 +1603,7 @@ fn main() {
                             {
                                 app.pet_stats_dirty = true;
                             }
+                            app.pet_behavior.tick(Duration::from_millis(1050));
                         });
                     }
                     // 软件更新自动检查节拍（§4.7）：开关读引擎真源，发起与否由
@@ -1663,8 +1668,9 @@ fn main() {
                         if cx.global::<engine::AppState>().pet_fullscreen {
                             save.visible = false;
                         }
+                        let behavior = cx.global::<engine::AppState>().pet_behavior;
                         cx.global_mut::<pet_window::PetWindowManager>()
-                            .sync(&save, &monitors)
+                            .sync(&save, &monitors, behavior)
                     });
                     if let Some(position) = pet_position {
                         engine::enqueue(engine::EngineAction::SavePetPosition(position));

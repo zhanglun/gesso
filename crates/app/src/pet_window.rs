@@ -17,12 +17,13 @@ mod macos {
         NSBackingStoreType, NSColor, NSEvent, NSFloatingWindowLevel, NSPanel, NSView,
         NSWindowCollectionBehavior, NSWindowStyleMask,
     };
+    use objc2_core_foundation::CGAffineTransform;
     use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
     use objc2_quartz_core::CALayer;
 
     use super::{MonitorInfo, PetSave, PetSpecies};
     use crate::engine::{self, EngineAction};
-    use gesso_core::PetInteraction;
+    use gesso_core::{PetBehaviorEvent, PetBehaviorState, PetInteraction};
 
     const DRAG_THRESHOLD: f64 = 6.0;
     const DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(300);
@@ -147,6 +148,7 @@ mod macos {
                 {
                     press.dragged = true;
                     self.ivars().pending_click.replace(None);
+                    engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::DragStarted));
                     // 一旦超过阈值交给 Window Server；不要再手动 setFrameOrigin，
                     // 否则会和 AppKit 的拖动循环竞争而抖动。
                     let window = self.window().expect("宠物命中视图必须属于窗口");
@@ -161,6 +163,7 @@ mod macos {
                     return;
                 };
                 if press.dragged {
+                    engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::DragEnded));
                     return;
                 }
                 let now = Instant::now();
@@ -172,6 +175,7 @@ mod macos {
                     ClickOutcome::Touch => {
                         *pending = None;
                         engine::enqueue(EngineAction::PetInteraction(PetInteraction::Touch));
+                        engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::Touch));
                     }
                     ClickOutcome::Poke => *pending = Some(now),
                     ClickOutcome::Drag => {}
@@ -201,6 +205,7 @@ mod macos {
                 *pending = None;
                 if classify_click(0.0, None) == ClickOutcome::Poke {
                     engine::enqueue(EngineAction::PetInteraction(PetInteraction::Poke));
+                    engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::Poke));
                 }
                 true
             } else {
@@ -225,6 +230,7 @@ mod macos {
             &mut self,
             save: &PetSave,
             monitors: &[MonitorInfo],
+            behavior: gesso_core::PetBehavior,
         ) -> Option<gesso_core::PetPosition> {
             let Some(pet) = save.adoption.as_ref() else {
                 self.hide();
@@ -250,6 +256,7 @@ mod macos {
             }
             let window = self.window.as_ref()?;
             if let Some(hit_view) = &self.hit_view {
+                apply_feedback(hit_view.layer().expect("宠物窗口 layer 缺失"), behavior);
                 hit_view.flush_pending_click();
                 // 鼠标事件和 150ms 主循环共享主线程；拖动期间禁止同步旧存档位置，
                 // 否则一次拖动会在手指位置与旧目标之间来回抢写，产生抖动。
@@ -311,6 +318,42 @@ mod macos {
                 window.orderOut(None);
             }
         }
+    }
+
+    fn apply_feedback(root: Retained<CALayer>, behavior: gesso_core::PetBehavior) {
+        let (scale, angle) = if reduced_motion() {
+            (1.0, 0.0)
+        } else {
+            let progress = behavior.elapsed().as_secs_f64();
+            match behavior.state() {
+                PetBehaviorState::Poked => {
+                    let phase = (progress / 0.45).min(1.0);
+                    (1.0 + 0.08 * (std::f64::consts::PI * phase).sin(), 0.0)
+                }
+                PetBehaviorState::Touched => {
+                    let phase = (progress / 0.65).min(1.0);
+                    (
+                        1.0 + 0.04 * (std::f64::consts::PI * phase).sin(),
+                        0.06 * (std::f64::consts::TAU * phase).sin(),
+                    )
+                }
+                PetBehaviorState::Dragging => (1.03, 0.0),
+                _ => (1.0, 0.0),
+            }
+        };
+        let (sin, cos) = angle.sin_cos();
+        root.setAffineTransform(CGAffineTransform {
+            a: scale * cos,
+            b: scale * sin,
+            c: -scale * sin,
+            d: scale * cos,
+            tx: 0.0,
+            ty: 0.0,
+        });
+    }
+
+    fn reduced_motion() -> bool {
+        objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
     }
 
     fn window_origin((x, y, w, h): (f64, f64, f64, f64), rx: f64, ry: f64) -> (f64, f64) {
@@ -568,6 +611,7 @@ mod macos {
             &mut self,
             _save: &PetSave,
             _monitors: &[MonitorInfo],
+            _behavior: gesso_core::PetBehavior,
         ) -> Option<gesso_core::PetPosition> {
             None
         }

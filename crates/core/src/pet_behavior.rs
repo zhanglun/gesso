@@ -62,6 +62,10 @@ impl PetBehavior {
         self.activity
     }
 
+    pub fn elapsed(self) -> Duration {
+        self.state_elapsed
+    }
+
     pub fn set_activity(&mut self, activity: PetActivity) {
         self.activity = activity;
     }
