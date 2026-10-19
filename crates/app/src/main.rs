@@ -1382,6 +1382,7 @@ fn main() {
                 const AUTOPAUSE_EVERY: u32 = 13; // 自动暂停检测 ≈2.0s（全屏/电池/锁屏采样）
                 const AUTOPAUSE_OFFSET: u32 = 6; // 自动暂停检测，与巡检错开半拍
                 const TIME_TICK_EVERY: u32 = 7; // 挂钟脉冲 ≈1.05s
+                const PET_BEHAVIOR_EVERY: u32 = 1; // 宠物行为推进 ≈150ms
                 const DIAGNOSE_AT: [u32; 2] = [20, 40]; // 启动后诊断快照（3s/6s）
                 const UPDATE_FIRST_TICK: u32 = 100; // 更新首查 ≈启动后 15s（避开启动 I/O 风暴）
                 const UPDATE_AUTO_PROBE: u32 = 6000; // 更新探测节拍 ≈15min（模块内按 24h 真抑制）
@@ -1638,7 +1639,14 @@ fn main() {
                             {
                                 app.pet_stats_dirty = true;
                             }
-                            app.pet_behavior.tick(Duration::from_millis(1050));
+                        });
+                    }
+                    // 宠物状态需要比挂钟更细的节拍，否则 Watching/Walking 的结束会明显滞后。
+                    if tick.is_multiple_of(PET_BEHAVIOR_EVERY) {
+                        cx.update(|cx| {
+                            cx.global_mut::<engine::AppState>()
+                                .pet_behavior
+                                .tick(Duration::from_millis(150));
                         });
                     }
                     // 软件更新自动检查节拍（§4.7）：开关读引擎真源，发起与否由

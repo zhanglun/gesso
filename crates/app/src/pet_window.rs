@@ -81,6 +81,9 @@ mod macos {
     struct PetHitIvars {
         press: RefCell<Option<PressState>>,
         pending_click: RefCell<Option<Instant>>,
+        last_mouse_moved: RefCell<Option<Instant>>,
+        gaze_x: Cell<f64>,
+        gaze_marks: RefCell<Option<(Retained<CALayer>, Retained<CALayer>)>>,
         hit_radius: Cell<f64>,
         scale: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
@@ -92,6 +95,9 @@ mod macos {
             Self {
                 press: RefCell::new(None),
                 pending_click: RefCell::new(None),
+                last_mouse_moved: RefCell::new(None),
+                gaze_x: Cell::new(0.5),
+                gaze_marks: RefCell::new(None),
                 hit_radius: Cell::new(0.0),
                 scale: Cell::new(1.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
@@ -146,7 +152,18 @@ mod macos {
             }
 
             #[unsafe(method(mouseMoved:))]
-            fn mouse_moved(&self, _event: &NSEvent) {
+            fn mouse_moved(&self, event: &NSEvent) {
+                let location = event.locationInWindow();
+                let width = self.bounds().size.width.max(1.0);
+                self.ivars()
+                    .gaze_x
+                    .set((location.x / width).clamp(0.0, 1.0));
+                let now = Instant::now();
+                let mut last = self.ivars().last_mouse_moved.borrow_mut();
+                if last.is_some_and(|at| now.duration_since(at) < Duration::from_millis(200)) {
+                    return;
+                }
+                *last = Some(now);
                 engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::MouseMoved));
             }
 
@@ -479,7 +496,7 @@ mod macos {
             }
             let window = self.window.as_ref()?;
             if let Some(hit_view) = &self.hit_view {
-                apply_feedback(hit_view.layer().expect("宠物窗口 layer 缺失"), behavior);
+                apply_feedback(hit_view, behavior);
                 hit_view.update_menu_state(save.activity, save.size);
                 hit_view.flush_pending_click();
                 // 鼠标事件和 150ms 主循环共享主线程；拖动期间禁止同步旧存档位置，
@@ -544,33 +561,55 @@ mod macos {
         }
     }
 
-    fn apply_feedback(root: Retained<CALayer>, behavior: gesso_core::PetBehavior) {
-        let (scale, angle) = if reduced_motion() {
-            (1.0, 0.0)
+    fn apply_feedback(view: &PetHitView, behavior: gesso_core::PetBehavior) {
+        let root = view.layer().expect("宠物窗口 layer 缺失");
+        let reduced = reduced_motion();
+        let scale = if reduced {
+            1.0
         } else {
-            let progress = behavior.elapsed().as_secs_f64();
             match behavior.state() {
                 PetBehaviorState::Poked => {
-                    let phase = (progress / 0.45).min(1.0);
-                    (1.0 + 0.08 * (std::f64::consts::PI * phase).sin(), 0.0)
+                    let phase = (behavior.elapsed().as_secs_f64() / 0.45).min(1.0);
+                    1.0 + 0.08 * (std::f64::consts::PI * phase).sin()
                 }
                 PetBehaviorState::Touched => {
-                    let phase = (progress / 0.65).min(1.0);
-                    (
-                        1.0 + 0.04 * (std::f64::consts::PI * phase).sin(),
-                        0.06 * (std::f64::consts::TAU * phase).sin(),
-                    )
+                    let phase = (behavior.elapsed().as_secs_f64() / 0.65).min(1.0);
+                    1.0 + 0.04 * (std::f64::consts::PI * phase).sin()
                 }
-                PetBehaviorState::Dragging => (1.03, 0.0),
-                PetBehaviorState::Sleeping => (0.84, 0.0),
-                PetBehaviorState::Idle => {
-                    (1.0 + 0.015 * (std::f64::consts::TAU * progress).sin(), 0.0)
-                }
-                PetBehaviorState::Watching => (1.02, 0.0),
-                PetBehaviorState::Walking => (1.0, 0.0),
+                PetBehaviorState::Dragging => 1.03,
+                PetBehaviorState::Sleeping => 0.84,
+                _ => 1.0,
             }
         };
+        let angle = if !reduced && behavior.state() == PetBehaviorState::Touched {
+            let phase = (behavior.elapsed().as_secs_f64() / 0.65).min(1.0);
+            0.06 * (std::f64::consts::TAU * phase).sin()
+        } else {
+            0.0
+        };
         let (sin, cos) = angle.sin_cos();
+        if let Some((left, right)) = view.ivars().gaze_marks.borrow().as_ref() {
+            let gaze = if behavior.state() == PetBehaviorState::Watching {
+                (view.ivars().gaze_x.get() - 0.5) * 5.0
+            } else {
+                0.0
+            };
+            let scale = size_scale(view.ivars().size.get());
+            left.setFrame(NSRect::new(
+                NSPoint::new(
+                    (21.0 + gaze) * scale + MOTION_PADDING / 2.0,
+                    59.0 * scale + MOTION_PADDING / 2.0,
+                ),
+                NSSize::new(4.0 * scale, 5.0 * scale),
+            ));
+            right.setFrame(NSRect::new(
+                NSPoint::new(
+                    (65.0 + gaze) * scale + MOTION_PADDING / 2.0,
+                    59.0 * scale + MOTION_PADDING / 2.0,
+                ),
+                NSSize::new(4.0 * scale, 5.0 * scale),
+            ));
+        }
         let (tx, ty) = match behavior.state() {
             PetBehaviorState::Walking => {
                 let phase = (behavior.elapsed().as_secs_f64() / 3.0) * std::f64::consts::TAU;
@@ -678,7 +717,7 @@ mod macos {
         NSColor::colorWithSRGBRed_green_blue_alpha(red, green, blue, 1.0)
     }
 
-    fn add_layer(root: &CALayer, frame: NSRect, fill: &NSColor, radius: f64) {
+    fn add_layer(root: &CALayer, frame: NSRect, fill: &NSColor, radius: f64) -> Retained<CALayer> {
         let layer = CALayer::layer();
         layer.setFrame(frame);
         let cg_color = fill.CGColor();
@@ -686,6 +725,7 @@ mod macos {
         layer.setCornerRadius(radius);
         layer.setMasksToBounds(true);
         root.addSublayer(&layer);
+        layer
     }
 
     fn create_window(
@@ -813,7 +853,7 @@ mod macos {
             &face,
             6.0,
         );
-        add_layer(
+        let left_gaze = add_layer(
             &root,
             NSRect::new(
                 NSPoint::new(ox + 21.0 * scale, oy + 59.0 * scale),
@@ -822,7 +862,7 @@ mod macos {
             &highlight,
             2.0,
         );
-        add_layer(
+        let right_gaze = add_layer(
             &root,
             NSRect::new(
                 NSPoint::new(ox + 65.0 * scale, oy + 59.0 * scale),
@@ -841,6 +881,7 @@ mod macos {
             4.0,
         );
 
+        *hit_view.ivars().gaze_marks.borrow_mut() = Some((left_gaze, right_gaze));
         (window, hit_view)
     }
 
