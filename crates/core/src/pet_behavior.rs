@@ -73,7 +73,9 @@ impl PetBehavior {
     pub fn handle(&mut self, event: PetBehaviorEvent) {
         match event {
             PetBehaviorEvent::MouseMoved => {
-                if self.state != PetBehaviorState::Dragging
+                if self.state == PetBehaviorState::Sleeping {
+                    self.enter(PetBehaviorState::Idle);
+                } else if self.state != PetBehaviorState::Dragging
                     && !matches!(
                         self.state,
                         PetBehaviorState::Poked | PetBehaviorState::Touched
@@ -156,7 +158,10 @@ impl PetBehavior {
         self.state_elapsed = Duration::ZERO;
         if matches!(
             state,
-            PetBehaviorState::Poked | PetBehaviorState::Touched | PetBehaviorState::Walking
+            PetBehaviorState::Idle
+                | PetBehaviorState::Poked
+                | PetBehaviorState::Touched
+                | PetBehaviorState::Walking
         ) {
             self.idle_elapsed = Duration::ZERO;
         }
@@ -221,11 +226,19 @@ mod tests {
     }
 
     #[test]
-    fn hidden_pet_wakes_when_shown() {
+    fn sleeping_pet_wakes_from_mouse_or_shown() {
         let mut behavior = PetBehavior::new(PetActivity::Normal);
-        behavior.handle(PetBehaviorEvent::Hidden);
+        behavior.tick(Duration::from_secs(90));
         assert_eq!(behavior.state(), PetBehaviorState::Sleeping);
+        behavior.handle(PetBehaviorEvent::MouseMoved);
+        assert_eq!(behavior.state(), PetBehaviorState::Idle);
+        behavior.tick(Duration::from_secs(19));
+        assert_eq!(behavior.state(), PetBehaviorState::Idle);
+
+        behavior.handle(PetBehaviorEvent::Hidden);
         behavior.handle(PetBehaviorEvent::Shown);
+        assert_eq!(behavior.state(), PetBehaviorState::Idle);
+        behavior.tick(Duration::from_secs(19));
         assert_eq!(behavior.state(), PetBehaviorState::Idle);
     }
 }
