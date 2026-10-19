@@ -85,7 +85,6 @@ mod macos {
         gaze_x: Cell<f64>,
         gaze_marks: RefCell<Option<(Retained<CALayer>, Retained<CALayer>)>>,
         hit_radius: Cell<f64>,
-        scale: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
         size: Cell<PetSize>,
     }
@@ -99,7 +98,6 @@ mod macos {
                 gaze_x: Cell::new(0.5),
                 gaze_marks: RefCell::new(None),
                 hit_radius: Cell::new(0.0),
-                scale: Cell::new(1.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
             }
@@ -138,11 +136,7 @@ mod macos {
         impl PetHitView {
             #[unsafe(method(hitTest:))]
             fn hit_test(&self, point: NSPoint) -> *mut AnyObject {
-                let scale = self.ivars().scale.get();
-                let body = NSRect::new(
-                    NSPoint::new(MOTION_PADDING / 2.0, MOTION_PADDING / 2.0),
-                    NSSize::new(BODY_W * scale, BODY_H * scale),
-                );
+                let body = body_rect(self.ivars().size.get());
                 let inside = rounded_rect_contains(point, body, self.ivars().hit_radius.get());
                 if inside {
                     self as *const Self as *mut AnyObject
@@ -290,7 +284,6 @@ mod macos {
         ) -> Retained<Self> {
             let allocated = Self::alloc(mtm).set_ivars(PetHitIvars {
                 hit_radius: Cell::new(hit_radius * scale),
-                scale: Cell::new(scale),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
                 ..PetHitIvars::default()
@@ -594,20 +587,19 @@ mod macos {
             } else {
                 0.0
             };
-            let scale = size_scale(view.ivars().size.get());
-            left.setFrame(NSRect::new(
-                NSPoint::new(
-                    (21.0 + gaze) * scale + MOTION_PADDING / 2.0,
-                    59.0 * scale + MOTION_PADDING / 2.0,
-                ),
-                NSSize::new(4.0 * scale, 5.0 * scale),
+            left.setFrame(part_rect(
+                view.ivars().size.get(),
+                21.0 + gaze,
+                59.0,
+                4.0,
+                5.0,
             ));
-            right.setFrame(NSRect::new(
-                NSPoint::new(
-                    (65.0 + gaze) * scale + MOTION_PADDING / 2.0,
-                    59.0 * scale + MOTION_PADDING / 2.0,
-                ),
-                NSSize::new(4.0 * scale, 5.0 * scale),
+            right.setFrame(part_rect(
+                view.ivars().size.get(),
+                65.0 + gaze,
+                59.0,
+                4.0,
+                5.0,
             ));
         }
         let (tx, ty) = match behavior.state() {
@@ -649,6 +641,25 @@ mod macos {
         (
             BODY_W * scale + MOTION_PADDING,
             BODY_H * scale + MOTION_PADDING,
+        )
+    }
+
+    fn body_rect(size: PetSize) -> NSRect {
+        let scale = size_scale(size);
+        NSRect::new(
+            NSPoint::new(MOTION_PADDING / 2.0, MOTION_PADDING / 2.0),
+            NSSize::new(BODY_W * scale, BODY_H * scale),
+        )
+    }
+
+    fn part_rect(size: PetSize, x: f64, y: f64, width: f64, height: f64) -> NSRect {
+        let scale = size_scale(size);
+        NSRect::new(
+            NSPoint::new(
+                MOTION_PADDING / 2.0 + x * scale,
+                MOTION_PADDING / 2.0 + y * scale,
+            ),
+            NSSize::new(width * scale, height * scale),
         )
     }
 
@@ -778,8 +789,6 @@ mod macos {
             hit_radius,
             scale,
         );
-        let ox = MOTION_PADDING / 2.0;
-        let oy = MOTION_PADDING / 2.0;
         window.setContentView(Some(&hit_view));
         let root = hit_view.layer().expect("宠物窗口 layer 缺失");
         root.setFrame(NSRect::new(
@@ -824,10 +833,7 @@ mod macos {
 
         add_layer(
             &root,
-            NSRect::new(
-                NSPoint::new(ox, oy),
-                NSSize::new(BODY_W * scale, BODY_H * scale),
-            ),
+            body_rect(size),
             &body,
             if species == PetSpecies::Cat {
                 34.0
@@ -835,51 +841,21 @@ mod macos {
                 24.0
             },
         );
-        add_layer(
-            &root,
-            NSRect::new(
-                NSPoint::new(ox + 18.0 * scale, oy + 51.0 * scale),
-                NSSize::new(12.0 * scale, 18.0 * scale),
-            ),
-            &face,
-            6.0,
-        );
-        add_layer(
-            &root,
-            NSRect::new(
-                NSPoint::new(ox + 62.0 * scale, oy + 51.0 * scale),
-                NSSize::new(12.0 * scale, 18.0 * scale),
-            ),
-            &face,
-            6.0,
-        );
+        add_layer(&root, part_rect(size, 18.0, 51.0, 12.0, 18.0), &face, 6.0);
+        add_layer(&root, part_rect(size, 62.0, 51.0, 12.0, 18.0), &face, 6.0);
         let left_gaze = add_layer(
             &root,
-            NSRect::new(
-                NSPoint::new(ox + 21.0 * scale, oy + 59.0 * scale),
-                NSSize::new(4.0 * scale, 5.0 * scale),
-            ),
+            part_rect(size, 21.0, 59.0, 4.0, 5.0),
             &highlight,
             2.0,
         );
         let right_gaze = add_layer(
             &root,
-            NSRect::new(
-                NSPoint::new(ox + 65.0 * scale, oy + 59.0 * scale),
-                NSSize::new(4.0 * scale, 5.0 * scale),
-            ),
+            part_rect(size, 65.0, 59.0, 4.0, 5.0),
             &highlight,
             2.0,
         );
-        add_layer(
-            &root,
-            NSRect::new(
-                NSPoint::new(ox + 40.0 * scale, oy + 36.0 * scale),
-                NSSize::new(12.0 * scale, 7.0 * scale),
-            ),
-            &accent,
-            4.0,
-        );
+        add_layer(&root, part_rect(size, 40.0, 36.0, 12.0, 7.0), &accent, 4.0);
 
         *hit_view.ivars().gaze_marks.borrow_mut() = Some((left_gaze, right_gaze));
         (window, hit_view)
