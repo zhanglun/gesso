@@ -128,6 +128,9 @@ impl PetBehavior {
             PetBehaviorState::Idle if self.idle_elapsed >= self.sleep_after() => {
                 self.enter(PetBehaviorState::Sleeping)
             }
+            PetBehaviorState::Idle if self.idle_elapsed >= self.walk_after() => {
+                self.enter(PetBehaviorState::Walking)
+            }
             _ => {}
         }
     }
@@ -140,10 +143,21 @@ impl PetBehavior {
         }
     }
 
+    fn walk_after(self) -> Duration {
+        match self.activity {
+            PetActivity::Quiet => Duration::from_secs(30),
+            PetActivity::Normal => Duration::from_secs(20),
+            PetActivity::Lively => Duration::from_secs(10),
+        }
+    }
+
     fn enter(&mut self, state: PetBehaviorState) {
         self.state = state;
         self.state_elapsed = Duration::ZERO;
-        if matches!(state, PetBehaviorState::Poked | PetBehaviorState::Touched) {
+        if matches!(
+            state,
+            PetBehaviorState::Poked | PetBehaviorState::Touched | PetBehaviorState::Walking
+        ) {
             self.idle_elapsed = Duration::ZERO;
         }
     }
@@ -181,13 +195,17 @@ mod tests {
     #[test]
     fn activity_controls_sleep_timeout() {
         let mut quiet = PetBehavior::new(PetActivity::Quiet);
+        quiet.tick(Duration::from_secs(30));
+        assert_eq!(quiet.state(), PetBehaviorState::Walking);
+        quiet.handle(PetBehaviorEvent::FinishWalking);
         quiet.tick(Duration::from_secs(45));
         assert_eq!(quiet.state(), PetBehaviorState::Sleeping);
 
         let mut lively = PetBehavior::new(PetActivity::Lively);
         lively.tick(Duration::from_secs(179));
-        assert_eq!(lively.state(), PetBehaviorState::Idle);
-        lively.tick(Duration::from_secs(1));
+        assert_eq!(lively.state(), PetBehaviorState::Walking);
+        lively.handle(PetBehaviorEvent::FinishWalking);
+        lively.tick(Duration::from_secs(180));
         assert_eq!(lively.state(), PetBehaviorState::Sleeping);
     }
 
