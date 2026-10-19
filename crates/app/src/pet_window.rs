@@ -12,7 +12,7 @@ mod macos {
 
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly, Message};
+    use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
     use objc2_app_kit::{
         NSBackingStoreType, NSColor, NSEvent, NSFloatingWindowLevel, NSPanel, NSView,
         NSWindowCollectionBehavior, NSWindowStyleMask,
@@ -72,7 +72,7 @@ mod macos {
 
     struct PressState {
         start: NSPoint,
-        mouse_down: Retained<NSEvent>,
+        start_origin: NSPoint,
         dragged: bool,
     }
 
@@ -126,11 +126,11 @@ mod macos {
 
             #[unsafe(method(mouseDown:))]
             fn mouse_down(&self, _event: &NSEvent) {
-                self.window().expect("宠物命中视图必须属于窗口");
+                let window = self.window().expect("宠物命中视图必须属于窗口");
                 let cursor = NSEvent::mouseLocation();
                 *self.ivars().press.borrow_mut() = Some(PressState {
                     start: cursor,
-                    mouse_down: _event.retain(),
+                    start_origin: window.frame().origin,
                     dragged: false,
                 });
             }
@@ -149,10 +149,13 @@ mod macos {
                     press.dragged = true;
                     self.ivars().pending_click.replace(None);
                     engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::DragStarted));
-                    // 一旦超过阈值交给 Window Server；不要再手动 setFrameOrigin，
-                    // 否则会和 AppKit 的拖动循环竞争而抖动。
+                }
+                if press.dragged {
                     let window = self.window().expect("宠物命中视图必须属于窗口");
-                    window.performWindowDragWithEvent(&press.mouse_down);
+                    window.setFrameOrigin(NSPoint::new(
+                        press.start_origin.x + dx,
+                        press.start_origin.y + dy,
+                    ));
                 }
                 *self.ivars().press.borrow_mut() = Some(press);
             }

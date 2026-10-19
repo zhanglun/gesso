@@ -571,6 +571,8 @@ struct ActionOutcome {
     lang_changed: bool,
     /// 请求打开宠物领养小窗。
     open_pet_adoption: bool,
+    /// 请求打开管理窗口的宠物页。
+    focus_pet: bool,
     /// 互动统计已在引擎内更新，刷新宠物投影。
     refresh_pet: bool,
 }
@@ -591,7 +593,12 @@ fn build_tray_menu_with_pet(
     } else {
         ui::strings::TRAY_PET_ADOPT()
     };
-    let mi_pet = MenuItem::with_id("pet-adopt", pet_label, true, None);
+    let mi_pet = MenuItem::with_id(
+        if adopted { "pet-settings" } else { "pet-adopt" },
+        pet_label,
+        true,
+        None,
+    );
     let mi_pet_visibility = adopted.then(|| {
         MenuItem::with_id(
             "pet-toggle",
@@ -654,6 +661,7 @@ fn install_tray_menu_handler() {
             }
             "cycle" => engine::enqueue(EngineAction::CycleMain),
             "pet-adopt" => engine::enqueue(EngineAction::OpenPetAdoption),
+            "pet-settings" => engine::enqueue(EngineAction::OpenPetSettings),
             "pet-toggle" => engine::enqueue(EngineAction::TogglePetVisibility),
             "main" => engine::enqueue(EngineAction::FocusMainWindow),
             // 逃生门：全量恢复系统壁纸（重新指派壁纸会按设置再次接管）
@@ -865,6 +873,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             sm.set_fps(&monitor_id, fps);
         }
         engine::EngineAction::OpenPetAdoption => out.open_pet_adoption = true,
+        engine::EngineAction::OpenPetSettings => out.focus_pet = true,
         engine::EngineAction::StartPetAdoption { species } => {
             let event = gesso_core::AdoptionEvent::Start {
                 species,
@@ -1426,6 +1435,7 @@ fn main() {
                         let mut focus_main = false;
                         let mut open_update_modal = false;
                         let mut open_pet_adoption = false;
+                        let mut focus_pet = false;
                         let mut lang_changed = false;
                         let mut refresh_pet = false;
                         cx.update(|cx| {
@@ -1441,6 +1451,9 @@ fn main() {
                                 }
                                 if out.open_pet_adoption {
                                     open_pet_adoption = true;
+                                }
+                                if out.focus_pet {
+                                    focus_pet = true;
                                 }
                                 if out.lang_changed {
                                     lang_changed = true;
@@ -1474,6 +1487,15 @@ fn main() {
                         // 更新小窗同理（托盘「检查更新…」入口的 open_modal 兑现）
                         if open_update_modal {
                             cx.update(ui::update_view::open);
+                        }
+                        if focus_pet {
+                            cx.update(|cx| {
+                                focus_or_reopen_main(cx);
+                                cx.update_global::<ui::app_state::GessoState, _>(|g, _| {
+                                    g.active_tab = ui::shell::Tab::Pet;
+                                });
+                                cx.refresh_windows();
+                            });
                         }
                         if open_pet_adoption {
                             cx.update(pet_adoption_view::open);

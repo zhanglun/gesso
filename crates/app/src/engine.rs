@@ -176,6 +176,8 @@ pub enum EngineAction {
     UpdateCancelDownload,
     /// 打开宠物领养窗口。
     OpenPetAdoption,
+    /// 打开管理窗口的宠物页。
+    OpenPetSettings,
     /// 创建一轮临时候选。
     StartPetAdoption { species: PetSpecies },
     /// 领养 UI 的选择、刷新和确认。
