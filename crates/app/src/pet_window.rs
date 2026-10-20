@@ -621,22 +621,28 @@ mod macos {
     fn apply_feedback(view: &PetHitView, behavior: gesso_core::PetBehavior) {
         let root = view.layer().expect("宠物窗口 layer 缺失");
         let reduced = reduced_motion();
-        let scale = if reduced {
-            1.0
-        } else {
-            match behavior.state() {
-                PetBehaviorState::Poked => {
+        // reduced-motion 用静态姿态替代动画：脉冲改固定微放大，
+        // 睡眠保留静态压缩（状态仍可辨），走动摇摆直接停用。
+        let scale = match behavior.state() {
+            PetBehaviorState::Poked => {
+                if reduced {
+                    1.06
+                } else {
                     let phase = (behavior.elapsed().as_secs_f64() / 0.45).min(1.0);
                     1.0 + 0.08 * (std::f64::consts::PI * phase).sin()
                 }
-                PetBehaviorState::Touched => {
+            }
+            PetBehaviorState::Touched => {
+                if reduced {
+                    1.03
+                } else {
                     let phase = (behavior.elapsed().as_secs_f64() / 0.65).min(1.0);
                     1.0 + 0.04 * (std::f64::consts::PI * phase).sin()
                 }
-                PetBehaviorState::Dragging => 1.03,
-                PetBehaviorState::Sleeping => 0.84,
-                _ => 1.0,
             }
+            PetBehaviorState::Dragging => 1.03,
+            PetBehaviorState::Sleeping => 0.84,
+            _ => 1.0,
         };
         let angle = if !reduced && behavior.state() == PetBehaviorState::Touched {
             let phase = (behavior.elapsed().as_secs_f64() / 0.65).min(1.0);
@@ -666,12 +672,16 @@ mod macos {
                 5.0,
             ));
         }
-        let (tx, ty) = match behavior.state() {
-            PetBehaviorState::Walking => {
-                let phase = (behavior.elapsed().as_secs_f64() / 3.0) * std::f64::consts::TAU;
-                (phase.sin() * 10.0, phase.cos().abs() * 3.0)
+        let (tx, ty) = if reduced {
+            (0.0, 0.0)
+        } else {
+            match behavior.state() {
+                PetBehaviorState::Walking => {
+                    let phase = (behavior.elapsed().as_secs_f64() / 3.0) * std::f64::consts::TAU;
+                    (phase.sin() * 10.0, phase.cos().abs() * 3.0)
+                }
+                _ => (0.0, 0.0),
             }
-            _ => (0.0, 0.0),
         };
         root.setOpacity(if behavior.state() == PetBehaviorState::Sleeping {
             0.72
