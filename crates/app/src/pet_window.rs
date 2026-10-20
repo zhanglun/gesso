@@ -16,11 +16,11 @@ mod macos {
     use objc2::{define_class, msg_send, AnyThread, DefinedClass, MainThreadOnly};
     use objc2_app_kit::{
         NSBackingStoreType, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSEvent,
-        NSFloatingWindowLevel, NSMenu, NSPanel, NSTrackingArea, NSTrackingAreaOptions, NSView,
-        NSWindowCollectionBehavior, NSWindowStyleMask,
+        NSFloatingWindowLevel, NSImage, NSMenu, NSPanel, NSTrackingArea, NSTrackingAreaOptions,
+        NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
     };
     use objc2_core_foundation::CGAffineTransform;
-    use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
+    use objc2_foundation::{MainThreadMarker, NSData, NSPoint, NSRect, NSSize, NSString};
     use objc2_quartz_core::{CALayer, CATextLayer, CATransaction};
 
     use super::{MonitorInfo, PetSave, PetSize, PetSpecies};
@@ -82,8 +82,6 @@ mod macos {
         press: RefCell<Option<PressState>>,
         pending_click: RefCell<Option<Instant>>,
         last_mouse_moved: RefCell<Option<Instant>>,
-        gaze_x: Cell<f64>,
-        gaze_marks: RefCell<Option<(Retained<CALayer>, Retained<CALayer>)>>,
         bubble: RefCell<Option<BubbleLayers>>,
         hit_radius: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
@@ -103,8 +101,6 @@ mod macos {
                 press: RefCell::new(None),
                 pending_click: RefCell::new(None),
                 last_mouse_moved: RefCell::new(None),
-                gaze_x: Cell::new(0.5),
-                gaze_marks: RefCell::new(None),
                 bubble: RefCell::new(None),
                 hit_radius: Cell::new(0.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
@@ -120,6 +116,11 @@ mod macos {
     // 给头顶的助手气泡预留透明空间；命中检测只看身体矩形，气泡不可点击。
     const BUBBLE_HEADROOM: f64 = 40.0;
     const BUBBLE_HEIGHT: f64 = 24.0;
+    // 首发角色「小蜡烛」基准稿位图（candle-4，见角色设计方向稿 §7）。
+    const CANDLE_PNG: &[u8] = include_bytes!("../assets/pets/candle-placeholder.png");
+    // 蜡烛可见蜡身宽度（body 区域内居中）；命中检测按此宽度收窄。
+    const CANDLE_BODY_W: f64 = 50.0;
+    const HIT_RADIUS: f64 = 22.0;
 
     define_class!(
         #[unsafe(super(NSPanel))]
@@ -148,7 +149,14 @@ mod macos {
         impl PetHitView {
             #[unsafe(method(hitTest:))]
             fn hit_test(&self, point: NSPoint) -> *mut AnyObject {
-                let body = body_rect(self.ivars().size.get());
+                let size = self.ivars().size.get();
+                let full = body_rect(size);
+                let scale = size_scale(size);
+                let inset = (BODY_W - CANDLE_BODY_W) * scale / 2.0;
+                let body = NSRect::new(
+                    NSPoint::new(full.origin.x + inset, full.origin.y),
+                    NSSize::new(CANDLE_BODY_W * scale, full.size.height),
+                );
                 let inside = rounded_rect_contains(point, body, self.ivars().hit_radius.get());
                 if inside {
                     self as *const Self as *mut AnyObject
@@ -158,12 +166,7 @@ mod macos {
             }
 
             #[unsafe(method(mouseMoved:))]
-            fn mouse_moved(&self, event: &NSEvent) {
-                let location = event.locationInWindow();
-                let width = self.bounds().size.width.max(1.0);
-                self.ivars()
-                    .gaze_x
-                    .set((location.x / width).clamp(0.0, 1.0));
+            fn mouse_moved(&self, _event: &NSEvent) {
                 let now = Instant::now();
                 let mut last = self.ivars().last_mouse_moved.borrow_mut();
                 if last.is_some_and(|at| now.duration_since(at) < Duration::from_millis(200)) {
@@ -651,27 +654,6 @@ mod macos {
             0.0
         };
         let (sin, cos) = angle.sin_cos();
-        if let Some((left, right)) = view.ivars().gaze_marks.borrow().as_ref() {
-            let gaze = if behavior.state() == PetBehaviorState::Watching {
-                (view.ivars().gaze_x.get() - 0.5) * 5.0
-            } else {
-                0.0
-            };
-            left.setFrame(part_rect(
-                view.ivars().size.get(),
-                21.0 + gaze,
-                59.0,
-                4.0,
-                5.0,
-            ));
-            right.setFrame(part_rect(
-                view.ivars().size.get(),
-                65.0 + gaze,
-                59.0,
-                4.0,
-                5.0,
-            ));
-        }
         let (tx, ty) = if reduced {
             (0.0, 0.0)
         } else {
@@ -778,17 +760,6 @@ mod macos {
         )
     }
 
-    fn part_rect(size: PetSize, x: f64, y: f64, width: f64, height: f64) -> NSRect {
-        let scale = size_scale(size);
-        NSRect::new(
-            NSPoint::new(
-                MOTION_PADDING / 2.0 + x * scale,
-                MOTION_PADDING / 2.0 + y * scale,
-            ),
-            NSSize::new(width * scale, height * scale),
-        )
-    }
-
     fn window_origin(
         (x, y, w, h): (f64, f64, f64, f64),
         rx: f64,
@@ -854,20 +825,9 @@ mod macos {
         NSColor::colorWithSRGBRed_green_blue_alpha(red, green, blue, 1.0)
     }
 
-    fn add_layer(root: &CALayer, frame: NSRect, fill: &NSColor, radius: f64) -> Retained<CALayer> {
-        let layer = CALayer::layer();
-        layer.setFrame(frame);
-        let cg_color = fill.CGColor();
-        layer.setBackgroundColor(Some(&cg_color));
-        layer.setCornerRadius(radius);
-        layer.setMasksToBounds(true);
-        root.addSublayer(&layer);
-        layer
-    }
-
     fn create_window(
-        species: PetSpecies,
-        appearance: &gesso_core::AppearanceParams,
+        _species: PetSpecies,
+        _appearance: &gesso_core::AppearanceParams,
         size: PetSize,
     ) -> (Retained<PetPanel>, Retained<PetHitView>) {
         let mtm = MainThreadMarker::new().expect("宠物窗口必须在主线程创建");
@@ -904,15 +864,10 @@ mod macos {
                 | NSWindowCollectionBehavior::IgnoresCycle,
         );
 
-        let hit_radius = if species == PetSpecies::Cat {
-            34.0
-        } else {
-            24.0
-        };
         let hit_view = PetHitView::new(
             NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(window_w, window_h)),
             mtm,
-            hit_radius,
+            HIT_RADIUS,
             scale,
         );
         window.setContentView(Some(&hit_view));
@@ -942,48 +897,22 @@ mod macos {
         };
         hit_view.addTrackingArea(&tracking);
 
-        let coat = match species {
-            PetSpecies::Cat => {
-                let palettes = [(0.95, 0.67, 0.45), (0.72, 0.52, 0.38), (0.88, 0.79, 0.62)];
-                palettes[usize::from(appearance.coat_color) % palettes.len()]
-            }
-            PetSpecies::Jelly => (0.42, 0.78, 0.95),
-        };
-        let body = color(coat.0, coat.1, coat.2);
-        let face = color(0.12, 0.10, 0.14);
-        let highlight = color(1.0, 1.0, 1.0);
-        let accent = match species {
-            PetSpecies::Cat => color(0.96, 0.44, 0.43),
-            PetSpecies::Jelly => color(0.72, 0.44, 0.95),
-        };
+        // 首发角色「小蜡烛」：直接使用角色基准稿位图（角色设计方向稿 §7），
+        // 等比缩放放进 body 区域；描边、火苗和点眼都来自位图本身。
+        let sprite_data = NSData::with_bytes(CANDLE_PNG);
+        let sprite_image =
+            NSImage::initWithData(NSImage::alloc(), &sprite_data).expect("蜡烛基准稿位图加载失败");
+        let cg_image = unsafe {
+            sprite_image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
+        }
+        .expect("蜡烛基准稿转 CGImage 失败");
+        let sprite = CALayer::layer();
+        sprite.setFrame(body_rect(size));
+        sprite.setContentsGravity(&NSString::from_str("resizeAspect"));
+        let _: () = unsafe { msg_send![&sprite, setContents: &*cg_image] };
+        sprite.setContentsScale(window.backingScaleFactor());
+        root.addSublayer(&sprite);
 
-        add_layer(
-            &root,
-            body_rect(size),
-            &body,
-            if species == PetSpecies::Cat {
-                34.0
-            } else {
-                24.0
-            },
-        );
-        add_layer(&root, part_rect(size, 18.0, 51.0, 12.0, 18.0), &face, 6.0);
-        add_layer(&root, part_rect(size, 62.0, 51.0, 12.0, 18.0), &face, 6.0);
-        let left_gaze = add_layer(
-            &root,
-            part_rect(size, 21.0, 59.0, 4.0, 5.0),
-            &highlight,
-            2.0,
-        );
-        let right_gaze = add_layer(
-            &root,
-            part_rect(size, 65.0, 59.0, 4.0, 5.0),
-            &highlight,
-            2.0,
-        );
-        add_layer(&root, part_rect(size, 40.0, 36.0, 12.0, 7.0), &accent, 4.0);
-
-        *hit_view.ivars().gaze_marks.borrow_mut() = Some((left_gaze, right_gaze));
         *hit_view.ivars().bubble.borrow_mut() =
             Some(create_bubble(&root, window.backingScaleFactor()));
         (window, hit_view)
