@@ -21,7 +21,7 @@ mod macos {
     };
     use objc2_core_foundation::CGAffineTransform;
     use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
-    use objc2_quartz_core::{CALayer, CATextLayer};
+    use objc2_quartz_core::{CALayer, CATextLayer, CATransaction};
 
     use super::{MonitorInfo, PetSave, PetSize, PetSpecies};
     use crate::engine::{self, EngineAction};
@@ -699,9 +699,14 @@ mod macos {
             return;
         }
         layers.shown = notice;
+        // setFrame/setString 默认带 0.25s 隐式动画，首次显示会从零尺寸
+        // 漂移到目标位置；气泡按规格静态显示，禁用本次事务的隐式动画。
+        CATransaction::begin();
+        CATransaction::setDisableActions(true);
         let Some(kind) = notice else {
             layers.bg.setHidden(true);
             layers.text.setHidden(true);
+            CATransaction::commit();
             return;
         };
         let text = match kind {
@@ -732,6 +737,7 @@ mod macos {
         ));
         layers.bg.setHidden(false);
         layers.text.setHidden(false);
+        CATransaction::commit();
     }
 
     fn reduced_motion() -> bool {
