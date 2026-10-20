@@ -83,6 +83,9 @@ mod macos {
         pending_click: RefCell<Option<Instant>>,
         last_mouse_moved: RefCell<Option<Instant>>,
         bubble: RefCell<Option<BubbleLayers>>,
+        sprite_layer: RefCell<Option<Retained<CALayer>>>,
+        sprites: RefCell<[Option<Retained<objc2_core_graphics::CGImage>>; 3]>,
+        sprite_frame: Cell<u8>,
         hit_radius: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
         size: Cell<PetSize>,
@@ -102,6 +105,9 @@ mod macos {
                 pending_click: RefCell::new(None),
                 last_mouse_moved: RefCell::new(None),
                 bubble: RefCell::new(None),
+                sprite_layer: RefCell::new(None),
+                sprites: RefCell::new([None, None, None]),
+                sprite_frame: Cell::new(0),
                 hit_radius: Cell::new(0.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
@@ -117,7 +123,10 @@ mod macos {
     const BUBBLE_HEADROOM: f64 = 40.0;
     const BUBBLE_HEIGHT: f64 = 24.0;
     // 首发角色「小蜡烛」基准稿位图（candle-4，见角色设计方向稿 §7）。
-    const CANDLE_PNG: &[u8] = include_bytes!("../assets/pets/candle-placeholder.png");
+    // 三帧：清醒 / 火苗偏摆（两帧交替即摇曳）/ 睡眠（火苗缩小变暗 + 闭眼）。
+    const CANDLE_IDLE: &[u8] = include_bytes!("../assets/pets/candle-idle-0.png");
+    const CANDLE_FLICKER: &[u8] = include_bytes!("../assets/pets/candle-idle-1.png");
+    const CANDLE_SLEEP: &[u8] = include_bytes!("../assets/pets/candle-sleep.png");
     // 蜡烛可见蜡身宽度（body 区域内居中）；命中检测按此宽度收窄。
     const CANDLE_BODY_W: f64 = 50.0;
     const HIT_RADIUS: f64 = 22.0;
@@ -679,6 +688,29 @@ mod macos {
             ty,
         });
         sync_bubble(view, behavior.notice());
+
+        // 像素动画：清醒时火苗两帧交替摇曳；睡眠换闭眼小火苗帧；
+        // reduced-motion 下停用摇曳只用清醒帧，状态切换仍即时（静态替代）。
+        let frame_idx = match behavior.state() {
+            PetBehaviorState::Sleeping => 2u8,
+            _ if reduced => 0,
+            _ => ((behavior.elapsed().as_millis() / 260) % 2) as u8,
+        };
+        if view.ivars().sprite_frame.get() != frame_idx {
+            let layer_guard = view.ivars().sprite_layer.borrow();
+            let sprites_guard = view.ivars().sprites.borrow();
+            let layer = layer_guard.as_ref().map(|l| &**l as &CALayer);
+            let image = sprites_guard[frame_idx as usize]
+                .as_ref()
+                .map(|img| &**img as &objc2_core_graphics::CGImage);
+            if let (Some(layer), Some(image)) = (layer, image) {
+                CATransaction::begin();
+                CATransaction::setDisableActions(true);
+                let _: () = unsafe { msg_send![layer, setContents: image] };
+                CATransaction::commit();
+            }
+            view.ivars().sprite_frame.set(frame_idx);
+        }
     }
 
     /// 按状态机当前气泡事件显示/隐藏占位气泡；变更时才重设文案与 frame。
@@ -899,19 +931,30 @@ mod macos {
 
         // 首发角色「小蜡烛」：直接使用角色基准稿位图（角色设计方向稿 §7），
         // 等比缩放放进 body 区域；描边、火苗和点眼都来自位图本身。
-        let sprite_data = NSData::with_bytes(CANDLE_PNG);
-        let sprite_image =
-            NSImage::initWithData(NSImage::alloc(), &sprite_data).expect("蜡烛基准稿位图加载失败");
-        let cg_image = unsafe {
-            sprite_image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
+        // 三帧：清醒 / 火苗偏摆（两帧交替即摇曳）/ 睡眠（火苗缩小变暗 + 闭眼）。
+        let sprite_layer = CALayer::layer();
+        sprite_layer.setFrame(body_rect(size));
+        sprite_layer.setContentsGravity(&NSString::from_str("resizeAspect"));
+        sprite_layer.setContentsScale(window.backingScaleFactor());
+        let mut sprites: [Option<Retained<objc2_core_graphics::CGImage>>; 3] = [None, None, None];
+        for (slot, data) in sprites
+            .iter_mut()
+            .zip([CANDLE_IDLE, CANDLE_FLICKER, CANDLE_SLEEP])
+        {
+            let data = NSData::with_bytes(data);
+            let image = NSImage::initWithData(NSImage::alloc(), &data).expect("蜡烛位图加载失败");
+            let cg = unsafe {
+                image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
+            }
+            .expect("蜡烛位图转 CGImage 失败");
+            *slot = Some(cg);
         }
-        .expect("蜡烛基准稿转 CGImage 失败");
-        let sprite = CALayer::layer();
-        sprite.setFrame(body_rect(size));
-        sprite.setContentsGravity(&NSString::from_str("resizeAspect"));
-        let _: () = unsafe { msg_send![&sprite, setContents: &*cg_image] };
-        sprite.setContentsScale(window.backingScaleFactor());
-        root.addSublayer(&sprite);
+        if let Some(first) = sprites[0].as_ref() {
+            let _: () = unsafe { msg_send![&sprite_layer, setContents: &**first] };
+        }
+        root.addSublayer(&sprite_layer);
+        *hit_view.ivars().sprite_layer.borrow_mut() = Some(sprite_layer);
+        *hit_view.ivars().sprites.borrow_mut() = sprites;
 
         *hit_view.ivars().bubble.borrow_mut() =
             Some(create_bubble(&root, window.backingScaleFactor()));
