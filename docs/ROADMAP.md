@@ -21,6 +21,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ 0.1.x 反馈修复批次 II（2026-10-10）：竖版/超宽壁纸 contain 适配（库卡片/宿主页/显示器小样/原生视频；gpui img 固有宽高比坑见工程笔记 §2）、缩略图启动即生成 + 生成中 spinner、清单解析失败护栏（exit 78 保文件）、锁屏自动暂停省电（CGSessionCopyCurrentDictionary）、移除冗余「查看详情」菜单项
 ✅ 多屏重配事件驱动收敛 + 桌面桥接（2026-10-11 macOS 实机四轮迭代）：唤醒/合盖开盖等重配从 2s 轮询改为 epoch 事件 + 两段式收敛（30ms 即时清扫熄灭脱节窗口、1.5s 去抖、跨采样稳定后原子施加），过渡几何从构造上不可见；桌面桥接把系统桌面接管为当前壁纸静帧兜住熄窗间隙（退出/取消指派恢复原壁纸，设置开关默认开 + 托盘逃生门）。机制见 ARCHITECTURE §2，四轮伪影根因链见工程笔记 §2
 ✅ 0.1.1 发布（2026-10-12，GitHub Actions 自动打包：macOS dmg + Windows 安装包 + 便携 zip + checksums，未签名；修复内容见 CHANGELOG）
+✅ 桌面宠物 P0 + P1 工程侧（2026-10-13，feat/desktop-pet 分支）：macOS 独立 AppKit 宠物窗口（拖动/单击戳/连点摸/透明穿透/位置存档）、领养状态机与程序化占位个体、行为状态机（睡眠唤醒、双计时器走动节奏、鼠标注视、通知气泡优先级合并）、右键菜单模拟事件与静态气泡、reduced-motion 静态替代；正式美术资源与首发角色设计待定（见 docs/design/桌面宠物设计.md）
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 
