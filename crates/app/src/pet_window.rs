@@ -21,11 +21,11 @@ mod macos {
     };
     use objc2_core_foundation::CGAffineTransform;
     use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
-    use objc2_quartz_core::CALayer;
+    use objc2_quartz_core::{CALayer, CATextLayer};
 
     use super::{MonitorInfo, PetSave, PetSize, PetSpecies};
     use crate::engine::{self, EngineAction};
-    use gesso_core::{PetBehaviorEvent, PetBehaviorState, PetInteraction};
+    use gesso_core::{PetBehaviorEvent, PetBehaviorState, PetInteraction, PetNotice};
 
     const DRAG_THRESHOLD: f64 = 6.0;
     const DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(300);
@@ -84,9 +84,17 @@ mod macos {
         last_mouse_moved: RefCell<Option<Instant>>,
         gaze_x: Cell<f64>,
         gaze_marks: RefCell<Option<(Retained<CALayer>, Retained<CALayer>)>>,
+        bubble: RefCell<Option<BubbleLayers>>,
         hit_radius: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
         size: Cell<PetSize>,
+    }
+
+    /// 助手气泡的占位图层；shown 缓存当前显示的事件，变更时才重设文案与 frame。
+    struct BubbleLayers {
+        bg: Retained<CALayer>,
+        text: Retained<CATextLayer>,
+        shown: Option<PetNotice>,
     }
 
     impl Default for PetHitIvars {
@@ -97,6 +105,7 @@ mod macos {
                 last_mouse_moved: RefCell::new(None),
                 gaze_x: Cell::new(0.5),
                 gaze_marks: RefCell::new(None),
+                bubble: RefCell::new(None),
                 hit_radius: Cell::new(0.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
@@ -108,6 +117,9 @@ mod macos {
     const BODY_H: f64 = 100.0;
     // 给 Walking 的左右/上下平移预留透明空间，避免内容被 NSView 边界裁掉。
     const MOTION_PADDING: f64 = 24.0;
+    // 给头顶的助手气泡预留透明空间；命中检测只看身体矩形，气泡不可点击。
+    const BUBBLE_HEADROOM: f64 = 40.0;
+    const BUBBLE_HEIGHT: f64 = 24.0;
 
     define_class!(
         #[unsafe(super(NSPanel))]
@@ -204,6 +216,27 @@ mod macos {
             #[unsafe(method(petSizeLarge:))]
             fn pet_size_large(&self, _sender: Option<&AnyObject>) {
                 engine::enqueue(EngineAction::SetPetSize(PetSize::Large));
+            }
+
+            #[unsafe(method(petNoticeNewResult:))]
+            fn pet_notice_new_result(&self, _sender: Option<&AnyObject>) {
+                engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::Notify(
+                    PetNotice::NewResult,
+                )));
+            }
+
+            #[unsafe(method(petNoticeAttention:))]
+            fn pet_notice_attention(&self, _sender: Option<&AnyObject>) {
+                engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::Notify(
+                    PetNotice::NeedsAttention,
+                )));
+            }
+
+            #[unsafe(method(petNoticeWarning:))]
+            fn pet_notice_warning(&self, _sender: Option<&AnyObject>) {
+                engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::Notify(
+                    PetNotice::Warning,
+                )));
             }
 
             #[unsafe(method(quitGesso:))]
@@ -395,6 +428,37 @@ mod macos {
                 )
             };
             menu.setSubmenu_forItem(Some(&sizes), &size_item);
+
+            let notices = NSMenu::new(MainThreadMarker::new().unwrap());
+            for (label, action) in [
+                (
+                    crate::ui::strings::PET_NOTICE_NEW(),
+                    sel!(petNoticeNewResult:),
+                ),
+                (
+                    crate::ui::strings::PET_NOTICE_ATTENTION(),
+                    sel!(petNoticeAttention:),
+                ),
+                (
+                    crate::ui::strings::PET_NOTICE_WARNING(),
+                    sel!(petNoticeWarning:),
+                ),
+            ] {
+                let item = unsafe {
+                    notices.addItemWithTitle_action_keyEquivalent(&title(label), Some(action), &key)
+                };
+                unsafe {
+                    item.setTarget(target);
+                }
+            }
+            let notice_item = unsafe {
+                menu.addItemWithTitle_action_keyEquivalent(
+                    &title(crate::ui::strings::PET_NOTICE_GROUP()),
+                    None,
+                    &key,
+                )
+            };
+            menu.setSubmenu_forItem(Some(&notices), &notice_item);
 
             let stats = unsafe {
                 menu.addItemWithTitle_action_keyEquivalent(
@@ -622,6 +686,52 @@ mod macos {
             tx,
             ty,
         });
+        sync_bubble(view, behavior.notice());
+    }
+
+    /// 按状态机当前气泡事件显示/隐藏占位气泡；变更时才重设文案与 frame。
+    fn sync_bubble(view: &PetHitView, notice: Option<PetNotice>) {
+        let mut bubble = view.ivars().bubble.borrow_mut();
+        let Some(layers) = bubble.as_mut() else {
+            return;
+        };
+        if layers.shown == notice {
+            return;
+        }
+        layers.shown = notice;
+        let Some(kind) = notice else {
+            layers.bg.setHidden(true);
+            layers.text.setHidden(true);
+            return;
+        };
+        let text = match kind {
+            PetNotice::NewResult => crate::ui::strings::PET_NOTICE_NEW_TEXT(),
+            PetNotice::NeedsAttention => crate::ui::strings::PET_NOTICE_ATTENTION_TEXT(),
+            PetNotice::Warning => crate::ui::strings::PET_NOTICE_WARNING_TEXT(),
+        };
+        let size = view.ivars().size.get();
+        let (window_w, _) = window_dimensions(size);
+        let body_top = MOTION_PADDING / 2.0 + BODY_H * size_scale(size);
+        let bottom = body_top + 5.0;
+        // shortcut: 气泡宽度按字符宽度估算，超宽时截断；接入正式美术时改用 NSAttributedString 度量
+        let est: f64 = text
+            .chars()
+            .map(|c| if c.is_ascii() { 7.4 } else { 12.0 })
+            .sum();
+        let bubble_w = (est + 24.0).min(window_w - 8.0);
+        let x = (window_w - bubble_w) / 2.0;
+        layers.bg.setFrame(NSRect::new(
+            NSPoint::new(x, bottom),
+            NSSize::new(bubble_w, BUBBLE_HEIGHT),
+        ));
+        let value = NSString::from_str(text);
+        let _: () = unsafe { msg_send![&layers.text, setString: &*value] };
+        layers.text.setFrame(NSRect::new(
+            NSPoint::new(x + 6.0, bottom + 5.0),
+            NSSize::new(bubble_w - 12.0, BUBBLE_HEIGHT - 10.0),
+        ));
+        layers.bg.setHidden(false);
+        layers.text.setHidden(false);
     }
 
     fn reduced_motion() -> bool {
@@ -640,7 +750,7 @@ mod macos {
         let scale = size_scale(size);
         (
             BODY_W * scale + MOTION_PADDING,
-            BODY_H * scale + MOTION_PADDING,
+            BODY_H * scale + MOTION_PADDING + BUBBLE_HEADROOM,
         )
     }
 
@@ -858,7 +968,38 @@ mod macos {
         add_layer(&root, part_rect(size, 40.0, 36.0, 12.0, 7.0), &accent, 4.0);
 
         *hit_view.ivars().gaze_marks.borrow_mut() = Some((left_gaze, right_gaze));
+        *hit_view.ivars().bubble.borrow_mut() =
+            Some(create_bubble(&root, window.backingScaleFactor()));
         (window, hit_view)
+    }
+
+    fn create_bubble(root: &CALayer, contents_scale: f64) -> BubbleLayers {
+        let bg = CALayer::layer();
+        bg.setCornerRadius(8.0);
+        let fill = color(0.98, 0.98, 0.99);
+        let fill_cg = fill.CGColor();
+        bg.setBackgroundColor(Some(&fill_cg));
+        bg.setBorderWidth(1.0);
+        let border = color(0.80, 0.81, 0.85);
+        let border_cg = border.CGColor();
+        bg.setBorderColor(Some(&border_cg));
+        bg.setHidden(true);
+        root.addSublayer(&bg);
+
+        let text = CATextLayer::new();
+        text.setFontSize(12.0);
+        let ink = color(0.11, 0.11, 0.12);
+        let ink_cg = ink.CGColor();
+        text.setForegroundColor(Some(&ink_cg));
+        text.setAlignmentMode(&NSString::from_str("center"));
+        text.setContentsScale(contents_scale);
+        text.setHidden(true);
+        root.addSublayer(&text);
+        BubbleLayers {
+            bg,
+            text,
+            shown: None,
+        }
     }
 
     #[cfg(test)]
@@ -892,9 +1033,9 @@ mod macos {
         #[test]
         fn pet_size_maps_to_window_dimensions() {
             assert_eq!(size_scale(PetSize::Small), 0.8);
-            assert_close(window_dimensions(PetSize::Small), (97.6, 104.0));
-            assert_close(window_dimensions(PetSize::Medium), (116.0, 124.0));
-            assert_close(window_dimensions(PetSize::Large), (139.0, 149.0));
+            assert_close(window_dimensions(PetSize::Small), (97.6, 144.0));
+            assert_close(window_dimensions(PetSize::Medium), (116.0, 164.0));
+            assert_close(window_dimensions(PetSize::Large), (139.0, 189.0));
         }
 
         #[test]
@@ -902,7 +1043,7 @@ mod macos {
             let (window_w, window_h) = window_dimensions(PetSize::Medium);
             assert_close(
                 window_origin((0.0, 0.0, 1440.0, 900.0), 0.88, 0.08, window_w, window_h),
-                (1165.12, 62.08),
+                (1165.12, 58.88),
             );
             assert_close(
                 window_origin((10.0, -20.0, 100.0, 100.0), 1.0, 1.0, window_w, window_h),

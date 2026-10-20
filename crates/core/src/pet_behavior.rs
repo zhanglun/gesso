@@ -34,6 +34,36 @@ pub enum PetBehaviorEvent {
     DragEnded,
     Hidden,
     Shown,
+    Notify(PetNotice),
+}
+
+/// 助手气泡事件；优先级 Warning > NeedsAttention > NewResult。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PetNotice {
+    NewResult,
+    NeedsAttention,
+    Warning,
+}
+
+impl PetNotice {
+    pub fn priority(self) -> u8 {
+        match self {
+            PetNotice::NewResult => 0,
+            PetNotice::NeedsAttention => 1,
+            PetNotice::Warning => 2,
+        }
+    }
+
+    fn important(self) -> bool {
+        self.priority() > 0
+    }
+
+    fn duration(self) -> Duration {
+        match self {
+            PetNotice::NewResult => Duration::from_secs(4),
+            _ => Duration::from_secs(8),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +72,7 @@ pub struct PetBehavior {
     activity: PetActivity,
     state_elapsed: Duration,
     idle_elapsed: Duration,
+    notice: Option<(PetNotice, Duration)>,
 }
 
 impl PetBehavior {
@@ -51,6 +82,7 @@ impl PetBehavior {
             activity,
             state_elapsed: Duration::ZERO,
             idle_elapsed: Duration::ZERO,
+            notice: None,
         }
     }
 
@@ -64,6 +96,11 @@ impl PetBehavior {
 
     pub fn elapsed(self) -> Duration {
         self.state_elapsed
+    }
+
+    /// 当前显示中的助手气泡；由 tick 递减到期自动清除。
+    pub fn notice(self) -> Option<PetNotice> {
+        self.notice.map(|(kind, _)| kind)
     }
 
     pub fn set_activity(&mut self, activity: PetActivity) {
@@ -85,8 +122,36 @@ impl PetBehavior {
                 }
                 self.idle_elapsed = Duration::ZERO;
             }
-            PetBehaviorEvent::Poke => self.enter(PetBehaviorState::Poked),
-            PetBehaviorEvent::Touch => self.enter(PetBehaviorState::Touched),
+            PetBehaviorEvent::Poke | PetBehaviorEvent::Touch => {
+                self.notice = None; // 点击即确认，气泡消失
+                self.enter(if matches!(event, PetBehaviorEvent::Poke) {
+                    PetBehaviorState::Poked
+                } else {
+                    PetBehaviorState::Touched
+                });
+            }
+            PetBehaviorEvent::Notify(kind) => {
+                if self.state == PetBehaviorState::Dragging {
+                    return; // 拖拽期间丢弃
+                }
+                if self.state == PetBehaviorState::Sleeping && !kind.important() {
+                    return; // 睡眠中普通事件不打扰
+                }
+                let replace = self
+                    .notice
+                    .is_none_or(|(current, _)| kind.priority() > current.priority());
+                if replace {
+                    self.notice = Some((kind, kind.duration()));
+                }
+                if kind.important()
+                    && matches!(
+                        self.state,
+                        PetBehaviorState::Sleeping | PetBehaviorState::Walking
+                    )
+                {
+                    self.enter(PetBehaviorState::Idle);
+                }
+            }
             PetBehaviorEvent::StartWalking => {
                 if !matches!(self.state, PetBehaviorState::Dragging) {
                     self.enter(PetBehaviorState::Walking);
@@ -97,9 +162,15 @@ impl PetBehavior {
                     self.enter(PetBehaviorState::Idle);
                 }
             }
-            PetBehaviorEvent::DragStarted => self.enter(PetBehaviorState::Dragging),
+            PetBehaviorEvent::DragStarted => {
+                self.notice = None;
+                self.enter(PetBehaviorState::Dragging);
+            }
             PetBehaviorEvent::DragEnded => self.enter(PetBehaviorState::Idle),
-            PetBehaviorEvent::Hidden => self.enter(PetBehaviorState::Sleeping),
+            PetBehaviorEvent::Hidden => {
+                self.notice = None;
+                self.enter(PetBehaviorState::Sleeping);
+            }
             PetBehaviorEvent::Shown => {
                 if self.state == PetBehaviorState::Sleeping {
                     self.enter(PetBehaviorState::Idle);
@@ -112,6 +183,14 @@ impl PetBehavior {
         self.state_elapsed = self.state_elapsed.saturating_add(elapsed);
         if self.state != PetBehaviorState::Dragging {
             self.idle_elapsed = self.idle_elapsed.saturating_add(elapsed);
+        }
+        if let Some((kind, remaining)) = self.notice {
+            let remaining = remaining.saturating_sub(elapsed);
+            self.notice = if remaining.is_zero() {
+                None
+            } else {
+                Some((kind, remaining))
+            };
         }
 
         match self.state {
@@ -240,5 +319,68 @@ mod tests {
         assert_eq!(behavior.state(), PetBehaviorState::Idle);
         behavior.tick(Duration::from_secs(19));
         assert_eq!(behavior.state(), PetBehaviorState::Idle);
+    }
+
+    #[test]
+    fn notices_merge_by_priority_and_expire() {
+        let mut behavior = PetBehavior::new(PetActivity::Normal);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(behavior.notice(), Some(PetNotice::NewResult));
+
+        // 同级与低级不替换
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NeedsAttention));
+        assert_eq!(behavior.notice(), Some(PetNotice::NeedsAttention));
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(behavior.notice(), Some(PetNotice::NeedsAttention));
+
+        // 更高级替换并重置时长
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::Warning));
+        behavior.tick(Duration::from_secs(4)); // 越过普通气泡时长
+        assert_eq!(behavior.notice(), Some(PetNotice::Warning));
+        behavior.tick(Duration::from_secs(4));
+        assert_eq!(behavior.notice(), None);
+
+        // 到期后普通气泡可再次显示并按 4 秒到期
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        behavior.tick(Duration::from_secs(4));
+        assert_eq!(behavior.notice(), None);
+    }
+
+    #[test]
+    fn important_notice_interrupts_sleep_and_walking() {
+        let mut behavior = PetBehavior::new(PetActivity::Normal);
+        behavior.tick(Duration::from_secs(90));
+        assert_eq!(behavior.state(), PetBehaviorState::Sleeping);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::Warning));
+        assert_eq!(behavior.state(), PetBehaviorState::Idle);
+        assert_eq!(behavior.notice(), Some(PetNotice::Warning));
+
+        behavior.handle(PetBehaviorEvent::StartWalking);
+        assert_eq!(behavior.state(), PetBehaviorState::Walking);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NeedsAttention));
+        assert_eq!(behavior.state(), PetBehaviorState::Idle);
+    }
+
+    #[test]
+    fn notice_boundaries_drop_or_clear() {
+        let mut behavior = PetBehavior::new(PetActivity::Normal);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        behavior.handle(PetBehaviorEvent::Poke); // 点击确认
+        assert_eq!(behavior.notice(), None);
+
+        behavior.handle(PetBehaviorEvent::DragStarted); // 拖拽清空且期间丢弃
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::Warning));
+        assert_eq!(behavior.notice(), None);
+
+        let mut sleeping = PetBehavior::new(PetActivity::Normal);
+        sleeping.tick(Duration::from_secs(90));
+        sleeping.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(sleeping.state(), PetBehaviorState::Sleeping);
+        assert_eq!(sleeping.notice(), None);
+
+        let mut hidden = PetBehavior::new(PetActivity::Normal);
+        hidden.handle(PetBehaviorEvent::Notify(PetNotice::Warning));
+        hidden.handle(PetBehaviorEvent::Hidden);
+        assert_eq!(hidden.notice(), None);
     }
 }
