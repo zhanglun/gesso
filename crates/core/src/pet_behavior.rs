@@ -71,7 +71,11 @@ pub struct PetBehavior {
     state: PetBehaviorState,
     activity: PetActivity,
     state_elapsed: Duration,
+    /// 距上次用户互动的时长，驱动入睡。
     idle_elapsed: Duration,
+    /// 距上次自主走动的时长，驱动散步；与空闲分开计，
+    /// 否则走动阈值小于入睡阈值时会陷入连走循环而永不入睡。
+    walk_elapsed: Duration,
     notice: Option<(PetNotice, Duration)>,
 }
 
@@ -82,6 +86,7 @@ impl PetBehavior {
             activity,
             state_elapsed: Duration::ZERO,
             idle_elapsed: Duration::ZERO,
+            walk_elapsed: Duration::ZERO,
             notice: None,
         }
     }
@@ -121,6 +126,7 @@ impl PetBehavior {
                     self.enter(PetBehaviorState::Watching);
                 }
                 self.idle_elapsed = Duration::ZERO;
+                self.walk_elapsed = Duration::ZERO;
             }
             PetBehaviorEvent::Poke | PetBehaviorEvent::Touch => {
                 self.notice = None; // 点击即确认，气泡消失
@@ -150,6 +156,8 @@ impl PetBehavior {
                     )
                 {
                     self.enter(PetBehaviorState::Idle);
+                    self.idle_elapsed = Duration::ZERO;
+                    self.walk_elapsed = Duration::ZERO;
                 }
             }
             PetBehaviorEvent::StartWalking => {
@@ -164,6 +172,8 @@ impl PetBehavior {
             }
             PetBehaviorEvent::DragStarted => {
                 self.notice = None;
+                self.idle_elapsed = Duration::ZERO; // 拖拽是用户互动，重置计时
+                self.walk_elapsed = Duration::ZERO;
                 self.enter(PetBehaviorState::Dragging);
             }
             PetBehaviorEvent::DragEnded => self.enter(PetBehaviorState::Idle),
@@ -172,6 +182,8 @@ impl PetBehavior {
                 self.enter(PetBehaviorState::Sleeping);
             }
             PetBehaviorEvent::Shown => {
+                self.idle_elapsed = Duration::ZERO; // 重新显示视为一次关注
+                self.walk_elapsed = Duration::ZERO;
                 if self.state == PetBehaviorState::Sleeping {
                     self.enter(PetBehaviorState::Idle);
                 }
@@ -183,6 +195,7 @@ impl PetBehavior {
         self.state_elapsed = self.state_elapsed.saturating_add(elapsed);
         if self.state != PetBehaviorState::Dragging {
             self.idle_elapsed = self.idle_elapsed.saturating_add(elapsed);
+            self.walk_elapsed = self.walk_elapsed.saturating_add(elapsed);
         }
         if let Some((kind, remaining)) = self.notice {
             let remaining = remaining.saturating_sub(elapsed);
@@ -209,7 +222,7 @@ impl PetBehavior {
             PetBehaviorState::Idle if self.idle_elapsed >= self.sleep_after() => {
                 self.enter(PetBehaviorState::Sleeping)
             }
-            PetBehaviorState::Idle if self.idle_elapsed >= self.walk_after() => {
+            PetBehaviorState::Idle if self.walk_elapsed >= self.walk_after() => {
                 self.enter(PetBehaviorState::Walking)
             }
             _ => {}
@@ -235,14 +248,16 @@ impl PetBehavior {
     fn enter(&mut self, state: PetBehaviorState) {
         self.state = state;
         self.state_elapsed = Duration::ZERO;
+        // 空闲计时只记“距上次用户互动”；自主行为不重置它。
+        if matches!(state, PetBehaviorState::Poked | PetBehaviorState::Touched) {
+            self.idle_elapsed = Duration::ZERO;
+        }
+        // 走动间隔在每次进入走动/互动反馈时重新计时。
         if matches!(
             state,
-            PetBehaviorState::Idle
-                | PetBehaviorState::Poked
-                | PetBehaviorState::Touched
-                | PetBehaviorState::Walking
+            PetBehaviorState::Poked | PetBehaviorState::Touched | PetBehaviorState::Walking
         ) {
-            self.idle_elapsed = Duration::ZERO;
+            self.walk_elapsed = Duration::ZERO;
         }
     }
 }
@@ -382,5 +397,16 @@ mod tests {
         hidden.handle(PetBehaviorEvent::Notify(PetNotice::Warning));
         hidden.handle(PetBehaviorEvent::Hidden);
         assert_eq!(hidden.notice(), None);
+    }
+
+    #[test]
+    fn quiet_pet_reaches_sleep_despite_walk_cycles() {
+        // 复现真实主循环的 150ms 步长：安静档应“30s 走一趟、45s 入睡”，
+        // 而不是陷入连走循环或永不入睡。
+        let mut behavior = PetBehavior::new(PetActivity::Quiet);
+        for _ in 0..(45_000 / 150) {
+            behavior.tick(Duration::from_millis(150));
+        }
+        assert_eq!(behavior.state(), PetBehaviorState::Sleeping);
     }
 }
