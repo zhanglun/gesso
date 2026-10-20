@@ -13,8 +13,12 @@ const MAX_CANDIDATE_ATTEMPTS: u64 = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PetSpecies {
+    /// 旧占位角色；保留用于兼容历史存档与生成测试。
     Cat,
+    /// 旧占位角色；保留用于兼容历史存档与生成测试。
     Jelly,
+    /// 当前首发正式角色。
+    Candle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -169,6 +173,7 @@ fn appearance_for(
         match species {
             PetSpecies::Cat => (2, 3, 4, 5, 4, 3),
             PetSpecies::Jelly => (2, 3, 3, 5, 3, 4),
+            PetSpecies::Candle => (3, 1, 2, 3, 3, 2),
         };
 
     AppearanceParams {
@@ -205,6 +210,14 @@ fn name_for(
             ("水滴", "Dewdrop"),
             ("星冻", "Starjelly"),
         ],
+        PetSpecies::Candle => &[
+            ("小烛", "Wicklet"),
+            ("微焰", "Emberlet"),
+            ("暖芯", "Warmwick"),
+            ("灯豆", "Glowbean"),
+            ("烛光", "Candlelight"),
+            ("小灯", "Little Lamp"),
+        ],
     };
     let index = (stable_hash(
         root_seed.as_bytes(),
@@ -228,6 +241,7 @@ fn signature(
     let species_tag = match species {
         PetSpecies::Cat => "cat",
         PetSpecies::Jelly => "jelly",
+        PetSpecies::Candle => "candle",
     };
     let mut bytes = Vec::new();
     bytes.extend_from_slice(species_tag.as_bytes());
@@ -373,6 +387,24 @@ mod tests {
         let jelly = generate_candidate(PetSpecies::Jelly, seed(), GENERATOR_VERSION, ASSET_VERSION);
         assert_ne!(cat.species, jelly.species);
         assert_ne!(cat.name, jelly.name);
+    }
+
+    #[test]
+    fn candle_candidates_are_deterministic_and_named_from_candle_pool() {
+        let candidates = generate_candidates(
+            PetSpecies::Candle,
+            seed(),
+            0,
+            GENERATOR_VERSION,
+            ASSET_VERSION,
+        )
+        .unwrap();
+        assert!(candidates.iter().all(|candidate| {
+            candidate.species == PetSpecies::Candle
+                && ["小烛", "微焰", "暖芯", "灯豆", "烛光", "小灯"]
+                    .contains(&candidate.name.zh.as_str())
+        }));
+        assert_ne!(candidates[0].appearance, candidates[1].appearance);
     }
 
     #[test]

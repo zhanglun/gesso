@@ -6,7 +6,7 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::{h_flex, v_flex, Sizable as _, Size};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, px, size, AnyElement, App, AppContext as _, Bounds, Context, FocusHandle, Focusable,
+    div, px, rgb, size, AnyElement, App, AppContext as _, Bounds, Context, FocusHandle, Focusable,
     FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, TitlebarOptions, Window,
     WindowBounds, WindowOptions,
 };
@@ -14,8 +14,8 @@ use gpui_kit::AnyWindowHandle;
 
 use crate::engine::{self, EngineAction};
 use crate::ui::strings::{
-    APP_NAME, BTN_CANCEL, PET_ADOPTED, PET_CAT, PET_CHOOSE_CANDIDATE, PET_CHOOSE_SPECIES,
-    PET_CONFIRM, PET_JELLY, PET_REROLL, PET_RETRY, PET_SAVED_DESC, PET_SAVING, PET_TITLE,
+    APP_NAME, BTN_CANCEL, PET_ADOPTED, PET_CANDLE, PET_CHOOSE_CANDIDATE, PET_CHOOSE_SPECIES,
+    PET_CONFIRM, PET_REROLL, PET_RETRY, PET_SAVED_DESC, PET_SAVING, PET_TITLE,
 };
 use crate::ui::theme::tokens;
 
@@ -108,13 +108,23 @@ impl PetAdoptionView {
 fn candidate_art(candidate: &Candidate, cx: &Context<PetAdoptionView>) -> AnyElement {
     let t = tokens(cx);
     let a = &candidate.appearance;
+    let candle = candidate.species == PetSpecies::Candle;
     let body = match candidate.species {
         PetSpecies::Cat => t.accent,
         PetSpecies::Jelly => t.accent_soft,
+        PetSpecies::Candle => match a.coat_color {
+            0 => rgb(0xFFF6EF).into(),
+            1 => rgb(0xFFFCED).into(),
+            _ => rgb(0xF7EAD2).into(),
+        },
     };
     let accent = match candidate.species {
         PetSpecies::Cat => t.text2,
         PetSpecies::Jelly => t.accent,
+        PetSpecies::Candle => match a.accent {
+            0 => rgb(0xFFAC04).into(),
+            _ => rgb(0xFF6D00).into(),
+        },
     };
     let scale = 28. + f32::from(a.body) * 4.;
     div()
@@ -128,7 +138,64 @@ fn candidate_art(candidate: &Candidate, cx: &Context<PetAdoptionView>) -> AnyEle
         .flex()
         .items_center()
         .justify_center()
-        .child(
+        .child(if candle {
+            div()
+                .relative()
+                .w(px(46.))
+                .h(px(70.))
+                .rounded(px(9.))
+                .bg(body)
+                .border_1()
+                .border_color(rgb(0x661A0A))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(16.))
+                        .top(px(-16.))
+                        .w(px(14.))
+                        .h(px(22.))
+                        .rounded(px(8.))
+                        .bg(accent),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(21.))
+                        .top(px(3.))
+                        .w(px(4.))
+                        .h(px(9.))
+                        .bg(rgb(0xFFF1B0)),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(9.))
+                        .top(px(27.))
+                        .w(px(7.))
+                        .h(px(7.))
+                        .rounded_full()
+                        .bg(rgb(0x661A0A)),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .right(px(9.))
+                        .top(px(27.))
+                        .w(px(7.))
+                        .h(px(7.))
+                        .rounded_full()
+                        .bg(rgb(0x661A0A)),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(20.))
+                        .top(px(42.))
+                        .w(px(6.))
+                        .h(px(3.))
+                        .bg(rgb(0x661A0A)),
+                )
+        } else {
             div()
                 .relative()
                 .w(px(scale))
@@ -158,8 +225,8 @@ fn candidate_art(candidate: &Candidate, cx: &Context<PetAdoptionView>) -> AnyEle
                         .h(px(6.))
                         .rounded_full()
                         .bg(t.text1),
-                ),
-        )
+                )
+        })
         .into_any_element()
 }
 
@@ -179,26 +246,15 @@ impl Render for PetAdoptionView {
                 )
                 .child(div().text_color(t.text2).child(PET_TITLE()))
                 .child(
-                    h_flex().gap_2().children([
-                        Button::new("pet-cat")
-                            .label(PET_CAT())
-                            .primary()
-                            .with_size(Size::Small)
-                            .on_click(|_, _, _| {
-                                engine::enqueue(EngineAction::StartPetAdoption {
-                                    species: PetSpecies::Cat,
-                                })
-                            }),
-                        Button::new("pet-jelly")
-                            .label(PET_JELLY())
-                            .secondary()
-                            .with_size(Size::Small)
-                            .on_click(|_, _, _| {
-                                engine::enqueue(EngineAction::StartPetAdoption {
-                                    species: PetSpecies::Jelly,
-                                })
-                            }),
-                    ]),
+                    Button::new("pet-candle")
+                        .label(PET_CANDLE())
+                        .primary()
+                        .with_size(Size::Small)
+                        .on_click(|_, _, _| {
+                            engine::enqueue(EngineAction::StartPetAdoption {
+                                species: PetSpecies::Candle,
+                            })
+                        }),
                 )
                 .into_any_element(),
             AdoptionState::CandidatesVisible(set) | AdoptionState::CandidateSelected(set) => {
