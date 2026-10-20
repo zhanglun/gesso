@@ -20,6 +20,7 @@ type StringSelect = Entity<SelectState<SearchableVec<String>>>;
 pub struct PetView {
     activity: StringSelect,
     size: StringSelect,
+    reset_armed: bool,
 }
 
 impl PetView {
@@ -75,7 +76,11 @@ impl PetView {
         )
         .detach();
 
-        Self { activity, size }
+        Self {
+            activity,
+            size,
+            reset_armed: false,
+        }
     }
 
     fn group(&self, title: &'static str, rows: Vec<AnyElement>, cx: &Context<Self>) -> AnyElement {
@@ -195,6 +200,35 @@ impl Render for PetView {
             .py_2()
             .child(self.group(GROUP_PET(), settings, cx))
             .child(self.group(PET_STATS(), stats_rows, cx))
+            .child(self.group(
+                GROUP_ADVANCED(),
+                vec![set_row(
+                    PET_RESET(),
+                    Some(PET_RESET_CONFIRM()),
+                    Button::new("pet-reset")
+                        .label(if self.reset_armed {
+                            PET_RESET_CONFIRM()
+                        } else {
+                            PET_RESET()
+                        })
+                        .secondary()
+                        .with_size(Size::Small)
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            if view.reset_armed {
+                                view.reset_armed = false;
+                                crate::engine::enqueue(
+                                    crate::engine::EngineAction::ResetPetData,
+                                );
+                            } else {
+                                view.reset_armed = true;
+                            }
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                    cx,
+                )],
+                cx,
+            ))
             .into_any_element()
     }
 }

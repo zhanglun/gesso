@@ -718,6 +718,64 @@ fn unix_timestamp() -> u64 {
         .map_or(0, |duration| duration.as_secs())
 }
 
+/// 重置宠物数据：先备份改名当前个体的生成缓存，再原子写入未领养存档。
+/// 存档写入失败时恢复缓存名，原个体保留；成功后删除备份。
+/// 返回 Ok(()) 表示已完成重置（此时 `pet_save.adoption` 为空）。
+fn reset_pet_data(app: &mut engine::AppState) -> Result<(), String> {
+    if app.pet_storage_blocked {
+        return Err("宠物存档不可写，原文件已保留".to_string());
+    }
+    let Some(pet) = app.pet_save.adoption.as_ref() else {
+        return Ok(()); // 本就未领养，无需处理
+    };
+
+    let cache_root = protocol::pet_cache_dir();
+    let cache_dir = cache_root
+        .join("v1")
+        .join(pet.asset_version.to_string())
+        .join(&pet.pet_id);
+    let backup_dir = cache_root
+        .join("v1")
+        .join(pet.asset_version.to_string())
+        .join(format!(".{}.reset-{}", pet.pet_id, std::process::id()));
+    let _ = std::fs::remove_dir_all(&backup_dir);
+    let renamed = cache_dir.exists() && std::fs::rename(&cache_dir, &backup_dir).is_ok();
+
+    let mut save = app.pet_save.clone();
+    save.adoption = None;
+    save.position = None;
+    save.stats = gesso_core::PetStats::default();
+    match app.pet_store.save(&save) {
+        Ok(()) => {
+            if renamed {
+                let _ = std::fs::remove_dir_all(&backup_dir);
+            }
+            app.pet_save = save;
+            app.pet_stats_dirty = false;
+            app.pet_error = None;
+            // 状态机同步走 Adopted → ResetConfirm → NotAdopted，保持真源一致。
+            app.pet_adoption = gesso_core::adoption_transition(
+                gesso_core::adoption_transition(
+                    std::mem::replace(&mut app.pet_adoption, gesso_core::AdoptionState::Adopted),
+                    gesso_core::AdoptionEvent::RequestReset,
+                ),
+                gesso_core::AdoptionEvent::ConfirmReset,
+            );
+            app.pet_behavior = gesso_core::PetBehavior::new(app.pet_save.activity);
+            println!("[pet] 宠物数据已重置，回到未领养状态");
+            Ok(())
+        }
+        Err(error) => {
+            if renamed {
+                let _ = std::fs::rename(&backup_dir, &cache_dir);
+            }
+            let message = error.to_string();
+            eprintln!("[pet] 重置失败，原数据保留：{message}");
+            Err(message)
+        }
+    }
+}
+
 fn persist_pet_adoption(
     app: &mut engine::AppState,
     candidates: gesso_core::CandidateSet,
@@ -951,6 +1009,17 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                         eprintln!("[pet] 显示状态保存失败：{message}");
                         app.pet_error = Some(message);
                     }
+                }
+            }
+        }
+        engine::EngineAction::ResetPetData => {
+            if app.pet_save.adoption.is_some() {
+                match reset_pet_data(app) {
+                    Ok(()) => {
+                        out.refresh_pet = true;
+                        out.open_pet_adoption = true;
+                    }
+                    Err(message) => app.pet_error = Some(message),
                 }
             }
         }

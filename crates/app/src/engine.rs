@@ -194,6 +194,8 @@ pub enum EngineAction {
     SetPetSize(PetSize),
     /// 切换宠物用户可见状态并持久化。
     TogglePetVisibility,
+    /// 设置页高级区域：重置宠物数据后重新领养。
+    ResetPetData,
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
     /// 托盘「恢复系统壁纸」：桌面桥接全量恢复（逃生门——怀疑接管残留时用；
