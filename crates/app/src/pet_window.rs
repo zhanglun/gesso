@@ -694,7 +694,7 @@ mod macos {
         let frame_idx = match behavior.state() {
             PetBehaviorState::Sleeping => 2u8,
             _ if reduced => 0,
-            _ => ((behavior.elapsed().as_millis() / 260) % 2) as u8,
+            _ => ((behavior.elapsed().as_millis() / 550) % 2) as u8,
         };
         if view.ivars().sprite_frame.get() != frame_idx {
             let layer_guard = view.ivars().sprite_layer.borrow();
