@@ -634,7 +634,7 @@ mod macos {
         let root = view.layer().expect("宠物窗口 layer 缺失");
         let reduced = reduced_motion();
         // reduced-motion 用静态姿态替代动画：脉冲改固定微放大，
-        // 睡眠保留静态压缩（状态仍可辨），走动摇摆直接停用。
+        // 走动摇摆直接停用；蜡烛睡眠不压蜡身（火苗变暗即睡眠态）。
         let scale = match behavior.state() {
             PetBehaviorState::Poked => {
                 if reduced {
@@ -653,7 +653,6 @@ mod macos {
                 }
             }
             PetBehaviorState::Dragging => 1.03,
-            PetBehaviorState::Sleeping => 0.84,
             _ => 1.0,
         };
         let angle = if !reduced && behavior.state() == PetBehaviorState::Touched {
