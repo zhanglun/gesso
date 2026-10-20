@@ -587,7 +587,12 @@ mod macos {
                     )
                 })
                 .unwrap_or((0.88, 0.08));
-            let (px, py) = window_origin((x, y, w, h), rx, ry, window_w, window_h);
+            let base_origin = window_origin((x, y, w, h), rx, ry, window_w, window_h);
+            let (px, py) = if reduced_motion() {
+                base_origin
+            } else {
+                walking_origin(base_origin, monitor.frame, (window_w, window_h), behavior)
+            };
             let actual = window.frame();
             let at_target =
                 (actual.origin.x - px).abs() <= 2.0 && (actual.origin.y - py).abs() <= 2.0;
@@ -791,6 +796,25 @@ mod macos {
         )
     }
 
+    fn walking_origin(
+        base: (f64, f64),
+        monitor: (f64, f64, f64, f64),
+        window: (f64, f64),
+        behavior: gesso_core::PetBehavior,
+    ) -> (f64, f64) {
+        if behavior.state() != PetBehaviorState::Walking {
+            return base;
+        }
+        let progress = (behavior.elapsed().as_secs_f64() / 3.0).clamp(0.0, 1.0);
+        let excursion = (std::f64::consts::PI * progress).sin();
+        let left = (base.0 - monitor.0).max(0.0);
+        let right = (monitor.0 + monitor.2 - base.0 - window.0).max(0.0);
+        let direction = if right >= left { 1.0 } else { -1.0 };
+        let room = if direction > 0.0 { right } else { left };
+        let distance = room.min(56.0);
+        (base.0 + direction * distance * excursion, base.1)
+    }
+
     fn window_origin(
         (x, y, w, h): (f64, f64, f64, f64),
         rx: f64,
@@ -992,11 +1016,11 @@ mod macos {
     #[cfg(test)]
     mod tests {
         use super::{
-            classify_click, size_scale, window_dimensions, window_origin, ClickOutcome,
-            DOUBLE_CLICK_WINDOW, DRAG_THRESHOLD,
+            classify_click, size_scale, walking_origin, window_dimensions, window_origin,
+            ClickOutcome, DOUBLE_CLICK_WINDOW, DRAG_THRESHOLD,
         };
         use crate::pin::MonitorInfo;
-        use gesso_core::PetSize;
+        use gesso_core::{PetBehaviorEvent, PetSize};
         use std::time::Duration;
 
         #[test]
@@ -1023,6 +1047,29 @@ mod macos {
             assert_close(window_dimensions(PetSize::Small), (97.6, 144.0));
             assert_close(window_dimensions(PetSize::Medium), (116.0, 164.0));
             assert_close(window_dimensions(PetSize::Large), (139.0, 189.0));
+        }
+
+        #[test]
+        fn walking_origin_moves_without_leaving_monitor() {
+            let monitor = (0.0, 0.0, 1440.0, 900.0);
+            let window = (116.0, 164.0);
+            let base = (1165.12, 58.88);
+            let mut behavior = gesso_core::PetBehavior::new(gesso_core::PetActivity::Normal);
+            behavior.handle(PetBehaviorEvent::StartWalking);
+            behavior.tick(Duration::from_millis(1500));
+            let middle = walking_origin(base, monitor, window, behavior);
+            assert!(middle.0 < base.0);
+            assert!(middle.0 >= monitor.0);
+            assert!(middle.0 + window.0 <= monitor.0 + monitor.2);
+            assert_eq!(
+                walking_origin(
+                    base,
+                    monitor,
+                    window,
+                    gesso_core::PetBehavior::new(gesso_core::PetActivity::Normal),
+                ),
+                base
+            );
         }
 
         #[test]
