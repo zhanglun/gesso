@@ -40,8 +40,8 @@ pub struct BehaviorParams {
     pub walk_excursion: f64,
     /// 自主走动的单程时长（秒）。
     pub walk_seconds: f64,
-    /// 可见蜡身宽度（pt），命中检测按此收窄。
-    pub hit_width: f64,
+    /// 可见主体命中区（格坐标：起始列、起始行、列数、行数；行自顶部起）。
+    pub hit: (usize, usize, usize, usize),
     /// 命中圆角半径（pt）。
     pub hit_radius: f64,
 }
@@ -193,7 +193,7 @@ mod tests {
                 flicker_interval: Duration::from_millis(550),
                 walk_excursion: 56.0,
                 walk_seconds: 3.0,
-                hit_width: 2.0,
+                hit: (0, 0, 2, 2),
                 hit_radius: 1.0,
             },
         }

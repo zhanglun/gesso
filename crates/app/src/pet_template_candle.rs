@@ -78,7 +78,8 @@ fn candle_template() -> PetTemplate {
             flicker_interval: std::time::Duration::from_millis(550),
             walk_excursion: 56.0,
             walk_seconds: 3.0,
-            hit_width: 50.0,
+            // 可见蜡身：列 2-22、行 17-41（火苗与头顶余晖不参与命中）
+            hit: (2, 17, 21, 25),
             hit_radius: 22.0,
         },
     }

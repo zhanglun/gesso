@@ -7,6 +7,7 @@
 调色板索引：0=透明 1=蜡身 2=高光 3=暗部 4=火苗亮芯 5=火苗橙 6=火苗深橙 7=描边/眼
 """
 import sys
+from collections import deque
 
 from PIL import Image
 
@@ -72,7 +73,7 @@ def despeckle(cells):
 
 cells = [[classify_cell(x, y) for x in range(25)] for y in range(50)]
 
-# 背景清除：以描边包围盒为界，盒外全部透明（盒内不碰，无泄漏可能）。
+# 背景清除 ①：以描边包围盒为界，盒外全部透明。
 sevens = [(x, y) for y in range(50) for x in range(25) if cells[y][x] == 7]
 r0 = min(y for _, y in sevens); r1 = max(y for _, y in sevens)
 c0 = min(x for x, _ in sevens); c1 = max(x for x, _ in sevens)
@@ -80,6 +81,27 @@ for y in range(50):
     for x in range(25):
         if y < r0 or y > r1 or x < c0 or x > c1:
             cells[y][x] = 0
+
+# 背景清除 ②：从包围盒四边向内，清除连通的蜡身色袋（火焰周围的
+# 封闭凹袋边缘泛洪到不了）；描边环会挡住填充，身体内部不受影响。
+q = deque()
+for x in range(c0, c1 + 1):
+    for y in (r0, r1):
+        if cells[y][x] in (1, 2, 3):
+            cells[y][x] = 0
+            q.append((x, y))
+for y in range(r0, r1 + 1):
+    for x in (c0, c1):
+        if cells[y][x] in (1, 2, 3):
+            cells[y][x] = 0
+            q.append((x, y))
+while q:
+    x, y = q.popleft()
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nx, ny = x + dx, y + dy
+        if c0 <= nx <= c1 and r0 <= ny <= r1 and cells[ny][nx] in (1, 2, 3):
+            cells[ny][nx] = 0
+            q.append((nx, ny))
 despeckle(cells)
 
 # 帧1（摇曳）：火苗色板降一档 4→5、5→6（亮芯与橙各深一号），其余不变

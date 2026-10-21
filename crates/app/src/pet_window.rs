@@ -89,7 +89,7 @@ mod macos {
         sprite_layer: RefCell<Option<Retained<CALayer>>>,
         sprite_images: RefCell<Vec<Option<Retained<CGImage>>>>,
         sprite_key: Cell<(u8, u8)>,
-        hit_width: Cell<f64>,
+        hit_rect: Cell<NSRect>,
         hit_radius: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
         size: Cell<PetSize>,
@@ -112,7 +112,7 @@ mod macos {
                 sprite_layer: RefCell::new(None),
                 sprite_images: RefCell::new(Vec::new()),
                 sprite_key: Cell::new((0, 0)),
-                hit_width: Cell::new(0.0),
+                hit_rect: Cell::new(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))),
                 hit_radius: Cell::new(0.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
@@ -156,15 +156,11 @@ mod macos {
         impl PetHitView {
             #[unsafe(method(hitTest:))]
             fn hit_test(&self, point: NSPoint) -> *mut AnyObject {
-                let size = self.ivars().size.get();
-                let full = body_rect(size);
-                let scale = size_scale(size);
-                let inset = (BODY_W - self.ivars().hit_width.get()) * scale / 2.0;
-                let body = NSRect::new(
-                    NSPoint::new(full.origin.x + inset, full.origin.y),
-                    NSSize::new(self.ivars().hit_width.get() * scale, full.size.height),
+                let inside = rounded_rect_contains(
+                    point,
+                    self.ivars().hit_rect.get(),
+                    self.ivars().hit_radius.get(),
                 );
-                let inside = rounded_rect_contains(point, body, self.ivars().hit_radius.get());
                 if inside {
                     self as *const Self as *mut AnyObject
                 } else {
@@ -322,13 +318,12 @@ mod macos {
         fn new(
             frame: NSRect,
             mtm: MainThreadMarker,
-            hit_width: f64,
+            hit_rect: NSRect,
             hit_radius: f64,
-            scale: f64,
         ) -> Retained<Self> {
             let allocated = Self::alloc(mtm).set_ivars(PetHitIvars {
-                hit_width: Cell::new(hit_width * scale),
-                hit_radius: Cell::new(hit_radius * scale),
+                hit_rect: Cell::new(hit_rect),
+                hit_radius: Cell::new(hit_radius),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
                 ..PetHitIvars::default()
@@ -946,7 +941,6 @@ mod macos {
     ) -> (Retained<PetPanel>, Retained<PetHitView>) {
         let mtm = MainThreadMarker::new().expect("宠物窗口必须在主线程创建");
         let (window_w, window_h) = window_dimensions(size);
-        let scale = size_scale(size);
         let window: Retained<PetPanel> = unsafe {
             msg_send![
                 super(PetPanel::alloc(mtm).set_ivars(())),
@@ -978,12 +972,28 @@ mod macos {
                 | NSWindowCollectionBehavior::IgnoresCycle,
         );
 
+        // 精灵按等比缩放居中于 body 区域；命中矩形取模板声明的可见主体格区。
+        let body = body_rect(size);
+        let cell_w = body.size.width / template.grid_w as f64;
+        let cell_h = body.size.height / template.grid_h as f64;
+        let cell = cell_w.min(cell_h);
+        let drawn_w = cell * template.grid_w as f64;
+        let drawn_h = cell * template.grid_h as f64;
+        let sprite_x = body.origin.x + (body.size.width - drawn_w) / 2.0;
+        let sprite_y = body.origin.y + (body.size.height - drawn_h) / 2.0;
+        let (hit_cx, hit_ry, hit_cw, hit_rh) = template.params.hit;
+        let hit_rect = NSRect::new(
+            NSPoint::new(
+                sprite_x + hit_cx as f64 * cell,
+                sprite_y + (template.grid_h as f64 - hit_ry as f64 - hit_rh as f64) * cell,
+            ),
+            NSSize::new(hit_cw as f64 * cell, hit_rh as f64 * cell),
+        );
         let hit_view = PetHitView::new(
             NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(window_w, window_h)),
             mtm,
-            template.params.hit_width,
+            hit_rect,
             template.params.hit_radius,
-            scale,
         );
         window.setContentView(Some(&hit_view));
         let root = hit_view.layer().expect("宠物窗口 layer 缺失");
@@ -1123,7 +1133,7 @@ mod macos {
                 flicker_interval: Duration::from_millis(550),
                 walk_excursion: 56.0,
                 walk_seconds: 3.0,
-                hit_width: 50.0,
+                hit: (2, 17, 21, 25),
                 hit_radius: 22.0,
             };
             let monitor = (0.0, 0.0, 1440.0, 900.0);
