@@ -841,17 +841,15 @@ mod macos {
         };
 
         // 无障碍：通知档位变化时更新读屏值；注意/警告两档主动向 VoiceOver 播报
-        // （新动静静默更新，避免打断读屏用户——符合极低频回应基调）
+        // （新动静静默更新，避免打断读屏用户——符合极低频回应基调；值由 getter 直接读 ivars）
         if view.ivars().a11y_notice.get() != notice_kind {
             view.ivars().a11y_notice.set(notice_kind);
-            let text = match notice_kind {
-                1 => crate::ui::strings::PET_NOTICE_ATTENTION_TEXT(),
-                2 => crate::ui::strings::PET_NOTICE_WARNING_TEXT(),
-                _ => crate::ui::strings::PET_NOTICE_NEW_TEXT(),
-            };
-            let value = NSString::from_str(text);
-            let _: () = unsafe { msg_send![view, setAccessibilityValue: &*value] };
             if notice_kind != 0 {
+                let text = match notice_kind {
+                    1 => crate::ui::strings::PET_NOTICE_ATTENTION_TEXT(),
+                    2 => crate::ui::strings::PET_NOTICE_WARNING_TEXT(),
+                    _ => crate::ui::strings::PET_NOTICE_NEW_TEXT(),
+                };
                 post_a11y_announcement(text, view);
             }
         }
