@@ -3,8 +3,10 @@
 //! 帧数据由 `assets/pets/gen_sprites.py` 从基准稿生成（pet_sprite_data）；
 //! 色板族、装饰格与行为参数在本文件定稿（色值见角色设计方向稿 §7）。
 
-use super::pet_template::{BehaviorParams, Decoration, PaletteEntry, PetTemplate, Rgb};
-use crate::pet_sprite_data::{FRAME_FLICKER, FRAME_IDLE, FRAME_SLEEP};
+use super::pet_template::{BehaviorParams, Decoration, PaletteEntry, PetFrames, PetTemplate, Rgb};
+use crate::pet_sprite_data::{
+    FRAME_BLINK, FRAME_FLICKER, FRAME_GAZE_LEFT, FRAME_GAZE_RIGHT, FRAME_IDLE, FRAME_SLEEP,
+};
 
 const OUTLINE: Rgb = (102, 26, 10);
 
@@ -18,11 +20,14 @@ fn candle_template() -> PetTemplate {
     PetTemplate {
         grid_w: 25,
         grid_h: 50,
-        frames: [
-            FRAME_IDLE.to_vec(),
-            FRAME_FLICKER.to_vec(),
-            FRAME_SLEEP.to_vec(),
-        ],
+        frames: PetFrames {
+            idle: FRAME_IDLE.to_vec(),
+            flicker: FRAME_FLICKER.to_vec(),
+            sleep: FRAME_SLEEP.to_vec(),
+            blink: FRAME_BLINK.to_vec(),
+            gaze_left: FRAME_GAZE_LEFT.to_vec(),
+            gaze_right: FRAME_GAZE_RIGHT.to_vec(),
+        },
         body_palettes: vec![
             PaletteEntry {
                 key: 0,
@@ -76,6 +81,8 @@ fn candle_template() -> PetTemplate {
         ],
         params: BehaviorParams {
             flicker_interval: std::time::Duration::from_millis(550),
+            blink_interval: std::time::Duration::from_millis(4000),
+            blink_duration: std::time::Duration::from_millis(180),
             walk_excursion: 56.0,
             walk_seconds: 3.0,
             // 可见蜡身：列 2-22、行 17-41（火苗与头顶余晖不参与命中）
@@ -93,10 +100,18 @@ mod tests {
     #[test]
     fn candle_template_has_three_frames_and_locked_palette() {
         let t = candle();
-        assert_eq!(t.frames.len(), 3);
-        assert!(t.frames.iter().all(|f| f.len() == t.grid_w * t.grid_h));
+        assert_eq!(t.frames.kind_count(), 6);
+        let all = [
+            &t.frames.idle,
+            &t.frames.flicker,
+            &t.frames.sleep,
+            &t.frames.blink,
+            &t.frames.gaze_left,
+            &t.frames.gaze_right,
+        ];
+        assert!(all.iter().all(|f| f.len() == t.grid_w * t.grid_h));
         // 锁定调色板：全部帧的索引不超出 0..=7
-        assert!(t.frames.iter().all(|f| f.iter().all(|&idx| idx <= 7)));
+        assert!(all.iter().all(|f| f.iter().all(|&idx| idx <= 7)));
         assert_eq!(t.outline, OUTLINE);
     }
 

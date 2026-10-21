@@ -13,6 +13,30 @@ pub enum FrameKind {
     Idle,
     Flicker,
     Sleep,
+    /// 眨眼：眼睛闭合的清醒帧。
+    Blink,
+    /// 注视：眼簇向左偏一格。
+    GazeLeft,
+    /// 注视：眼簇向右偏一格。
+    GazeRight,
+}
+
+/// 角色的全部帧变体（由模板数据提供）。
+#[derive(Debug, Clone)]
+pub struct PetFrames {
+    pub idle: Vec<u8>,
+    pub flicker: Vec<u8>,
+    pub sleep: Vec<u8>,
+    pub blink: Vec<u8>,
+    pub gaze_left: Vec<u8>,
+    pub gaze_right: Vec<u8>,
+}
+
+impl PetFrames {
+    /// 帧变体数量（供渲染缓冲分配）。
+    pub fn kind_count(&self) -> usize {
+        6
+    }
 }
 
 /// 色板条目：key 匹配外观参数值，colors 为该变体的三个色位。
@@ -36,6 +60,10 @@ pub struct Decoration {
 pub struct BehaviorParams {
     /// 火苗摇曳的帧交替间隔。
     pub flicker_interval: Duration,
+    /// 眨眼间隔（两次眨眼的起始间距）。
+    pub blink_interval: Duration,
+    /// 眨眼闭合时长。
+    pub blink_duration: Duration,
     /// 自主走动的最大横向距离（pt）。
     pub walk_excursion: f64,
     /// 自主走动的单程时长（秒）。
@@ -51,8 +79,7 @@ pub struct BehaviorParams {
 pub struct PetTemplate {
     pub grid_w: usize,
     pub grid_h: usize,
-    /// 三帧索引网格：0=清醒 1=摇曳 2=睡眠。
-    pub frames: [Vec<u8>; 3],
+    pub frames: PetFrames,
     /// 主体色板族（按外观 coat_color 精确匹配）。
     pub body_palettes: Vec<PaletteEntry>,
     /// 点缀色板族（按外观 accent 精确匹配）。
@@ -69,11 +96,24 @@ pub struct PetTemplate {
 impl PetTemplate {
     /// 指定帧的索引网格。
     pub fn frame(&self, kind: FrameKind) -> &[u8] {
+        let f = &self.frames;
         match kind {
-            FrameKind::Idle => &self.frames[0],
-            FrameKind::Flicker => &self.frames[1],
-            FrameKind::Sleep => &self.frames[2],
+            FrameKind::Idle => &f.idle,
+            FrameKind::Flicker => &f.flicker,
+            FrameKind::Sleep => &f.sleep,
+            FrameKind::Blink => &f.blink,
+            FrameKind::GazeLeft => &f.gaze_left,
+            FrameKind::GazeRight => &f.gaze_right,
         }
+    }
+
+    /// 眨眼时机：清醒时长落入每个周期的闭合窗口即为眨眼。
+    pub fn blink_active(&self, awake: Duration) -> bool {
+        let period = (self.params.blink_interval + self.params.blink_duration).as_millis() as u64;
+        if period == 0 {
+            return false;
+        }
+        (awake.as_millis() as u64 % period) >= self.params.blink_interval.as_millis() as u64
     }
 
     /// 组合索引 → 颜色表（下标 0 为透明占位）。
@@ -170,7 +210,14 @@ mod tests {
         PetTemplate {
             grid_w: 2,
             grid_h: 2,
-            frames: [vec![1, 1, 1, 7], vec![1, 1, 1, 1], vec![1, 0, 0, 7]],
+            frames: PetFrames {
+                idle: vec![1, 1, 1, 7],
+                flicker: vec![1, 1, 1, 1],
+                sleep: vec![1, 0, 0, 7],
+                blink: vec![1, 1, 1, 1],
+                gaze_left: vec![7, 1, 1, 7],
+                gaze_right: vec![1, 1, 7, 7],
+            },
             body_palettes: vec![PaletteEntry {
                 key: 0,
                 colors: [(10, 10, 10), (20, 20, 20), (30, 30, 30)],
@@ -191,12 +238,24 @@ mod tests {
             }],
             params: BehaviorParams {
                 flicker_interval: Duration::from_millis(550),
+                blink_interval: Duration::from_millis(4000),
+                blink_duration: Duration::from_millis(180),
                 walk_excursion: 56.0,
                 walk_seconds: 3.0,
                 hit: (0, 0, 2, 2),
                 hit_radius: 1.0,
             },
         }
+    }
+
+    #[test]
+    fn blink_phase_alternates_closed_and_open() {
+        let t = tiny_template();
+        // 周期 = 4180ms：4000ms 睁眼 + 180ms 闭合
+        assert!(!t.blink_active(Duration::from_millis(3999)));
+        assert!(t.blink_active(Duration::from_millis(4000)));
+        assert!(t.blink_active(Duration::from_millis(4179)));
+        assert!(!t.blink_active(Duration::from_millis(4180)));
     }
 
     #[test]

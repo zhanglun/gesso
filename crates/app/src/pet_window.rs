@@ -89,6 +89,14 @@ mod macos {
         sprite_layer: RefCell<Option<Retained<CALayer>>>,
         sprite_images: RefCell<Vec<Option<Retained<CGImage>>>>,
         sprite_key: Cell<(u8, u8)>,
+        /// 光标在窗口内的水平比例（0=左，1=右），驱动注视帧。
+        gaze_x: Cell<f64>,
+        /// 眨眼时钟基准（窗口创建时刻）。
+        blink_clock: std::cell::Cell<std::time::Instant>,
+        /// 唤醒提亮的截止时刻。
+        wake_until: std::cell::Cell<Option<std::time::Instant>>,
+        /// 上一帧是否处于睡眠（用于检测唤醒瞬间）。
+        prev_sleeping: Cell<bool>,
         hit_rect: Cell<NSRect>,
         hit_radius: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
@@ -112,6 +120,10 @@ mod macos {
                 sprite_layer: RefCell::new(None),
                 sprite_images: RefCell::new(Vec::new()),
                 sprite_key: Cell::new((0, 0)),
+                gaze_x: Cell::new(0.5),
+                blink_clock: std::cell::Cell::new(std::time::Instant::now()),
+                wake_until: std::cell::Cell::new(None),
+                prev_sleeping: Cell::new(false),
                 hit_rect: Cell::new(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))),
                 hit_radius: Cell::new(0.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
@@ -183,7 +195,12 @@ mod macos {
             }
 
             #[unsafe(method(mouseMoved:))]
-            fn mouse_moved(&self, _event: &NSEvent) {
+            fn mouse_moved(&self, event: &NSEvent) {
+                let location = event.locationInWindow();
+                let width = self.bounds().size.width.max(1.0);
+                self.ivars()
+                    .gaze_x
+                    .set((location.x / width).clamp(0.0, 1.0));
                 let now = Instant::now();
                 let mut last = self.ivars().last_mouse_moved.borrow_mut();
                 if last.is_some_and(|at| now.duration_since(at) < Duration::from_millis(200)) {
@@ -685,6 +702,24 @@ mod macos {
         }
     }
 
+    /// 清醒时的摇曳帧选择：reduced-motion 或未到交替点用清醒帧。
+    fn flicker_kind(
+        behavior: gesso_core::PetBehavior,
+        reduced: bool,
+        template: &PetTemplate,
+    ) -> FrameKind {
+        if reduced {
+            return FrameKind::Idle;
+        }
+        let phase =
+            (behavior.elapsed().as_millis() / template.params.flicker_interval.as_millis()) % 2;
+        if phase == 0 {
+            FrameKind::Idle
+        } else {
+            FrameKind::Flicker
+        }
+    }
+
     fn apply_feedback(
         view: &PetHitView,
         behavior: gesso_core::PetBehavior,
@@ -747,23 +782,46 @@ mod macos {
         });
         sync_bubble(view, behavior.notice());
 
-        // 像素动画：清醒时火苗两帧交替摇曳；睡眠换闭眼小火苗帧；
-        // 通知激活时火苗色板提亮/偏红（boost 档位）；
-        // reduced-motion 下停用摇曳只用清醒帧，状态切换仍即时（静态替代）。
+        let now = std::time::Instant::now();
+        let sleeping = behavior.state() == PetBehaviorState::Sleeping;
+
+        // 唤醒提亮：从睡眠醒来的 1 秒内火苗保持注意档亮度
+        if view.ivars().prev_sleeping.get() && !sleeping {
+            view.ivars()
+                .wake_until
+                .set(Some(now + std::time::Duration::from_secs(1)));
+        }
+        view.ivars().prev_sleeping.set(sleeping);
+
+        // 通知火苗强化档位：0 无 / 1 注意档提亮 / 2 警告档偏红
+        // 唤醒后 1 秒内无通知时也取注意档（唤醒提亮）
+        let wake_lit = view.ivars().wake_until.get().is_some_and(|t| now < t);
         let boost = match behavior.notice() {
-            // 0 无 / 1 注意档提亮 / 2 警告档偏红
             Some(gesso_core::PetNotice::Warning) => 2u8,
             Some(_) => 1,
+            None if wake_lit => 1,
             None => 0,
         };
-        let frame_idx = match behavior.state() {
-            PetBehaviorState::Sleeping => 2u8,
-            _ if reduced => 0,
-            _ => {
-                ((behavior.elapsed().as_millis() / template.params.flicker_interval.as_millis())
-                    % 2) as u8
+
+        // 帧选择：睡眠 > 眨眼（清醒时周期性闭合）> 注视（Watching 按光标偏移）> 摇曳
+        let awake = now.duration_since(view.ivars().blink_clock.get());
+        let kind = if sleeping {
+            FrameKind::Sleep
+        } else if template.blink_active(awake) {
+            FrameKind::Blink
+        } else if behavior.state() == PetBehaviorState::Watching {
+            let gaze = view.ivars().gaze_x.get();
+            if gaze < 0.4 {
+                FrameKind::GazeLeft
+            } else if gaze > 0.6 {
+                FrameKind::GazeRight
+            } else {
+                flicker_kind(behavior, reduced, template)
             }
+        } else {
+            flicker_kind(behavior, reduced, template)
         };
+        let (frame_idx, boost) = (kind as u8, boost);
         let key = (frame_idx, boost);
         if view.ivars().sprite_key.get() != key {
             let layer_guard = view.ivars().sprite_layer.borrow();
@@ -1069,8 +1127,8 @@ mod macos {
         sprite_layer.setContentsScale(window.backingScaleFactor());
         let boost_count = template.notice_palettes.len() + 1;
         let mut sprite_images: Vec<Option<Retained<CGImage>>> =
-            vec![None; template.frames.len() * boost_count];
-        for frame_idx in 0..template.frames.len() {
+            vec![None; template.frames.kind_count() * boost_count];
+        for frame_idx in 0..template.frames.kind_count() {
             let kind = match frame_idx {
                 0 => FrameKind::Idle,
                 1 => FrameKind::Flicker,
@@ -1166,6 +1224,8 @@ mod macos {
         fn walking_origin_moves_without_leaving_monitor() {
             let params = crate::pet_template::BehaviorParams {
                 flicker_interval: Duration::from_millis(550),
+                blink_interval: Duration::from_millis(4000),
+                blink_duration: Duration::from_millis(180),
                 walk_excursion: 56.0,
                 walk_seconds: 3.0,
                 hit: (2, 17, 21, 25),
