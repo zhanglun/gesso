@@ -351,6 +351,10 @@ mod macos {
             self.ivars().press.borrow().is_some()
         }
 
+        fn hit_rect(&self) -> NSRect {
+            self.ivars().hit_rect.get()
+        }
+
         fn show_context_menu(&self, event: &NSEvent) {
             let menu = NSMenu::new(MainThreadMarker::new().unwrap());
             let target = Some(self.as_ref() as &AnyObject);
@@ -591,6 +595,23 @@ mod macos {
                 apply_feedback(hit_view, behavior, self.template);
                 hit_view.update_menu_state(save.activity, save.size);
                 hit_view.flush_pending_click();
+                // 光标不在可见蜡身上时，整个窗口对鼠标完全穿透（点击直达
+                // 背后应用）；进入蜡身区才恢复接收。视图 hitTest 只决定
+                // "窗口收到事件后给不给我"，穿透必须靠 ignoresMouseEvents。
+                let frame = window.frame();
+                let hit = hit_view.hit_rect();
+                let screen_hit = NSRect::new(
+                    NSPoint::new(frame.origin.x + hit.origin.x, frame.origin.y + hit.origin.y),
+                    NSSize::new(hit.size.width, hit.size.height),
+                );
+                let ignores = !rounded_rect_contains(
+                    NSEvent::mouseLocation(),
+                    screen_hit,
+                    self.template.params.hit_radius,
+                );
+                if window.ignoresMouseEvents() != ignores {
+                    window.setIgnoresMouseEvents(ignores);
+                }
                 // 鼠标事件和 150ms 主循环共享主线程；拖动期间禁止同步旧存档位置，
                 // 否则一次拖动会在手指位置与旧目标之间来回抢写，产生抖动。
                 if hit_view.is_dragging() {
