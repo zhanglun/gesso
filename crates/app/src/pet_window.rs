@@ -15,16 +15,19 @@ mod macos {
     use objc2::sel;
     use objc2::{define_class, msg_send, AnyThread, DefinedClass, MainThreadOnly};
     use objc2_app_kit::{
-        NSBackingStoreType, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSEvent,
-        NSFloatingWindowLevel, NSImage, NSMenu, NSPanel, NSTrackingArea, NSTrackingAreaOptions,
-        NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
+        NSBackingStoreType, NSBitmapImageRep, NSColor, NSControlStateValueOff,
+        NSControlStateValueOn, NSEvent, NSFloatingWindowLevel, NSMenu, NSPanel, NSTrackingArea,
+        NSTrackingAreaOptions, NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
     };
     use objc2_core_foundation::CGAffineTransform;
-    use objc2_foundation::{MainThreadMarker, NSData, NSPoint, NSRect, NSSize, NSString};
+    use objc2_core_graphics::CGImage;
+    use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
     use objc2_quartz_core::{CALayer, CATextLayer, CATransaction};
 
     use super::{MonitorInfo, PetSave, PetSize, PetSpecies};
     use crate::engine::{self, EngineAction};
+    use crate::pet_sprite;
+    use crate::pet_sprite_data;
     use gesso_core::{PetBehaviorEvent, PetBehaviorState, PetInteraction, PetNotice};
 
     const DRAG_THRESHOLD: f64 = 6.0;
@@ -84,8 +87,8 @@ mod macos {
         last_mouse_moved: RefCell<Option<Instant>>,
         bubble: RefCell<Option<BubbleLayers>>,
         sprite_layer: RefCell<Option<Retained<CALayer>>>,
-        sprites: RefCell<[Option<Retained<objc2_core_graphics::CGImage>>; 3]>,
-        sprite_frame: Cell<u8>,
+        sprite_images: RefCell<[Option<Retained<CGImage>>; 9]>,
+        sprite_key: Cell<(u8, u8)>,
         hit_radius: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
         size: Cell<PetSize>,
@@ -106,8 +109,8 @@ mod macos {
                 last_mouse_moved: RefCell::new(None),
                 bubble: RefCell::new(None),
                 sprite_layer: RefCell::new(None),
-                sprites: RefCell::new([None, None, None]),
-                sprite_frame: Cell::new(0),
+                sprite_images: RefCell::new(std::array::from_fn(|_| None)),
+                sprite_key: Cell::new((0, 0)),
                 hit_radius: Cell::new(0.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
@@ -122,11 +125,9 @@ mod macos {
     // 给头顶的助手气泡预留透明空间；命中检测只看身体矩形，气泡不可点击。
     const BUBBLE_HEADROOM: f64 = 40.0;
     const BUBBLE_HEIGHT: f64 = 24.0;
-    // 首发角色「小蜡烛」基准稿位图（candle-4，见角色设计方向稿 §7）。
-    // 三帧：清醒 / 火苗偏摆（两帧交替即摇曳）/ 睡眠（火苗缩小变暗 + 闭眼）。
-    const CANDLE_IDLE: &[u8] = include_bytes!("../assets/pets/candle-idle-0.png");
-    const CANDLE_FLICKER: &[u8] = include_bytes!("../assets/pets/candle-idle-1.png");
-    const CANDLE_SLEEP: &[u8] = include_bytes!("../assets/pets/candle-sleep.png");
+    // 首发角色「小蜡烛」：精灵数据在 pet_sprite（25×50 索引网格），
+    // 按候选外观套色板后渲染成位图；最近邻放大保持像素硬边。
+    // 三帧 × 三档通知火苗强化，预渲染后运行时只做指针切换。
     // 蜡烛可见蜡身宽度（body 区域内居中）；命中检测按此宽度收窄。
     const CANDLE_BODY_W: f64 = 50.0;
     const HIT_RADIUS: f64 = 22.0;
@@ -694,17 +695,24 @@ mod macos {
         sync_bubble(view, behavior.notice());
 
         // 像素动画：清醒时火苗两帧交替摇曳；睡眠换闭眼小火苗帧；
+        // 通知激活时火苗色板提亮/偏红（boost 档位）；
         // reduced-motion 下停用摇曳只用清醒帧，状态切换仍即时（静态替代）。
+        let boost = match behavior.notice() {
+            Some(gesso_core::PetNotice::Warning) => pet_sprite::FLAME_BOOST_WARNING,
+            Some(_) => pet_sprite::FLAME_BOOST_ATTENTION,
+            None => pet_sprite::FLAME_BOOST_NONE,
+        };
         let frame_idx = match behavior.state() {
             PetBehaviorState::Sleeping => 2u8,
             _ if reduced => 0,
             _ => ((behavior.elapsed().as_millis() / 550) % 2) as u8,
         };
-        if view.ivars().sprite_frame.get() != frame_idx {
+        let key = (frame_idx, boost);
+        if view.ivars().sprite_key.get() != key {
             let layer_guard = view.ivars().sprite_layer.borrow();
-            let sprites_guard = view.ivars().sprites.borrow();
+            let images_guard = view.ivars().sprite_images.borrow();
             let layer = layer_guard.as_ref().map(|l| &**l as &CALayer);
-            let image = sprites_guard[frame_idx as usize]
+            let image = images_guard[frame_idx as usize * 3 + boost as usize]
                 .as_ref()
                 .map(|img| &**img as &objc2_core_graphics::CGImage);
             if let (Some(layer), Some(image)) = (layer, image) {
@@ -713,7 +721,7 @@ mod macos {
                 let _: () = unsafe { msg_send![layer, setContents: image] };
                 CATransaction::commit();
             }
-            view.ivars().sprite_frame.set(frame_idx);
+            view.ivars().sprite_key.set(key);
         }
     }
 
@@ -880,9 +888,32 @@ mod macos {
         NSColor::colorWithSRGBRed_green_blue_alpha(red, green, blue, 1.0)
     }
 
+    /// 领养预览与桌面共用的点阵渲染：索引网格 → CGImage（非预乘 RGBA）。
+    fn cgimage_from_rgba(rgba: &[u8], width: usize, height: usize) -> Retained<CGImage> {
+        unsafe {
+            let rep = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+                    NSBitmapImageRep::alloc(),
+                    std::ptr::null_mut(),
+                    width as isize,
+                    height as isize,
+                    8,
+                    4,
+                    true,
+                    false,
+                    &NSString::from_str("NSCalibratedRGBColorSpace"),
+                    (width * 4) as isize,
+                    32,
+                )
+            .expect("蜡烛点阵 bitmap 创建失败");
+            let buf = rep.bitmapData();
+            std::ptr::copy_nonoverlapping(rgba.as_ptr(), buf, rgba.len());
+            rep.CGImage().expect("蜡烛点阵转 CGImage 失败")
+        }
+    }
+
     fn create_window(
         _species: PetSpecies,
-        _appearance: &gesso_core::AppearanceParams,
+        appearance: &gesso_core::AppearanceParams,
         size: PetSize,
     ) -> (Retained<PetPanel>, Retained<PetHitView>) {
         let mtm = MainThreadMarker::new().expect("宠物窗口必须在主线程创建");
@@ -952,9 +983,9 @@ mod macos {
         };
         hit_view.addTrackingArea(&tracking);
 
-        // 首发角色「小蜡烛」：直接使用角色基准稿位图（角色设计方向稿 §7），
-        // 等比缩放放进 body 区域；描边、火苗和点眼都来自位图本身。
-        // 三帧：清醒 / 火苗偏摆（两帧交替即摇曳）/ 睡眠（火苗缩小变暗 + 闭眼）。
+        // 首发角色「小蜡烛」：精灵数据在 pet_sprite（25×50 索引网格），
+        // 按候选外观套色板后渲染成位图；最近邻放大保持像素硬边。
+        // 三帧 × 三档通知火苗强化，预渲染后运行时只做指针切换。
         let sprite_layer = CALayer::layer();
         sprite_layer.setFrame(body_rect(size));
         sprite_layer.setContentsGravity(&NSString::from_str("resizeAspect"));
@@ -962,25 +993,31 @@ mod macos {
         sprite_layer.setMagnificationFilter(&NSString::from_str("nearest"));
         sprite_layer.setMinificationFilter(&NSString::from_str("nearest"));
         sprite_layer.setContentsScale(window.backingScaleFactor());
-        let mut sprites: [Option<Retained<objc2_core_graphics::CGImage>>; 3] = [None, None, None];
-        for (slot, data) in sprites
-            .iter_mut()
-            .zip([CANDLE_IDLE, CANDLE_FLICKER, CANDLE_SLEEP])
-        {
-            let data = NSData::with_bytes(data);
-            let image = NSImage::initWithData(NSImage::alloc(), &data).expect("蜡烛位图加载失败");
-            let cg = unsafe {
-                image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
+        let mut sprite_images: [Option<Retained<CGImage>>; 9] = Default::default();
+        for frame_idx in 0..pet_sprite::FRAME_COUNT {
+            let cells = pet_sprite::compose_frame(
+                pet_sprite::frame(frame_idx),
+                appearance.marking,
+                appearance.body,
+            );
+            for boost in 0..3u8 {
+                let palette =
+                    pet_sprite::palette_for(appearance.coat_color, appearance.accent, boost);
+                let mut rgba = vec![0u8; pet_sprite_data::FRAME_LEN * 4];
+                pet_sprite::render_rgba(&cells, &palette, &mut rgba);
+                sprite_images[frame_idx * 3 + boost as usize] = Some(cgimage_from_rgba(
+                    &rgba,
+                    pet_sprite_data::GRID_W,
+                    pet_sprite_data::GRID_H,
+                ));
             }
-            .expect("蜡烛位图转 CGImage 失败");
-            *slot = Some(cg);
         }
-        if let Some(first) = sprites[0].as_ref() {
+        if let Some(first) = sprite_images[0].as_ref() {
             let _: () = unsafe { msg_send![&sprite_layer, setContents: &**first] };
         }
         root.addSublayer(&sprite_layer);
         *hit_view.ivars().sprite_layer.borrow_mut() = Some(sprite_layer);
-        *hit_view.ivars().sprites.borrow_mut() = sprites;
+        *hit_view.ivars().sprite_images.borrow_mut() = sprite_images;
 
         *hit_view.ivars().bubble.borrow_mut() =
             Some(create_bubble(&root, window.backingScaleFactor()));

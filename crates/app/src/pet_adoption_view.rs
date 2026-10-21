@@ -13,6 +13,7 @@ use gpui_kit::gpui::{
 use gpui_kit::AnyWindowHandle;
 
 use crate::engine::{self, EngineAction};
+use crate::pet_sprite;
 use crate::ui::strings::{
     APP_NAME, BTN_CANCEL, PET_ADOPTED, PET_CANDLE, PET_CHOOSE_CANDIDATE, PET_CHOOSE_SPECIES,
     PET_CONFIRM, PET_REROLL, PET_RETRY, PET_SAVED_DESC, PET_SAVING, PET_TITLE,
@@ -109,22 +110,22 @@ fn candidate_art(candidate: &Candidate, cx: &Context<PetAdoptionView>) -> AnyEle
     let t = tokens(cx);
     let a = &candidate.appearance;
     let candle = candidate.species == PetSpecies::Candle;
+    let palette = pet_sprite::palette_for(a.coat_color, a.accent, pet_sprite::FLAME_BOOST_NONE);
+    let cells = pet_sprite::compose_frame(&pet_sprite::FRAME_IDLE, a.marking, a.body);
+    let runs = pet_sprite::row_runs(&cells);
+    let color = |idx: u8| {
+        let (r, g, b) = pet_sprite::palette_color(&palette, idx);
+        rgb((u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b))
+    };
     let body = match candidate.species {
         PetSpecies::Cat => t.accent,
         PetSpecies::Jelly => t.accent_soft,
-        PetSpecies::Candle => match a.coat_color {
-            0 => rgb(0xFFF6EF).into(),
-            1 => rgb(0xFFFCED).into(),
-            _ => rgb(0xF7EAD2).into(),
-        },
+        PetSpecies::Candle => color(1).into(),
     };
     let accent = match candidate.species {
         PetSpecies::Cat => t.text2,
         PetSpecies::Jelly => t.accent,
-        PetSpecies::Candle => match a.accent {
-            0 => rgb(0xFFAC04).into(),
-            _ => rgb(0xFF6D00).into(),
-        },
+        PetSpecies::Candle => color(5).into(),
     };
     let scale = 28. + f32::from(a.body) * 4.;
     div()
@@ -139,62 +140,21 @@ fn candidate_art(candidate: &Candidate, cx: &Context<PetAdoptionView>) -> AnyEle
         .items_center()
         .justify_center()
         .child(if candle {
-            div()
-                .relative()
-                .w(px(46.))
-                .h(px(70.))
-                .rounded(px(9.))
-                .bg(body)
-                .border_1()
-                .border_color(rgb(0x661A0A))
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(16.))
-                        .top(px(-16.))
-                        .w(px(14.))
-                        .h(px(22.))
-                        .rounded(px(8.))
-                        .bg(accent),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(21.))
-                        .top(px(3.))
-                        .w(px(4.))
-                        .h(px(9.))
-                        .bg(rgb(0xFFF1B0)),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(9.))
-                        .top(px(27.))
-                        .w(px(7.))
-                        .h(px(7.))
-                        .rounded_full()
-                        .bg(rgb(0x661A0A)),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .right(px(9.))
-                        .top(px(27.))
-                        .w(px(7.))
-                        .h(px(7.))
-                        .rounded_full()
-                        .bg(rgb(0x661A0A)),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(20.))
-                        .top(px(42.))
-                        .w(px(6.))
-                        .h(px(3.))
-                        .bg(rgb(0x661A0A)),
-                )
+            // 与桌面窗口同一套索引网格 + 调色板：逐行渲染色块行程，
+            // 所见即所得（蜡身/火苗/蜡泪/托盘变化全部可见）。
+            v_flex()
+                .w(px(25. * 1.84))
+                .children(runs.into_iter().map(|row| {
+                    h_flex()
+                        .h(px(1.4))
+                        .children(row.into_iter().map(|(len, idx)| {
+                            let mut cell = div().w(px(len as f32 * 1.84)).h(px(1.4));
+                            if idx != 0 {
+                                cell = cell.bg(color(idx));
+                            }
+                            cell
+                        }))
+                }))
         } else {
             div()
                 .relative()

@@ -17,6 +17,8 @@ mod engine;
 mod host_cmd;
 mod pet_adoption_view;
 mod pet_cache;
+mod pet_sprite;
+mod pet_sprite_data;
 mod pet_store;
 mod pet_window;
 mod pin;
