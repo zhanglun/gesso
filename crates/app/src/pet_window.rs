@@ -13,7 +13,7 @@ mod macos {
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
     use objc2::sel;
-    use objc2::{define_class, msg_send, AnyThread, DefinedClass, MainThreadOnly};
+    use objc2::{class, define_class, msg_send, AnyThread, DefinedClass, MainThreadOnly};
     use objc2_app_kit::{
         NSBackingStoreType, NSBitmapImageRep, NSColor, NSControlStateValueOff,
         NSControlStateValueOn, NSEvent, NSFloatingWindowLevel, NSMenu, NSPanel, NSTrackingArea,
@@ -97,6 +97,8 @@ mod macos {
         wake_until: std::cell::Cell<Option<std::time::Instant>>,
         /// 上一帧是否处于睡眠（用于检测唤醒瞬间）。
         prev_sleeping: Cell<bool>,
+        /// 最近一次无障碍通知档位（0 无 / 1 注意 / 2 警告），变更时更新读屏。
+        a11y_notice: Cell<u8>,
         hit_rect: Cell<NSRect>,
         hit_radius: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
@@ -124,12 +126,23 @@ mod macos {
                 blink_clock: std::cell::Cell::new(std::time::Instant::now()),
                 wake_until: std::cell::Cell::new(None),
                 prev_sleeping: Cell::new(false),
+                a11y_notice: Cell::new(0),
                 hit_rect: Cell::new(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))),
                 hit_radius: Cell::new(0.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
             }
         }
+    }
+
+    // AppKit C 函数：向读屏发布带文本的播报（objc2 绑定未暴露带 userInfo 的版本）。
+    // 通知名 "AXAnnouncement" 与文本键为系统稳定常量。
+    extern "C-unwind" {
+        fn NSAccessibilityPostNotificationWithUserInfo(
+            element: *const AnyObject,
+            notification: &NSString,
+            user_info: *const AnyObject,
+        );
     }
 
     const BODY_W: f64 = 92.0;
@@ -702,6 +715,23 @@ mod macos {
         }
     }
 
+    /// 向 VoiceOver 播报一条文本（经系统 AXAnnouncement 通知）。
+    fn post_a11y_announcement(text: &str, view: &PetHitView) {
+        let name = NSString::from_str("AXAnnouncement");
+        let key = NSString::from_str("NSAccessibilityAnnouncementText");
+        let value = NSString::from_str(text);
+        let element: *const AnyObject = std::ptr::from_ref(view).cast();
+        let key_obj: *const AnyObject = std::ptr::from_ref(&*key).cast();
+        let value_obj: *const AnyObject = std::ptr::from_ref(&*value).cast();
+        unsafe {
+            let info: *const AnyObject = msg_send![class!(NSDictionary),
+                dictionaryWithObject: value_obj,
+                forKey: key_obj
+            ];
+            NSAccessibilityPostNotificationWithUserInfo(element, &name, info);
+        }
+    }
+
     /// 清醒时的摇曳帧选择：reduced-motion 或未到交替点用清醒帧。
     fn flicker_kind(
         behavior: gesso_core::PetBehavior,
@@ -796,12 +826,35 @@ mod macos {
         // 通知火苗强化档位：0 无 / 1 注意档提亮 / 2 警告档偏红
         // 唤醒后 1 秒内无通知时也取注意档（唤醒提亮）
         let wake_lit = view.ivars().wake_until.get().is_some_and(|t| now < t);
-        let boost = match behavior.notice() {
+
+        // 通知火苗强化档位：0 无 / 1 注意档提亮 / 2 警告档偏红；唤醒提亮取注意档
+        let notice_kind = match behavior.notice() {
             Some(gesso_core::PetNotice::Warning) => 2u8,
-            Some(_) => 1,
-            None if wake_lit => 1,
-            None => 0,
+            Some(_) => 1u8,
+            None => 0u8,
         };
+        let boost = match notice_kind {
+            2 => 2u8,
+            1 => 1,
+            0 if wake_lit => 1,
+            _ => 0,
+        };
+
+        // 无障碍：通知档位变化时更新读屏值；注意/警告两档主动向 VoiceOver 播报
+        // （新动静静默更新，避免打断读屏用户——符合极低频回应基调）
+        if view.ivars().a11y_notice.get() != notice_kind {
+            view.ivars().a11y_notice.set(notice_kind);
+            let text = match notice_kind {
+                1 => crate::ui::strings::PET_NOTICE_ATTENTION_TEXT(),
+                2 => crate::ui::strings::PET_NOTICE_WARNING_TEXT(),
+                _ => crate::ui::strings::PET_NOTICE_NEW_TEXT(),
+            };
+            let value = NSString::from_str(text);
+            let _: () = unsafe { msg_send![view, setAccessibilityValue: &*value] };
+            if notice_kind != 0 {
+                post_a11y_announcement(text, view);
+            }
+        }
 
         // 帧选择：睡眠 > 眨眼（清醒时周期性闭合）> 注视（Watching 按光标偏移）> 摇曳
         let awake = now.duration_since(view.ivars().blink_clock.get());
@@ -1089,6 +1142,12 @@ mod macos {
             template.params.hit_radius,
         );
         window.setContentView(Some(&hit_view));
+        // 无障碍：向 VoiceOver 标注宠物本体（读屏光标可发现并朗读）
+        let a11y_label = NSString::from_str(crate::ui::strings::PET_A11Y_LABEL());
+        unsafe {
+            let _: () = msg_send![&*hit_view, setAccessibilityElement: true];
+            let _: () = msg_send![&*hit_view, setAccessibilityLabel: &*a11y_label];
+        }
         let root = hit_view.layer().expect("宠物窗口 layer 缺失");
         root.setFrame(NSRect::new(
             NSPoint::new(0.0, 0.0),
