@@ -13,7 +13,8 @@ use gpui_kit::gpui::{
 use gpui_kit::AnyWindowHandle;
 
 use crate::engine::{self, EngineAction};
-use crate::pet_sprite;
+use crate::pet_template::FrameKind;
+use crate::pet_template_candle;
 use crate::ui::strings::{
     APP_NAME, BTN_CANCEL, PET_ADOPTED, PET_CANDLE, PET_CHOOSE_CANDIDATE, PET_CHOOSE_SPECIES,
     PET_CONFIRM, PET_REROLL, PET_RETRY, PET_SAVED_DESC, PET_SAVING, PET_TITLE,
@@ -110,11 +111,12 @@ fn candidate_art(candidate: &Candidate, cx: &Context<PetAdoptionView>) -> AnyEle
     let t = tokens(cx);
     let a = &candidate.appearance;
     let candle = candidate.species == PetSpecies::Candle;
-    let palette = pet_sprite::palette_for(a.coat_color, a.accent, pet_sprite::FLAME_BOOST_NONE);
-    let cells = pet_sprite::compose_frame(&pet_sprite::FRAME_IDLE, a.marking, a.body);
-    let runs = pet_sprite::row_runs(&cells);
+    let template = pet_template_candle::candle();
+    let palette = template.palette(a.coat_color, a.accent, 0);
+    let cells = template.compose(FrameKind::Idle, a.marking, a.body);
+    let runs = template.row_runs(&cells);
     let color = |idx: u8| {
-        let (r, g, b) = pet_sprite::palette_color(&palette, idx);
+        let (r, g, b) = palette[idx as usize];
         rgb((u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b))
     };
     let body = match candidate.species {

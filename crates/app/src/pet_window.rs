@@ -3,7 +3,7 @@
 //! 当前使用程序化占位外观；窗口事件通过 EngineAction 进入引擎，生命周期和显示状态由主循环同步。
 
 use crate::pin::MonitorInfo;
-use gesso_core::{PetSave, PetSize, PetSpecies};
+use gesso_core::{PetSave, PetSize};
 
 #[cfg(target_os = "macos")]
 mod macos {
@@ -24,10 +24,10 @@ mod macos {
     use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
     use objc2_quartz_core::{CALayer, CATextLayer, CATransaction};
 
-    use super::{MonitorInfo, PetSave, PetSize, PetSpecies};
+    use super::{MonitorInfo, PetSave, PetSize};
     use crate::engine::{self, EngineAction};
-    use crate::pet_sprite;
-    use crate::pet_sprite_data;
+    use crate::pet_template::{BehaviorParams, FrameKind, PetTemplate};
+    use crate::pet_template_candle;
     use gesso_core::{PetBehaviorEvent, PetBehaviorState, PetInteraction, PetNotice};
 
     const DRAG_THRESHOLD: f64 = 6.0;
@@ -89,6 +89,7 @@ mod macos {
         sprite_layer: RefCell<Option<Retained<CALayer>>>,
         sprite_images: RefCell<[Option<Retained<CGImage>>; 9]>,
         sprite_key: Cell<(u8, u8)>,
+        hit_width: Cell<f64>,
         hit_radius: Cell<f64>,
         activity: Cell<gesso_core::PetActivity>,
         size: Cell<PetSize>,
@@ -111,6 +112,7 @@ mod macos {
                 sprite_layer: RefCell::new(None),
                 sprite_images: RefCell::new(std::array::from_fn(|_| None)),
                 sprite_key: Cell::new((0, 0)),
+                hit_width: Cell::new(0.0),
                 hit_radius: Cell::new(0.0),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
@@ -125,12 +127,7 @@ mod macos {
     // 给头顶的助手气泡预留透明空间；命中检测只看身体矩形，气泡不可点击。
     const BUBBLE_HEADROOM: f64 = 40.0;
     const BUBBLE_HEIGHT: f64 = 24.0;
-    // 首发角色「小蜡烛」：精灵数据在 pet_sprite（25×50 索引网格），
-    // 按候选外观套色板后渲染成位图；最近邻放大保持像素硬边。
-    // 三帧 × 三档通知火苗强化，预渲染后运行时只做指针切换。
-    // 蜡烛可见蜡身宽度（body 区域内居中）；命中检测按此宽度收窄。
-    const CANDLE_BODY_W: f64 = 50.0;
-    const HIT_RADIUS: f64 = 22.0;
+    // 窗口几何常量（body 区域）与角色无关；蜡身宽度/命中半径等角色参数在模板里。
 
     define_class!(
         #[unsafe(super(NSPanel))]
@@ -162,10 +159,10 @@ mod macos {
                 let size = self.ivars().size.get();
                 let full = body_rect(size);
                 let scale = size_scale(size);
-                let inset = (BODY_W - CANDLE_BODY_W) * scale / 2.0;
+                let inset = (BODY_W - self.ivars().hit_width.get()) * scale / 2.0;
                 let body = NSRect::new(
                     NSPoint::new(full.origin.x + inset, full.origin.y),
-                    NSSize::new(CANDLE_BODY_W * scale, full.size.height),
+                    NSSize::new(self.ivars().hit_width.get() * scale, full.size.height),
                 );
                 let inside = rounded_rect_contains(point, body, self.ivars().hit_radius.get());
                 if inside {
@@ -325,10 +322,12 @@ mod macos {
         fn new(
             frame: NSRect,
             mtm: MainThreadMarker,
+            hit_width: f64,
             hit_radius: f64,
             scale: f64,
         ) -> Retained<Self> {
             let allocated = Self::alloc(mtm).set_ivars(PetHitIvars {
+                hit_width: Cell::new(hit_width * scale),
                 hit_radius: Cell::new(hit_radius * scale),
                 activity: Cell::new(gesso_core::PetActivity::Normal),
                 size: Cell::new(PetSize::Medium),
@@ -522,14 +521,28 @@ mod macos {
         }
     }
 
-    #[derive(Default)]
     pub struct PetWindowManager {
+        template: PetTemplate,
         window: Option<Retained<PetPanel>>,
         hit_view: Option<Retained<PetHitView>>,
         pet_id: Option<String>,
         pet_size: Option<PetSize>,
         last_reported_position: Option<(String, f32, f32)>,
         last_applied_origin: Option<(f64, f64)>,
+    }
+
+    impl Default for PetWindowManager {
+        fn default() -> Self {
+            Self {
+                template: pet_template_candle::candle(),
+                window: None,
+                hit_view: None,
+                pet_id: None,
+                pet_size: None,
+                last_reported_position: None,
+                last_applied_origin: None,
+            }
+        }
     }
 
     impl gpui_kit::Global for PetWindowManager {}
@@ -556,7 +569,7 @@ mod macos {
 
             if self.pet_id.as_deref() != Some(&pet.pet_id) || self.pet_size != Some(save.size) {
                 self.hide();
-                let (window, hit_view) = create_window(pet.species, &pet.appearance, save.size);
+                let (window, hit_view) = create_window(&self.template, &pet.appearance, save.size);
                 self.window = Some(window);
                 self.hit_view = Some(hit_view);
                 self.pet_id = Some(pet.pet_id.clone());
@@ -566,7 +579,7 @@ mod macos {
             }
             let window = self.window.as_ref()?;
             if let Some(hit_view) = &self.hit_view {
-                apply_feedback(hit_view, behavior);
+                apply_feedback(hit_view, behavior, &self.template);
                 hit_view.update_menu_state(save.activity, save.size);
                 hit_view.flush_pending_click();
                 // 鼠标事件和 150ms 主循环共享主线程；拖动期间禁止同步旧存档位置，
@@ -592,7 +605,13 @@ mod macos {
             let (px, py) = if reduced_motion() {
                 base_origin
             } else {
-                walking_origin(base_origin, monitor.frame, (window_w, window_h), behavior)
+                walking_origin(
+                    base_origin,
+                    monitor.frame,
+                    (window_w, window_h),
+                    behavior,
+                    &self.template.params,
+                )
             };
             let actual = window.frame();
             let at_target =
@@ -636,7 +655,11 @@ mod macos {
         }
     }
 
-    fn apply_feedback(view: &PetHitView, behavior: gesso_core::PetBehavior) {
+    fn apply_feedback(
+        view: &PetHitView,
+        behavior: gesso_core::PetBehavior,
+        template: &PetTemplate,
+    ) {
         let root = view.layer().expect("宠物窗口 layer 缺失");
         let reduced = reduced_motion();
         // reduced-motion 用静态姿态替代动画：脉冲改固定微放大，
@@ -698,14 +721,18 @@ mod macos {
         // 通知激活时火苗色板提亮/偏红（boost 档位）；
         // reduced-motion 下停用摇曳只用清醒帧，状态切换仍即时（静态替代）。
         let boost = match behavior.notice() {
-            Some(gesso_core::PetNotice::Warning) => pet_sprite::FLAME_BOOST_WARNING,
-            Some(_) => pet_sprite::FLAME_BOOST_ATTENTION,
-            None => pet_sprite::FLAME_BOOST_NONE,
+            // 0 无 / 1 注意档提亮 / 2 警告档偏红
+            Some(gesso_core::PetNotice::Warning) => 2u8,
+            Some(_) => 1,
+            None => 0,
         };
         let frame_idx = match behavior.state() {
             PetBehaviorState::Sleeping => 2u8,
             _ if reduced => 0,
-            _ => ((behavior.elapsed().as_millis() / 550) % 2) as u8,
+            _ => {
+                ((behavior.elapsed().as_millis() / template.params.flicker_interval.as_millis())
+                    % 2) as u8
+            }
         };
         let key = (frame_idx, boost);
         if view.ivars().sprite_key.get() != key {
@@ -809,17 +836,18 @@ mod macos {
         monitor: (f64, f64, f64, f64),
         window: (f64, f64),
         behavior: gesso_core::PetBehavior,
+        params: &BehaviorParams,
     ) -> (f64, f64) {
         if behavior.state() != PetBehaviorState::Walking {
             return base;
         }
-        let progress = (behavior.elapsed().as_secs_f64() / 3.0).clamp(0.0, 1.0);
+        let progress = (behavior.elapsed().as_secs_f64() / params.walk_seconds).clamp(0.0, 1.0);
         let excursion = (std::f64::consts::PI * progress).sin();
         let left = (base.0 - monitor.0).max(0.0);
         let right = (monitor.0 + monitor.2 - base.0 - window.0).max(0.0);
         let direction = if right >= left { 1.0 } else { -1.0 };
         let room = if direction > 0.0 { right } else { left };
-        let distance = room.min(56.0);
+        let distance = room.min(params.walk_excursion);
         (base.0 + direction * distance * excursion, base.1)
     }
 
@@ -912,7 +940,7 @@ mod macos {
     }
 
     fn create_window(
-        _species: PetSpecies,
+        template: &PetTemplate,
         appearance: &gesso_core::AppearanceParams,
         size: PetSize,
     ) -> (Retained<PetPanel>, Retained<PetHitView>) {
@@ -953,7 +981,8 @@ mod macos {
         let hit_view = PetHitView::new(
             NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(window_w, window_h)),
             mtm,
-            HIT_RADIUS,
+            template.params.hit_width,
+            template.params.hit_radius,
             scale,
         );
         window.setContentView(Some(&hit_view));
@@ -994,22 +1023,19 @@ mod macos {
         sprite_layer.setMinificationFilter(&NSString::from_str("nearest"));
         sprite_layer.setContentsScale(window.backingScaleFactor());
         let mut sprite_images: [Option<Retained<CGImage>>; 9] = Default::default();
-        for frame_idx in 0..pet_sprite::FRAME_COUNT {
-            let cells = pet_sprite::compose_frame(
-                pet_sprite::frame(frame_idx),
-                appearance.marking,
-                appearance.body,
-            );
+        for frame_idx in 0..template.frames.len() {
+            let kind = match frame_idx {
+                0 => FrameKind::Idle,
+                1 => FrameKind::Flicker,
+                _ => FrameKind::Sleep,
+            };
+            let cells = template.compose(kind, appearance.marking, appearance.body);
             for boost in 0..3u8 {
-                let palette =
-                    pet_sprite::palette_for(appearance.coat_color, appearance.accent, boost);
-                let mut rgba = vec![0u8; pet_sprite_data::FRAME_LEN * 4];
-                pet_sprite::render_rgba(&cells, &palette, &mut rgba);
-                sprite_images[frame_idx * 3 + boost as usize] = Some(cgimage_from_rgba(
-                    &rgba,
-                    pet_sprite_data::GRID_W,
-                    pet_sprite_data::GRID_H,
-                ));
+                let palette = template.palette(appearance.coat_color, appearance.accent, boost);
+                let mut rgba = vec![0u8; template.grid_w * template.grid_h * 4];
+                template.render_rgba(&cells, &palette, &mut rgba);
+                sprite_images[frame_idx * 3 + boost as usize] =
+                    Some(cgimage_from_rgba(&rgba, template.grid_w, template.grid_h));
             }
         }
         if let Some(first) = sprite_images[0].as_ref() {
@@ -1091,13 +1117,20 @@ mod macos {
 
         #[test]
         fn walking_origin_moves_without_leaving_monitor() {
+            let params = crate::pet_template::BehaviorParams {
+                flicker_interval: Duration::from_millis(550),
+                walk_excursion: 56.0,
+                walk_seconds: 3.0,
+                hit_width: 50.0,
+                hit_radius: 22.0,
+            };
             let monitor = (0.0, 0.0, 1440.0, 900.0);
             let window = (116.0, 164.0);
             let base = (1165.12, 58.88);
             let mut behavior = gesso_core::PetBehavior::new(gesso_core::PetActivity::Normal);
             behavior.handle(PetBehaviorEvent::StartWalking);
             behavior.tick(Duration::from_millis(1500));
-            let middle = walking_origin(base, monitor, window, behavior);
+            let middle = walking_origin(base, monitor, window, behavior, &params);
             assert!(middle.0 < base.0);
             assert!(middle.0 >= monitor.0);
             assert!(middle.0 + window.0 <= monitor.0 + monitor.2);
@@ -1107,6 +1140,7 @@ mod macos {
                     monitor,
                     window,
                     gesso_core::PetBehavior::new(gesso_core::PetActivity::Normal),
+                    &params,
                 ),
                 base
             );
