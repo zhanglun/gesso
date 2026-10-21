@@ -161,6 +161,20 @@ mod macos {
                     self.ivars().hit_rect.get(),
                     self.ivars().hit_radius.get(),
                 );
+                // 诊断：GESSO_PET_HIT_DIAG=1 时打印每次命中判定（定位误触发用）
+                if std::env::var("GESSO_PET_HIT_DIAG").as_deref() == Ok("1") {
+                    let r = self.ivars().hit_rect.get();
+                    eprintln!(
+                        "[pet-hit] point=({:.0},{:.0}) rect=({:.0},{:.0},{:.0},{:.0}) inside={}",
+                        point.x,
+                        point.y,
+                        r.origin.x,
+                        r.origin.y,
+                        r.size.width,
+                        r.size.height,
+                        inside
+                    );
+                }
                 if inside {
                     self as *const Self as *mut AnyObject
                 } else {
