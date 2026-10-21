@@ -107,6 +107,30 @@ despeckle(cells)
 # 帧1（摇曳）：火苗色板降一档 4→5、5→6（亮芯与橙各深一号），其余不变
 cells_flicker = [[(c + 1 if c in (4, 5) else c) for c in row] for row in cells]
 
+def eye_cells(cs):
+    """脸部眼簇：行 26-31、列 4-18 的描边格（排除 y≥30 的嘴部 x 9-12）。"""
+    return [(x, y) for y in range(26, 32) for x in range(4, 19)
+            if cs[y][x] == 7 and not (9 <= x <= 12 and y >= 30)]
+
+
+def with_eyes_closed(cs):
+    out = [row[:] for row in cs]
+    for x, y in eye_cells(out):
+        out[y][x] = 1
+    return out
+
+
+def with_eyes_shifted(cs, dx):
+    out = [row[:] for row in cs]
+    for x, y in eye_cells(out):
+        out[y][x] = 1
+    for x, y in eye_cells(cs):
+        nx = x + dx
+        if 0 <= nx < 25:
+            out[y][nx] = 7
+    return out
+
+
 # 帧2（睡眠）：火苗全部降为深橙；擦净脸部原眼，按簇画闭眼线（线在眼底行）
 cells_sleep = [[6 if c in (4, 5, 6) else c for c in row] for row in cells]
 dark_pts = [(x, y) for y in range(25, 34) for x in range(5, 18) if cells_sleep[y][x] == 7]
@@ -129,6 +153,11 @@ for cl in clusters:
         cells_sleep[y][x] = 1
     for x in range(ex0, ex1 + 1):
         cells_sleep[ey1][x] = 7
+
+# 帧3-5：眨眼（眼睛消失）与注视左/右（眼簇平移一格）
+cells_blink = with_eyes_closed(cells)
+cells_gaze_left = with_eyes_shifted(cells, -1)
+cells_gaze_right = with_eyes_shifted(cells, 1)
 
 
 def emit(name, grid_cells):
@@ -156,3 +185,9 @@ print()
 print(emit('FRAME_FLICKER', cells_flicker))
 print()
 print(emit('FRAME_SLEEP', cells_sleep))
+print()
+print(emit('FRAME_BLINK', cells_blink))
+print()
+print(emit('FRAME_GAZE_LEFT', cells_gaze_left))
+print()
+print(emit('FRAME_GAZE_RIGHT', cells_gaze_right))
