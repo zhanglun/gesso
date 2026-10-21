@@ -87,7 +87,7 @@ mod macos {
         last_mouse_moved: RefCell<Option<Instant>>,
         bubble: RefCell<Option<BubbleLayers>>,
         sprite_layer: RefCell<Option<Retained<CALayer>>>,
-        sprite_images: RefCell<[Option<Retained<CGImage>>; 9]>,
+        sprite_images: RefCell<Vec<Option<Retained<CGImage>>>>,
         sprite_key: Cell<(u8, u8)>,
         hit_width: Cell<f64>,
         hit_radius: Cell<f64>,
@@ -110,7 +110,7 @@ mod macos {
                 last_mouse_moved: RefCell::new(None),
                 bubble: RefCell::new(None),
                 sprite_layer: RefCell::new(None),
-                sprite_images: RefCell::new(std::array::from_fn(|_| None)),
+                sprite_images: RefCell::new(Vec::new()),
                 sprite_key: Cell::new((0, 0)),
                 hit_width: Cell::new(0.0),
                 hit_radius: Cell::new(0.0),
@@ -522,7 +522,7 @@ mod macos {
     }
 
     pub struct PetWindowManager {
-        template: PetTemplate,
+        template: &'static PetTemplate,
         window: Option<Retained<PetPanel>>,
         hit_view: Option<Retained<PetHitView>>,
         pet_id: Option<String>,
@@ -569,7 +569,7 @@ mod macos {
 
             if self.pet_id.as_deref() != Some(&pet.pet_id) || self.pet_size != Some(save.size) {
                 self.hide();
-                let (window, hit_view) = create_window(&self.template, &pet.appearance, save.size);
+                let (window, hit_view) = create_window(self.template, &pet.appearance, save.size);
                 self.window = Some(window);
                 self.hit_view = Some(hit_view);
                 self.pet_id = Some(pet.pet_id.clone());
@@ -579,7 +579,7 @@ mod macos {
             }
             let window = self.window.as_ref()?;
             if let Some(hit_view) = &self.hit_view {
-                apply_feedback(hit_view, behavior, &self.template);
+                apply_feedback(hit_view, behavior, self.template);
                 hit_view.update_menu_state(save.activity, save.size);
                 hit_view.flush_pending_click();
                 // 鼠标事件和 150ms 主循环共享主线程；拖动期间禁止同步旧存档位置，
@@ -1022,7 +1022,9 @@ mod macos {
         sprite_layer.setMagnificationFilter(&NSString::from_str("nearest"));
         sprite_layer.setMinificationFilter(&NSString::from_str("nearest"));
         sprite_layer.setContentsScale(window.backingScaleFactor());
-        let mut sprite_images: [Option<Retained<CGImage>>; 9] = Default::default();
+        let boost_count = template.notice_palettes.len() + 1;
+        let mut sprite_images: Vec<Option<Retained<CGImage>>> =
+            vec![None; template.frames.len() * boost_count];
         for frame_idx in 0..template.frames.len() {
             let kind = match frame_idx {
                 0 => FrameKind::Idle,

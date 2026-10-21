@@ -8,8 +8,13 @@ use crate::pet_sprite_data::{FRAME_FLICKER, FRAME_IDLE, FRAME_SLEEP};
 
 const OUTLINE: Rgb = (102, 26, 10);
 
-/// 小蜡烛模板（当前唯一正式角色）。
-pub fn candle() -> PetTemplate {
+/// 小蜡烛模板（当前唯一正式角色）；OnceLock 共享同一实例。
+pub fn candle() -> &'static PetTemplate {
+    static CANDLE: std::sync::OnceLock<PetTemplate> = std::sync::OnceLock::new();
+    CANDLE.get_or_init(candle_template)
+}
+
+fn candle_template() -> PetTemplate {
     PetTemplate {
         grid_w: 25,
         grid_h: 50,
