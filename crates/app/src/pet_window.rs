@@ -958,6 +958,9 @@ mod macos {
         let sprite_layer = CALayer::layer();
         sprite_layer.setFrame(body_rect(size));
         sprite_layer.setContentsGravity(&NSString::from_str("resizeAspect"));
+        // 25×50 点阵放大必须最近邻，保持像素硬边（平滑插值会糊成渐变）。
+        sprite_layer.setMagnificationFilter(&NSString::from_str("nearest"));
+        sprite_layer.setMinificationFilter(&NSString::from_str("nearest"));
         sprite_layer.setContentsScale(window.backingScaleFactor());
         let mut sprites: [Option<Retained<objc2_core_graphics::CGImage>>; 3] = [None, None, None];
         for (slot, data) in sprites
