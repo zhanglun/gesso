@@ -354,7 +354,8 @@ fn on_left_down(hwnd: HWND) {
     let Some(state) = (unsafe { state_of(hwnd) }) else {
         return;
     };
-    let Some(ctx) = (unsafe { cursor_and_origin(hwnd) }) else {
+    let ctx = unsafe { cursor_and_origin(hwnd) };
+    let Some(ctx) = ctx else {
         return;
     };
     state.press = Some(PressState {
@@ -372,7 +373,8 @@ fn on_mouse_move(hwnd: HWND) {
     let Some(state) = (unsafe { state_of(hwnd) }) else {
         return;
     };
-    let Some(ctx) = (unsafe { cursor_and_origin(hwnd) }) else {
+    let ctx = unsafe { cursor_and_origin(hwnd) };
+    let Some(ctx) = ctx else {
         return;
     };
     let Some(mut press) = state.press.take() else {
@@ -490,12 +492,14 @@ fn on_right_up(hwnd: HWND) {
     }
     let activity = state.activity;
     let size = state.size;
-    let Some(ctx) = (unsafe { cursor_and_origin(hwnd) }) else {
+    let ctx = unsafe { cursor_and_origin(hwnd) };
+    let Some(ctx) = ctx else {
         return;
     };
     state.menu_open = true;
     let cmd = build_and_show_menu(hwnd, activity, size, ctx.cursor);
-    if let Some(state) = (unsafe { state_of(hwnd) }) {
+    let state = unsafe { state_of(hwnd) };
+    if let Some(state) = state {
         state.menu_open = false;
     }
     dispatch_menu_command(cmd);

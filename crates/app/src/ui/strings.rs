@@ -149,6 +149,7 @@ pub struct Texts {
     pub pet_choose_species: &'static str,
     pub pet_choose_candidate: &'static str,
     pub pet_candle: &'static str,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub pet_a11y_label: &'static str,
     pub pet_reset: &'static str,
     pub pet_reset_confirm: &'static str,
@@ -658,9 +659,11 @@ fn system_is_english() -> bool {
 
 // ── 访问函数（旧 const 名，改调用点加 ()）──────────────────────────────────
 macro_rules! accessors {
-    ($($field:ident => $name:ident),* $(,)?) => {
+    // 每项可选前置 #[...] 属性（如平台条件 allow(dead_code)）；无属性时展开为空
+    ($($(#[$attr:meta])* $field:ident => $name:ident),* $(,)?) => {
         $(
             #[allow(non_snake_case)]
+            $(#[$attr])*
             #[doc = concat!("当前语言：", stringify!($name))]
             pub fn $name() -> &'static str {
                 t().$field
@@ -693,6 +696,7 @@ accessors! {
     tray_pet_hide => TRAY_PET_HIDE,
     pet_title => PET_TITLE, pet_choose_species => PET_CHOOSE_SPECIES,
     pet_choose_candidate => PET_CHOOSE_CANDIDATE, pet_candle => PET_CANDLE,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pet_a11y_label => PET_A11Y_LABEL,
     pet_reset => PET_RESET, pet_reset_confirm => PET_RESET_CONFIRM,
     pet_reroll => PET_REROLL, pet_confirm => PET_CONFIRM,
