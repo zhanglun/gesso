@@ -11,6 +11,7 @@ pub mod error;
 pub mod library;
 pub mod pet;
 pub mod pet_behavior;
+pub mod pet_events;
 pub mod pet_save;
 pub mod session;
 pub mod spec;
@@ -27,6 +28,7 @@ pub use pet::{
     PetName, PetSeed, PetSpecies, ASSET_VERSION, GENERATOR_VERSION,
 };
 pub use pet_behavior::{PetBehavior, PetBehaviorEvent, PetBehaviorState, PetNotice};
+pub use pet_events::{PetEventReject, PetEventRequest, MAX_LINE_BYTES, MAX_SRC_CHARS};
 pub use pet_save::{
     PetActivity, PetIndividual, PetInteraction, PetPosition, PetSave, PetSaveError, PetSize,
     PetStats, PET_SAVE_VERSION,
