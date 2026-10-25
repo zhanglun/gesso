@@ -22,15 +22,17 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ✅ 多屏重配事件驱动收敛 + 桌面桥接（2026-10-11 macOS 实机四轮迭代）：唤醒/合盖开盖等重配从 2s 轮询改为 epoch 事件 + 两段式收敛（30ms 即时清扫熄灭脱节窗口、1.5s 去抖、跨采样稳定后原子施加），过渡几何从构造上不可见；桌面桥接把系统桌面接管为当前壁纸静帧兜住熄窗间隙（退出/取消指派恢复原壁纸，设置开关默认开 + 托盘逃生门）。机制见 ARCHITECTURE §2，四轮伪影根因链见工程笔记 §2
 ✅ 0.1.1 发布（2026-10-12，GitHub Actions 自动打包：macOS dmg + Windows 安装包 + 便携 zip + checksums，未签名；修复内容见 CHANGELOG）
 ✅ 桌面宠物 P0 + P1 工程侧（2026-10-13，feat/desktop-pet 分支）：macOS 独立 AppKit 宠物窗口（拖动/单击戳/连点摸/透明穿透/位置存档）、领养状态机与程序化占位个体、行为状态机（睡眠唤醒、双计时器走动节奏、鼠标注视、通知气泡优先级合并）、右键菜单模拟事件与静态气泡、reduced-motion 静态替代；正式美术资源与首发角色设计待定（见 docs/design/桌面宠物设计.md）
+⬜ 通知能力（2026-10-25 立项：出站 notify 收敛 + 入站事件接口选型，桌面宠物 P3）
 ⬜ M7    Wallpaper Engine import II (scene, long-term)
 ```
 
 ## Next up, in priority order
 
 1. **发布后反馈消化**：安装/首启问题归集进 issue，质量修补随 0.1.x 小版本滚动（发布全自动化在 `.github/workflows/release.yml`，打 tag 即出产物）。
-2. **Windows 多显示器实机验证**（实现已就位，等环境；epoch 收敛/清扫/桌面桥接的 Windows 面随 2026-10-11 本轮新增，一并回归）。
-3. ~~**Windows 视频帧节奏实测**~~ → ✅ 2026-10-11 实测撞帧，**原生视频壁纸窗已落地**（`pin::WinVideoWindow`，见 M1-W）。诊断证据全文见工程笔记 §2「Windows 视频壁纸卡顿」行。
-4. **M7 Wallpaper Engine import II (scene)**（长期）。
+2. **通知能力（桌面宠物 P3 立项中，2026-10-25）**：**线 A 出站**——把散在 `update.rs` 的系统通知（macOS osascript / Windows WinRT toast，均已 best-effort + 兜底）收敛为可复用 notify 模块，附一次精简系统 toast 可达性实测；**线 B 入站**——本地事件接口选型（来源认证先于线格式定稿，首版外部只传事件类型不传自由文本），首个生产者接 Gesso 内部氛围类事件 → 宠物气泡。分流/去重规则见《界面与交互设计.md》§3.1；明确不做系统级通知拦截/替代。
+3. **Windows 多显示器实机验证**（实现已就位，等环境；epoch 收敛/清扫/桌面桥接的 Windows 面随 2026-10-11 本轮新增，一并回归）。
+4. ~~**Windows 视频帧节奏实测**~~ → ✅ 2026-10-11 实测撞帧，**原生视频壁纸窗已落地**（`pin::WinVideoWindow`，见 M1-W）。诊断证据全文见工程笔记 §2「Windows 视频壁纸卡顿」行。
+5. **M7 Wallpaper Engine import II (scene)**（长期）。
 
 ### M5 — system data bridge（✅ 已完成）
 - ✅ fullscreen detection: `CGWindowList` layer-0 window covering a display frame（±3pt 容差，y 轴按主显示器高度翻转）→ 按全屏策略执行：暂停 / 降帧到 5 fps / 忽略。
