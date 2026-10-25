@@ -2,7 +2,9 @@
 //!
 //! 当前使用程序化占位外观；窗口事件通过 EngineAction 进入引擎，生命周期和显示状态由主循环同步。
 
+#[cfg(target_os = "macos")]
 use crate::pin::MonitorInfo;
+#[cfg(target_os = "macos")]
 use gesso_core::{PetSave, PetSize};
 
 #[cfg(target_os = "macos")]
@@ -1352,7 +1354,10 @@ mod macos {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+mod windows;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod macos {
     use super::{MonitorInfo, PetSave};
 
@@ -1373,4 +1378,9 @@ mod macos {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub use macos::PetWindowManager;
+#[cfg(target_os = "windows")]
+pub use windows::PetWindowManager;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub use macos::PetWindowManager;
