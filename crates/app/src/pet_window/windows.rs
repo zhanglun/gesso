@@ -45,7 +45,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     UpdateLayeredWindow, WNDCLASSW, GWL_EXSTYLE, GWLP_USERDATA, HWND_TOPMOST, IDC_ARROW,
     MF_BYCOMMAND, MF_POPUP, MF_SEPARATOR, MF_STRING, SPI_GETCLIENTAREAANIMATION, SW_HIDE,
     SW_SHOWNA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, TPM_BOTTOMALIGN,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, ULW_ALPHA, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, ULW_ALPHA, WM_CAPTURECHANGED, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE,
     WM_NULL, WM_RBUTTONUP, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
     WS_POPUP,
 };
@@ -263,6 +264,9 @@ struct PetWinState {
     activity: PetActivity,
     size: PetSize,
     k: f64,
+    /// 右键菜单打开中（TrackPopupMenu 模态期）：冻结窗口几何操作——
+    /// 每拍的 TOPMOST 重申/位置校正会把菜单抖掉，走动也会把菜单甩在原地。
+    menu_open: bool,
     /// 蜡身命中区（窗口内物理像素，左上原点）与半径。
     hit_rect: (f64, f64, f64, f64),
     hit_radius: f64,
@@ -281,6 +285,7 @@ impl PetWinState {
             activity: PetActivity::Normal,
             size,
             k,
+            menu_open: false,
             hit_rect: (0.0, 0.0, 0.0, 0.0),
             hit_radius: 0.0,
         }
@@ -314,6 +319,10 @@ unsafe extern "system" fn pet_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
         }
         WM_RBUTTONUP => {
             on_right_up(hwnd);
+            LRESULT(0)
+        }
+        WM_CAPTURECHANGED => {
+            on_capture_changed(hwnd);
             LRESULT(0)
         }
         WM_NULL => LRESULT(0),
@@ -408,14 +417,19 @@ fn on_mouse_move(hwnd: HWND) {
 }
 
 fn on_left_up(hwnd: HWND) {
-    // SAFETY: 与 SetCapture 配对；无捕获时无副作用
+    let Some(state) = (unsafe { state_of(hwnd) }) else { return };
+    let Some(press) = state.press.take() else {
+        // 无按下也就没有捕获；ReleaseCapture 无副作用，直接收尾
+        unsafe {
+            let _ = ReleaseCapture();
+        }
+        return;
+    };
+    // SAFETY: press 已取走——ReleaseCapture 同步派发的 WM_CAPTURECHANGED
+    // 在 on_capture_changed 里无事可做，点击分类不会被抢跑
     unsafe {
         let _ = ReleaseCapture();
     }
-    let Some(state) = (unsafe { state_of(hwnd) }) else { return };
-    let Some(press) = state.press.take() else {
-        return;
-    };
     if press.dragged {
         engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::DragEnded));
         return;
@@ -429,6 +443,18 @@ fn on_left_up(hwnd: HWND) {
             engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::Touch));
         }
         _ => state.pending_click = Some(now),
+    }
+}
+
+/// 捕获被夺（全屏开始隐藏窗口/系统接管等，鼠标不会再来 WM_LBUTTONUP）：
+/// press 不许悬挂——悬挂会永久卡死 sync 的拖拽守卫（位置不再同步）和
+/// 穿透切换（命中区外也吞点击）。按拖动与否收尾，位置回报交回下一拍 sync。
+/// macOS 无显式信号（mouseUp 丢失时同样悬挂），Windows 靠本消息根治。
+fn on_capture_changed(hwnd: HWND) {
+    let Some(state) = (unsafe { state_of(hwnd) }) else { return };
+    let Some(press) = state.press.take() else { return };
+    if press.dragged {
+        engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::DragEnded));
     }
 }
 
@@ -458,7 +484,11 @@ fn on_right_up(hwnd: HWND) {
     let Some(ctx) = (unsafe { cursor_and_origin(hwnd) }) else {
         return;
     };
+    state.menu_open = true;
     let cmd = build_and_show_menu(hwnd, activity, size, ctx.cursor);
+    if let Some(state) = (unsafe { state_of(hwnd) }) {
+        state.menu_open = false;
+    }
     dispatch_menu_command(cmd);
 }
 
@@ -556,7 +586,10 @@ fn build_and_show_menu(hwnd: HWND, activity: PetActivity, size: PetSize, cursor:
         // TrackPopupMenu 的经典收尾纪律：先 SetForegroundWindow 才能点击外部
         // 关闭菜单；结束后补发 WM_NULL 让菜单状态复位。
         // SAFETY: hwnd 属本线程；坐标为屏幕物理像素
-        let _ = SetForegroundWindow(hwnd);
+        let fg_ok = SetForegroundWindow(hwnd);
+        if std::env::var("GESSO_PET_HIT_DIAG").is_ok() {
+            eprintln!("[pet] 打开菜单：fg={}", fg_ok.as_bool());
+        }
         let cmd = TrackPopupMenu(
             menu,
             TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_BOTTOMALIGN,
@@ -574,6 +607,9 @@ fn build_and_show_menu(hwnd: HWND, activity: PetActivity, size: PetSize, cursor:
 }
 
 fn dispatch_menu_command(cmd: i32) {
+    if std::env::var("GESSO_PET_HIT_DIAG").is_ok() {
+        eprintln!("[pet] 菜单命令：{cmd}");
+    }
     match cmd {
         CMD_SETTINGS => engine::enqueue(EngineAction::OpenPetSettings),
         CMD_HIDE => engine::enqueue(EngineAction::TogglePetVisibility),
@@ -681,6 +717,17 @@ struct FrameVisual {
     bubble: Option<PetNotice>,
 }
 
+/// 气泡覆盖层：未变换窗口空间里预合成的位图（RGBA 预乘，已含全局透明度）。
+/// 采样时与精灵同经状态变换——等价 macOS 气泡挂 root 层继承 transform。
+struct BubbleOverlay {
+    x: f64,
+    y: f64,
+    /// 覆盖层像素尺寸（stride），ceil 取整杜绝采样越界。
+    w: usize,
+    h: usize,
+    data: Vec<u8>,
+}
+
 struct PetWindow {
     hwnd: HWND,
     state_ptr: *mut PetWinState,
@@ -723,7 +770,7 @@ impl PetWindow {
         // GetDpiForWindow 校正缩放，混合 DPI 下不会闪错尺寸。
         let k = unsafe { GetDpiForSystem() } as f64 / 96.0;
         // SAFETY: 类已注册；创建为 1×1 隐藏窗，尺寸由 sync/ULW 接管
-        let hwnd = unsafe {
+        let hwnd = match unsafe {
             CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
                 PET_CLASS,
@@ -738,8 +785,14 @@ impl PetWindow {
                 Some(hinstance),
                 None,
             )
-        }
-        .ok()?;
+        } {
+            Ok(hwnd) => hwnd,
+            Err(error) => {
+                // 持续失败不至于静默无迹：sync 每拍重试，日志可见即宠物缺失原因
+                eprintln!("[pet] CreateWindowExW 失败：{error}");
+                return None;
+            }
+        };
         // SAFETY: Box 进入堆后地址稳定；窗口销毁前由 Drop 取回
         let state_ptr = Box::into_raw(Box::new(PetWinState::new(size, k)));
         unsafe {
@@ -943,10 +996,9 @@ impl PetWindow {
         let buf = unsafe { std::slice::from_raw_parts_mut(self.dib_bits, (w * h * 4) as usize) };
         buf.fill(0);
 
-        self.paint_sprite(&v, buf, w, h);
-        if v.bubble.is_some() {
-            self.paint_bubble(v.bubble, v.opacity, buf, w, h);
-        }
+        // 预合成气泡覆盖层，与精灵同经状态变换采样（macOS 气泡挂 root 层）
+        let bubble = self.prepare_bubble(v.bubble, v.opacity);
+        self.paint_frame(&v, bubble.as_ref(), buf, w, h);
 
         // SAFETY: memdc 已选入当前 DIB；ULW_ALPHA 采用 DIB 的预乘 alpha，
         // psize 同步窗口尺寸（src 原点恒为 0,0）
@@ -977,8 +1029,16 @@ impl PetWindow {
         self.last_visual = Some(key);
     }
 
-    /// 点阵逆映射绘制：输出像素 → 逆变换 → 点阵格（最近邻，保持硬边）。
-    fn paint_sprite(&self, v: &FrameVisual, buf: &mut [u8], w: i32, h: i32) {
+    /// 单趟逆映射绘制：输出像素 → 逆变换 → 精灵格（最近邻，保持硬边）
+    /// + 气泡覆盖（气泡是 root 层子层，与精灵同受缩放/旋转/颠簸变换）。
+    fn paint_frame(
+        &self,
+        v: &FrameVisual,
+        bubble: Option<&BubbleOverlay>,
+        buf: &mut [u8],
+        w: i32,
+        h: i32,
+    ) {
         let sprite = &self.sprites[v.frame as usize * 3 + v.boost as usize];
         let (grid_w, grid_h) = self.grid;
         let (sp_x, sp_y) = self.lay.sprite;
@@ -1000,81 +1060,91 @@ impl PetWindow {
                 let ry = (-s * dx + c * dy) * inv;
                 let bx = rx + cx;
                 let by = ry + cy;
+                // 精灵：sprites 是 RGBA 字节流，格号 ×4 才是字节偏移
                 let gx = (bx - sp_x) / cell;
                 let gy = (by - sp_y) / cell;
-                if gx < 0.0 || gx >= gw || gy < 0.0 || gy >= gh {
-                    continue;
+                if gx >= 0.0 && gx < gw && gy >= 0.0 && gy < gh {
+                    let o = (gy as usize * grid_w + gx as usize) * 4;
+                    if sprite[o + 3] != 0 {
+                        let out = (py * w + px) as usize * 4;
+                        buf[out] = (sprite[o + 2] as f64 * v.opacity) as u8;
+                        buf[out + 1] = (sprite[o + 1] as f64 * v.opacity) as u8;
+                        buf[out + 2] = (sprite[o] as f64 * v.opacity) as u8;
+                        buf[out + 3] = (sprite[o + 3] as f64 * v.opacity) as u8;
+                    }
                 }
-                // sprites 是 RGBA 字节流：格子号 ×4 才是字节偏移
-                let o = (gy as usize * grid_w + gx as usize) * 4;
-                if sprite[o + 3] == 0 {
-                    continue;
+                // 气泡在最上层，alpha>0 即整像素覆盖（睡眠半透明与气泡按行为机
+                // 互斥——重要通知打断睡眠、普通通知睡眠中丢弃，覆盖即精确）
+                if let Some(b) = bubble {
+                    let lx = bx - b.x;
+                    let ly = by - b.y;
+                    if lx >= 0.0 && ly >= 0.0 {
+                        let (lx, ly) = (lx as usize, ly as usize);
+                        if lx < b.w && ly < b.h {
+                            let o = (ly * b.w + lx) * 4;
+                            if b.data[o + 3] != 0 {
+                                let out = (py * w + px) as usize * 4;
+                                buf[out] = b.data[o + 2];
+                                buf[out + 1] = b.data[o + 1];
+                                buf[out + 2] = b.data[o];
+                                buf[out + 3] = b.data[o + 3];
+                            }
+                        }
+                    }
                 }
-                let r = (sprite[o] as f64 * v.opacity) as u8;
-                let g = (sprite[o + 1] as f64 * v.opacity) as u8;
-                let b = (sprite[o + 2] as f64 * v.opacity) as u8;
-                let a = (sprite[o + 3] as f64 * v.opacity) as u8;
-                let out = (py * w + px) as usize * 4;
-                buf[out] = b;
-                buf[out + 1] = g;
-                buf[out + 2] = r;
-                buf[out + 3] = a;
             }
         }
     }
 
-    /// 头顶通知气泡：圆角底板 + 描边 + GDI 光栅化文本（掩码合成）。
-    fn paint_bubble(
-        &mut self,
-        notice: Option<PetNotice>,
-        opacity: f64,
-        buf: &mut [u8],
-        w: i32,
-        h: i32,
-    ) {
-        let Some(kind) = notice else { return };
+    /// 预合成气泡覆盖层：圆角底板 + 描边 + GDI 文本掩码（RGBA 预乘，
+    /// 已含全局透明度）。布局常量与 macOS sync_bubble 同式。
+    fn prepare_bubble(&mut self, notice: Option<PetNotice>, opacity: f64) -> Option<BubbleOverlay> {
+        let kind = notice?;
         let text = match kind {
             PetNotice::NewResult => strings::PET_NOTICE_NEW_TEXT(),
             PetNotice::NeedsAttention => strings::PET_NOTICE_ATTENTION_TEXT(),
             PetNotice::Warning => strings::PET_NOTICE_WARNING_TEXT(),
         };
         let k = self.k;
+        let win_w = self.dib_w as f64;
         // 宽度估算与 macOS 版同式（接入正式美术时改用真实文本度量）
         let est: f64 = text
             .chars()
             .map(|ch| if ch.is_ascii() { 7.4 } else { 12.0 })
             .sum::<f64>()
             * k;
-        let bubble_w = (est + 24.0 * k).min(w as f64 - 8.0 * k).max(4.0);
+        let bubble_w = (est + 24.0 * k).min(win_w - 8.0 * k).max(4.0);
         let bubble_h = BUBBLE_HEIGHT * k;
-        let bubble_x = (w as f64 - bubble_w) / 2.0;
+        let bubble_x = (win_w - bubble_w) / 2.0;
         let bubble_y = self.lay.bubble_bottom - bubble_h;
         let radius = (8.0 * k).min(bubble_w / 2.0).min(bubble_h / 2.0);
+        // ceil 取整：覆盖层尺寸与采样上界严格一致，杜绝小数边缘越界
+        let bw = bubble_w.ceil().max(1.0) as usize;
+        let bh = bubble_h.ceil().max(1.0) as usize;
+        let mut data = vec![0u8; bw * bh * 4];
 
         let bg = (250.0, 250.0, 252.0); // macOS 版 (0.98,0.98,0.99)
         let border = (204.0, 207.0, 217.0); // (0.80,0.81,0.85)
-        let inner = (bubble_x + 1.0, bubble_y + 1.0, bubble_w - 2.0, bubble_h - 2.0);
+        let inner = (1.0, 1.0, bubble_w - 2.0, bubble_h - 2.0); // 覆盖层局部坐标
         let inner_radius = (radius - 1.0).max(0.0);
-        for py in (bubble_y.max(0.0) as i32)..((bubble_y + bubble_h).min(h as f64) as i32) {
-            for px in (bubble_x.max(0.0) as i32)..((bubble_x + bubble_w).min(w as f64) as i32) {
+        for py in 0..bh {
+            for px in 0..bw {
                 let (pfx, pfy) = (px as f64 + 0.5, py as f64 + 0.5);
-                let (rr, gg, bb) =
-                    if !rounded_rect_contains((pfx, pfy), inner, inner_radius) {
-                        border
-                    } else {
-                        bg
-                    };
-                let o = (py * w + px) as usize * 4;
-                buf[o] = (bb * opacity) as u8;
-                buf[o + 1] = (gg * opacity) as u8;
-                buf[o + 2] = (rr * opacity) as u8;
-                buf[o + 3] = (255.0 * opacity) as u8;
+                let (rr, gg, bb) = if !rounded_rect_contains((pfx, pfy), inner, inner_radius) {
+                    border
+                } else {
+                    bg
+                };
+                let o = (py * bw + px) * 4;
+                data[o] = (rr * opacity) as u8;
+                data[o + 1] = (gg * opacity) as u8;
+                data[o + 2] = (bb * opacity) as u8;
+                data[o + 3] = (255.0 * opacity) as u8;
             }
         }
 
-        // 文本区（macOS 版 inset 6/5，高度 -10）；墨色 (0.11,0.11,0.12)
-        let tx = (bubble_x + 6.0 * k) as i32;
-        let ty = (bubble_y + 5.0 * k) as i32;
+        // 文本区（macOS 版 inset 6/5，高度 -10）；墨色 (0.11,0.11,0.12)，
+        // 掩码缓存在窗口上，GDI 光栅化只付一次代价
         let tw = (bubble_w - 12.0 * k).max(1.0) as i32;
         let th = (bubble_h - 10.0 * k).max(1.0) as i32;
         let font_h = (12.0 * k).round().max(8.0) as i32;
@@ -1083,35 +1153,40 @@ impl PetWindow {
             .as_ref()
             .is_none_or(|(t, mw, mh, _)| *t != text || *mw != tw || *mh != th);
         if need_mask {
-            self.bubble_mask = text_mask(text, tw, th, font_h).map(|mask| {
-                (text.to_string(), tw, th, mask)
-            });
+            self.bubble_mask = text_mask(text, tw, th, font_h)
+                .map(|mask| (text.to_string(), tw, th, mask));
         }
-        let Some((_, _, _, mask)) = self.bubble_mask.as_ref() else {
-            return;
-        };
+        // 掩码缺失时气泡整体退场（失败原因已在 text_mask 内打日志）；
+        // 火苗强化档不受影响，通知语义仍可感知
+        let (_, _, _, mask) = self.bubble_mask.as_ref()?;
         let ink = (28.0, 28.0, 31.0);
+        let tx = (6.0 * k) as i32;
+        let ty = (5.0 * k) as i32;
         for row in 0..th {
-            let dy = ty + row;
-            if dy < 0 || dy >= h {
-                continue;
-            }
             for col in 0..tw {
-                let dx = tx + col;
-                if dx < 0 || dx >= w {
-                    continue;
-                }
                 let a = mask[(row * tw + col) as usize] as f64 / 255.0;
                 if a <= 0.0 {
                     continue;
                 }
-                let o = (dy * w + dx) as usize * 4;
+                let dx = tx + col;
+                let dy = ty + row;
+                if dx < 0 || dx >= bw as i32 || dy < 0 || dy >= bh as i32 {
+                    continue;
+                }
+                let o = (dy as usize * bw + dx as usize) * 4;
                 // 底板已是预乘值：out = 底*(1-a) + 墨*op*a（alpha 不变）
-                buf[o] = (buf[o] as f64 * (1.0 - a) + ink.2 * opacity * a) as u8;
-                buf[o + 1] = (buf[o + 1] as f64 * (1.0 - a) + ink.1 * opacity * a) as u8;
-                buf[o + 2] = (buf[o + 2] as f64 * (1.0 - a) + ink.0 * opacity * a) as u8;
+                data[o] = (data[o] as f64 * (1.0 - a) + ink.0 * opacity * a) as u8;
+                data[o + 1] = (data[o + 1] as f64 * (1.0 - a) + ink.1 * opacity * a) as u8;
+                data[o + 2] = (data[o + 2] as f64 * (1.0 - a) + ink.2 * opacity * a) as u8;
             }
         }
+        Some(BubbleOverlay {
+            x: bubble_x,
+            y: bubble_y,
+            w: bw,
+            h: bh,
+            data,
+        })
     }
 }
 
@@ -1141,6 +1216,7 @@ fn text_mask(text: &str, w: i32, h: i32, font_h: i32) -> Option<Vec<u8>> {
     unsafe {
         let hdc = CreateCompatibleDC(None);
         if hdc.is_invalid() {
+            eprintln!("[pet] 气泡文本 CreateCompatibleDC 失败");
             return None;
         }
         let bmi = BITMAPINFO {
@@ -1156,8 +1232,13 @@ fn text_mask(text: &str, w: i32, h: i32, font_h: i32) -> Option<Vec<u8>> {
             ..Default::default()
         };
         let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
-        // SAFETY: bmi/bits 为本函数栈上对象
-        let dib = CreateDIBSection(Some(hdc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
+        // SAFETY: bmi/bits 为本函数栈上对象（外层 fn 已是 unsafe 块）
+        let Ok(dib) = CreateDIBSection(Some(hdc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) else {
+            // 失败路径必须回收 DC（GDI 句柄进程级限额，泄漏会拖垮后续绘制）
+            eprintln!("[pet] 气泡文本 CreateDIBSection 失败：{}", windows::core::Error::from_thread());
+            let _ = DeleteDC(hdc);
+            return None;
+        };
         std::ptr::write_bytes(bits as *mut u8, 0xFF, (w * h * 4) as usize); // 白底
         let old_bmp = SelectObject(hdc, HGDIOBJ(dib.0));
         let face: Vec<u16> = "Segoe UI".encode_utf16().chain(std::iter::once(0)).collect();
@@ -1195,12 +1276,8 @@ fn text_mask(text: &str, w: i32, h: i32, font_h: i32) -> Option<Vec<u8>> {
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
         );
         let _ = GdiFlush();
-        let _ = SelectObject(hdc, old_font);
-        let _ = SelectObject(hdc, old_bmp);
-        let _ = DeleteObject(HGDIOBJ(font.0));
-        let _ = DeleteObject(HGDIOBJ(dib.0));
-        let _ = DeleteDC(hdc);
-
+        // 必须先拷出掩码再销毁 GDI 对象——bits 指向 DIB 内存，
+        // DeleteObject(dib) 之后即悬垂（实机单测曾在此 ACCESS_VIOLATION）
         let mut mask = vec![0u8; (w * h) as usize];
         for (i, slot) in mask.iter_mut().enumerate() {
             let p = (bits as *const u8).add(i * 4);
@@ -1209,6 +1286,11 @@ fn text_mask(text: &str, w: i32, h: i32, font_h: i32) -> Option<Vec<u8>> {
             let r = *p.add(2) as u32;
             *slot = (255u32.saturating_sub((r + g + b) / 3)).min(255) as u8;
         }
+        let _ = SelectObject(hdc, old_font);
+        let _ = SelectObject(hdc, old_bmp);
+        let _ = DeleteObject(HGDIOBJ(font.0));
+        let _ = DeleteObject(HGDIOBJ(dib.0));
+        let _ = DeleteDC(hdc);
         Some(mask)
     }
 }
@@ -1444,10 +1526,13 @@ impl PetWindowManager {
 
         apply_feedback(win, behavior, self.template);
         flush_pending_click(win.state());
-        win.update_hit_through();
+        if !win.state().menu_open {
+            win.update_hit_through();
+        }
 
-        // 拖动期间禁止同步旧存档位置（否则拖放会在手指位置与旧目标间抢写）
-        if win.state().press.is_some() {
+        // 拖动期间禁止同步旧存档位置（否则拖放会在手指位置与旧目标间抢写）；
+        // 菜单打开期间同样冻结——宿主窗口的任何几何操作都会拆掉模态菜单。
+        if win.state().press.is_some() || win.state().menu_open {
             return None;
         }
 
@@ -1561,6 +1646,22 @@ mod tests {
     use crate::pet_template::BehaviorParams;
     use gesso_core::{PetBehavior, PetBehaviorEvent, PetSize};
     use std::time::Duration;
+
+    /// 气泡文本掩码：GDI 光栅化必须产出「白底 + 字形笔画」双值掩码。
+    /// （app 测试只在开发机跑，GDI 必可用；CI Windows job 不跑 app 测试。）
+    #[test]
+    fn text_mask_rasterizes_glyphs() {
+        let mask = super::text_mask("新结果 Done", 140, 24, 16)
+            .expect("GDI 文本光栅化不应失败");
+        let ink = mask.iter().filter(|&&v| v > 128).count();
+        let bg = mask.iter().filter(|&&v| v == 0).count();
+        assert!(ink > 30, "应有可观的字形笔画像素，实际 {ink}");
+        assert!(
+            bg > mask.len() / 2,
+            "白底（alpha=0）应占多数，实际 {bg}/{}",
+            mask.len()
+        );
+    }
 
     #[test]
     fn click_classifier_distinguishes_poke_touch_and_drag() {

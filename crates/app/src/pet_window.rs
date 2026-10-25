@@ -1359,7 +1359,10 @@ mod windows;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod macos {
-    use super::{MonitorInfo, PetSave};
+    // 直接导入而非 super::——父模块的平台导入带 cfg 门控，super 路径在
+    // 第三平台会解析失败（仓库纪律：stub 必须保持该路径可编译）。
+    use crate::pin::MonitorInfo;
+    use gesso_core::PetSave;
 
     #[derive(Default)]
     pub struct PetWindowManager;
