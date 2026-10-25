@@ -55,6 +55,7 @@ windows = { version = "0.62", features = [
   "Win32_System_LibraryLoader",     # GetModuleHandleW（窗口类注册）
   "Win32_Storage_Xps",              # PrintWindow（缩略图截图，capture_win）
   "Win32_Storage_FileSystem",        # PetStore 原子替换
+  "Win32_System_Pipes",             # 宠物事件命名管道（bridge/pet_events_windows）
   "Win32_UI_Input_KeyboardAndMouse", # 光标 feed：GetAsyncKeyState/GetLastInputInfo（M5-W）
   "Win32_System_Power",             # 电池：GetSystemPowerStatus（M5-W）
   "Win32_System_RemoteDesktop",     # 锁屏：WTSQuerySessionInformationW（M5-W）

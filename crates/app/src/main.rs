@@ -1381,6 +1381,9 @@ fn main() {
     // 视频媒体回环服务：会话构建（ContentSpec → media_url）前必须就绪
     protocol::start_media_server();
 
+    // 宠物助手事件监听（P3-S2）：本地管道/UDS → 引擎动作（S3 加 opt-in 门）
+    bridge::pet_events::spawn_listener();
+
     // 更新下载目录清场（§4.7）：.part 半成品与已交付的旧安装包不跨会话保留
     update::cleanup_download_dir();
 

@@ -11,6 +11,13 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+/// 宠物助手事件监听（P3-S2）：本地传输 → S1 线协议 → 引擎动作；S3 在此加 opt-in 门。
+pub mod pet_events;
+#[cfg(target_os = "macos")]
+pub mod pet_events_unix;
+#[cfg(target_os = "windows")]
+pub mod pet_events_windows;
+
 /// 一次桥采样。
 pub struct BridgeSnapshot {
     /// 正被全屏应用覆盖的显示器 ID 集合。
