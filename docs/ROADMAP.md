@@ -29,7 +29,7 @@ Status reflects what actually runs on hardware: ✅ means it was verified on a r
 ## Next up, in priority order
 
 1. **发布后反馈消化**：安装/首启问题归集进 issue，质量修补随 0.1.x 小版本滚动（发布全自动化在 `.github/workflows/release.yml`，打 tag 即出产物）。
-2. **通知能力（桌面宠物 P3 立项中，2026-10-25）**：**线 A 出站**——把散在 `update.rs` 的系统通知（macOS osascript / Windows WinRT toast，均已 best-effort + 兜底）收敛为可复用 notify 模块，附一次精简系统 toast 可达性实测；**线 B 入站**——本地事件接口选型（来源认证先于线格式定稿，首版外部只传事件类型不传自由文本），首个生产者接 Gesso 内部氛围类事件 → 宠物气泡。分流/去重规则见《界面与交互设计.md》§3.1；明确不做系统级通知拦截/替代。
+2. **通知能力（桌面宠物 P3，2026-10-25 主体完成）**：✅ 线 A notify 模块收敛 + toast 静默失败实测（AUMID 未注册时 show() 返回 Ok）；✅ 宠物气泡同类 60s 冷却 + 内部事件接入（导入完成/更新发现，含 GESSO_DEV_IMPORT 钩子）；✅ 线 B 接口选型评审冻结（《宠物助手事件接口选型.md》v1.0）。剩实施切片：S1 协议解析器 → S2 监听线程 → S3 名单与确认 UX → S4 CLI。分流/去重规则见《界面与交互设计.md》§3.1；明确不做系统级通知拦截/替代。
 3. **Windows 多显示器实机验证**（实现已就位，等环境；epoch 收敛/清扫/桌面桥接的 Windows 面随 2026-10-11 本轮新增，一并回归）。
 4. ~~**Windows 视频帧节奏实测**~~ → ✅ 2026-10-11 实测撞帧，**原生视频壁纸窗已落地**（`pin::WinVideoWindow`，见 M1-W）。诊断证据全文见工程笔记 §2「Windows 视频壁纸卡顿」行。
 5. **M7 Wallpaper Engine import II (scene)**（长期）。
