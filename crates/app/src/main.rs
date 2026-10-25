@@ -900,6 +900,11 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             };
             if let Ok(e) = result {
                 println!("[ui] 已导入「{}」→ {}", e.title, e.id);
+                // 氛围事件（界面稿 §3.1）：导入完成 → 宠物气泡「有新动静」；
+                // 批量导入由行为状态机的同类 60s 冷却合并，只冒一次泡。
+                engine::enqueue(engine::EngineAction::PetBehavior(
+                    gesso_core::PetBehaviorEvent::Notify(gesso_core::PetNotice::NewResult),
+                ));
                 if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
                     out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
                 }
@@ -912,6 +917,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             match sm.import_url_entry(&url) {
                 Ok(e) => {
                     println!("[ui] 已导入远端网页「{}」← {url}", e.title);
+                    // 氛围事件，同 Import 臂
+                    engine::enqueue(engine::EngineAction::PetBehavior(
+                        gesso_core::PetBehaviorEvent::Notify(gesso_core::PetNotice::NewResult),
+                    ));
                     if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
                         out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
                     }
@@ -1622,6 +1631,13 @@ fn main() {
                             engine::enqueue(engine::EngineAction::PetBehavior(
                                 gesso_core::PetBehaviorEvent::Notify(kind),
                             ));
+                        }
+                        // 开发验证钩子（仅 debug 构建）：GESSO_DEV_IMPORT=<文件路径>
+                        // 同一拍走 EngineAction::Import 生产臂导入本地文件——无头
+                        // 验证「导入 → 宠物气泡」链路（regress.ps1 -Phase devimport），如
+                        // GESSO_DEV_IMPORT=<png> GESSO_LOCK=dev ./target/debug/gesso
+                        if let Ok(path) = std::env::var("GESSO_DEV_IMPORT") {
+                            engine::enqueue(engine::EngineAction::Import { path });
                         }
                     }
                     if DIAGNOSE_AT.contains(&tick) {

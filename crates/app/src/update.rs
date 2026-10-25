@@ -196,6 +196,11 @@ fn run_check() {
                     release.version
                 );
                 notify_update_available(&release);
+                // 宠物气泡无动作回声（界面稿 §3.1）：事实源仍是系统通知/托盘，
+                // 回声不带动作、一次发现至多一次；同类 60s 冷却兜底。
+                crate::engine::enqueue(crate::engine::EngineAction::PetBehavior(
+                    gesso_core::PetBehaviorEvent::Notify(gesso_core::PetNotice::NeedsAttention),
+                ));
                 set(UpdateState::Available(release));
             } else {
                 println!("[update] 已是最新（远端 v{}）", release.version);

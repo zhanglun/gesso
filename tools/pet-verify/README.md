@@ -18,7 +18,7 @@
 ```powershell
 # 逐阶段（每个阶段独立可重跑）
 powershell -ExecutionPolicy Bypass -File tools/pet-verify/regress.ps1 -Phase render
-# 阶段：render poke touch drag gaze flicker walksleep wake bubble bubblecap menu menuuia menugeo
+# 阶段：render poke touch drag gaze flicker walksleep wake bubble devimport bubblecap menu menuuia menugeo
 ```
 
 - 戳/摸/拖拽会改写存档统计与位置——测试存档别用真实领养数据。

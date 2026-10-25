@@ -271,6 +271,19 @@ switch ($Phase) {
         if ($bg -lt 400 -or $ink -lt 40) { Write-Host "FAIL"; exit 1 }
         Write-Host "PASS"
     }
+    "devimport" {
+        # 前置：实例带 GESSO_DEV_IMPORT=<文件> 启动（tick 20 走 EngineAction::Import
+        # 生产臂），气泡 ≈3.3s 出现、4s 时长；断言带同 bubble 相。
+        Start-Sleep -Milliseconds 4200
+        $pet = Get-Pet
+        $bmp = Print-Pet $pet.hwnd $pet.W $pet.Ht
+        $bmp.Save("$PrintDir/verify-devimport.png")
+        $bg = Count-Band $bmp 20 23 96 48 { param($c) $c.R -ge 240 -and $c.G -ge 240 -and $c.B -ge 240 }
+        $ink = Count-Band $bmp 20 23 96 48 { param($c) $c.R -ge 8 -and $c.R -le 95 -and $c.G -le 95 -and $c.B -le 105 }
+        Write-Host "RESULT devimport-bg=$bg text-ink=$ink"
+        if ($bg -lt 400 -or $ink -lt 40) { Write-Host "FAIL"; exit 1 }
+        Write-Host "PASS"
+    }
     "menuuia" {
         # UIA 路线：#32768 菜单窗 → AutomationElement 树 → 按序号找
         # 「模拟事件」(第4项) → 点击 → 子菜单第1项（新结果）→ 点击。
