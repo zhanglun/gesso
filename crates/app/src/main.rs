@@ -1931,6 +1931,14 @@ fn main() {
                 engine::enqueue(engine::EngineAction::UpdateCheck { open_modal: true });
             }
 
+            // 开发验证钩子（仅 debug 构建）：GESSO_PET_ADOPT=1 启动即等价托盘
+            // 「开始领养」——无头验证领养小窗全链路（角色选择/三候选/reroll/
+            // 确认/存档），不必自动化托盘菜单
+            #[cfg(debug_assertions)]
+            if std::env::var("GESSO_PET_ADOPT").is_ok() {
+                engine::enqueue(engine::EngineAction::OpenPetAdoption);
+            }
+
             // 管理窗口：三页签 UI（§4.3–4.5；44px 顶栏 + 键盘模型 + 双主题）
             open_main_window(cx);
 
