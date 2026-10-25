@@ -34,6 +34,7 @@ cargo clippy -p gesso-core --all-targets -- -D warnings
 pkill -f "target/debug/gesso"            # 退出（有单实例锁）
 GESSO_LOCK=dev ./target/debug/gesso      # 开发期多实例并存（用完记得关）
 GESSO_UPDATE_MODAL=1 GESSO_LOCK=dev ./target/debug/gesso   # 启动即「检查更新+开小窗」；加 GESSO_UPDATE_AUTO_DL=1 连「发现→下载」一并自动确认（仅 debug）
+GESSO_PET_NOTICE=new GESSO_LOCK=dev ./target/debug/gesso   # 启动 ~3s 注入一次宠物模拟通知（气泡链路无头验证，仅 debug）；窗口层行为回归见 tools/pet-verify/regress.ps1
 ```
 
 ## 仓库地图

@@ -1607,6 +1607,23 @@ fn main() {
                         dispatch_thumb(cx, dir, kind);
                     }
                     tick += 1;
+                    // 开发验证钩子（仅 debug 构建）：GESSO_PET_NOTICE=<new|attention|warning>
+                    // 启动后 ≈3s（tick 20）注入一次模拟通知——无头验证气泡渲染/打断
+                    // 链路，不必自动化右键菜单（与 GESSO_UPDATE_MODAL 同款纪律）。
+                    #[cfg(debug_assertions)]
+                    if tick == 20 {
+                        let notice = match std::env::var("GESSO_PET_NOTICE").as_deref() {
+                            Ok("attention") => Some(gesso_core::PetNotice::NeedsAttention),
+                            Ok("warning") => Some(gesso_core::PetNotice::Warning),
+                            Ok(_) => Some(gesso_core::PetNotice::NewResult),
+                            Err(_) => None,
+                        };
+                        if let Some(kind) = notice {
+                            engine::enqueue(engine::EngineAction::PetBehavior(
+                                gesso_core::PetBehaviorEvent::Notify(kind),
+                            ));
+                        }
+                    }
                     if DIAGNOSE_AT.contains(&tick) {
                         cx.update(|cx| {
                             cx.global_mut::<engine::AppState>()
