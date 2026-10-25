@@ -11,6 +11,9 @@ const WATCHING_TIMEOUT: Duration = Duration::from_secs(2);
 const POKED_DURATION: Duration = Duration::from_millis(450);
 const TOUCHED_DURATION: Duration = Duration::from_millis(650);
 const WALKING_DURATION: Duration = Duration::from_secs(3);
+/// 同类气泡冷却（界面稿 §3.1 / 宠物稿 v1.1）：同类通知 60s 内不重复，
+/// 在行为状态机入口合并，不进入优先级比较、不触发打断。
+const NOTICE_COOLDOWN: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PetBehaviorState {
@@ -54,6 +57,9 @@ impl PetNotice {
         }
     }
 
+    /// 冷却桶数量上界；priority() 的最大值。
+    const WARNING_PRIORITY: usize = 2;
+
     fn important(self) -> bool {
         self.priority() > 0
     }
@@ -77,6 +83,9 @@ pub struct PetBehavior {
     /// 否则走动阈值小于入睡阈值时会陷入连走循环而永不入睡。
     walk_elapsed: Duration,
     notice: Option<(PetNotice, Duration)>,
+    /// 各档位距上次气泡显示的时长（按 `PetNotice::priority()` 索引；None = 从未显示）。
+    /// 在气泡被接受显示时置零——被更高优先级顶掉的档位同样起算，防其被连续重发。
+    notice_cooldown: [Option<Duration>; PetNotice::WARNING_PRIORITY + 1],
 }
 
 impl PetBehavior {
@@ -88,6 +97,7 @@ impl PetBehavior {
             idle_elapsed: Duration::ZERO,
             walk_elapsed: Duration::ZERO,
             notice: None,
+            notice_cooldown: [None, None, None],
         }
     }
 
@@ -143,10 +153,16 @@ impl PetBehavior {
                 if self.state == PetBehaviorState::Sleeping && !kind.important() {
                     return; // 睡眠中普通事件不打扰
                 }
+                if let Some(since) = self.notice_cooldown[kind.priority() as usize] {
+                    if since < NOTICE_COOLDOWN {
+                        return; // 同类冷却内合并：不显示、不打断
+                    }
+                }
                 let replace = self
                     .notice
                     .is_none_or(|(current, _)| kind.priority() > current.priority());
                 if replace {
+                    self.notice_cooldown[kind.priority() as usize] = Some(Duration::ZERO);
                     self.notice = Some((kind, kind.duration()));
                 }
                 if kind.important()
@@ -204,6 +220,10 @@ impl PetBehavior {
             } else {
                 Some((kind, remaining))
             };
+        }
+        // 冷却计时走挂钟语义，拖拽期间照常推进（与 idle/walk 的互动语义不同）。
+        for since in self.notice_cooldown.iter_mut().flatten() {
+            *since = since.saturating_add(elapsed);
         }
 
         match self.state {
@@ -355,10 +375,76 @@ mod tests {
         behavior.tick(Duration::from_secs(4));
         assert_eq!(behavior.notice(), None);
 
-        // 到期后普通气泡可再次显示并按 4 秒到期
+        // 到期后 60s 同类冷却内不重发；窗口过后恢复显示并按 4 秒到期
         behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(behavior.notice(), None);
+        behavior.tick(NOTICE_COOLDOWN);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(behavior.notice(), Some(PetNotice::NewResult));
         behavior.tick(Duration::from_secs(4));
         assert_eq!(behavior.notice(), None);
+    }
+
+    #[test]
+    fn same_kind_notice_suppressed_within_cooldown() {
+        let mut behavior = PetBehavior::new(PetActivity::Normal);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(behavior.notice(), Some(PetNotice::NewResult));
+        behavior.tick(Duration::from_secs(4)); // 气泡正常到期
+        assert_eq!(behavior.notice(), None);
+
+        // 60s 窗口内同类重发被入口合并，不显示
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(behavior.notice(), None);
+
+        // 自上次显示起满 60s（含到期后的 4s）恢复显示
+        behavior.tick(NOTICE_COOLDOWN);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(behavior.notice(), Some(PetNotice::NewResult));
+    }
+
+    #[test]
+    fn notice_cooldown_is_per_kind() {
+        let mut behavior = PetBehavior::new(PetActivity::Normal);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        behavior.tick(Duration::from_secs(1));
+
+        // 异类不受同类冷却影响，仍按优先级替换
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NeedsAttention));
+        assert_eq!(behavior.notice(), Some(PetNotice::NeedsAttention));
+        // 同类仍被抑制
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::NewResult));
+        assert_eq!(behavior.notice(), Some(PetNotice::NeedsAttention));
+    }
+
+    #[test]
+    fn warning_repeat_within_cooldown_does_not_interrupt_sleep() {
+        // 安静档时间线：30s 走一趟（立即收回），45s 入睡。
+        let mut behavior = PetBehavior::new(PetActivity::Quiet);
+        behavior.tick(Duration::from_secs(30));
+        assert_eq!(behavior.state(), PetBehaviorState::Walking);
+        behavior.handle(PetBehaviorEvent::FinishWalking);
+        behavior.tick(Duration::from_secs(15));
+        assert_eq!(behavior.state(), PetBehaviorState::Sleeping);
+
+        // 首次警告：唤醒 + 气泡，冷却起算
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::Warning));
+        assert_eq!(behavior.state(), PetBehaviorState::Idle);
+        assert_eq!(behavior.notice(), Some(PetNotice::Warning));
+
+        // 再入睡时冷却只剩 45s：重发警告不打扰、不唤醒
+        behavior.tick(Duration::from_secs(45));
+        assert_eq!(behavior.state(), PetBehaviorState::Sleeping);
+        assert_eq!(behavior.notice(), None);
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::Warning));
+        assert_eq!(behavior.state(), PetBehaviorState::Sleeping);
+        assert_eq!(behavior.notice(), None);
+
+        // 冷却期满（60s）后警告恢复打断力
+        behavior.tick(Duration::from_secs(15));
+        behavior.handle(PetBehaviorEvent::Notify(PetNotice::Warning));
+        assert_eq!(behavior.state(), PetBehaviorState::Idle);
+        assert_eq!(behavior.notice(), Some(PetNotice::Warning));
     }
 
     #[test]
