@@ -15,6 +15,7 @@ mod desktop_bridge;
 mod encoding;
 mod engine;
 mod host_cmd;
+mod notify;
 mod pin;
 mod protocol;
 mod session;
@@ -344,6 +345,15 @@ fn bootstrap() -> (session::SessionManager, bool) {
             }
             Err(err) => println!("[boot][dev] GESSO_DEV_URL 导入失败：{err:?}"),
         }
+    }
+
+    // 开发验证钩子（仅 debug 构建）：GESSO_NOTIFY_TEST=1 启动即发一条系统通知，
+    // 验证系统通知面可达性（toast 在便携版/精简系统的失败面，见工程笔记 §2），如
+    // GESSO_NOTIFY_TEST=1 GESSO_QUIT_AFTER_SECS=6 GESSO_LOCK=dev ./target/debug/gesso
+    #[cfg(debug_assertions)]
+    if std::env::var("GESSO_NOTIFY_TEST").as_deref() == Ok("1") {
+        notify::send("Gesso", "通知链路自检：看到这条即系统通知可达。");
+        println!("[boot][dev] GESSO_NOTIFY_TEST 自检已发送");
     }
 
     (sm, first_run)

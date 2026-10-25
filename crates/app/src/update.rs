@@ -238,7 +238,10 @@ fn run_check() {
                     "[update] 发现新版本 v{}（当前 v{current}）",
                     release.version
                 );
-                notify_update_available(&release);
+                crate::notify::send(
+                    "Gesso",
+                    &format!("新版本 v{} 可用，请到设置中更新", release.version),
+                );
                 set(UpdateState::Available(release));
             } else {
                 println!("[update] 已是最新（远端 v{}）", release.version);
@@ -654,36 +657,6 @@ pub fn pick_asset(assets: &[(String, u64, String)]) -> Option<(String, u64, Stri
 }
 
 /* ---------- 通知与交付 ---------- */
-
-/// 系统通知（best-effort，§4.7 通知第 1 层）：失败只留日志，不阻塞其余通知层。
-fn notify_update_available(release: &ReleaseInfo) {
-    let body = format!("新版本 v{} 可用，请到设置中更新", release.version);
-    #[cfg(target_os = "macos")]
-    {
-        // osascript：免 bundle/签名限制（UNUserNotificationCenter 需要 .app bundle，
-        // 开发裸进程弹不出）。文案经参数数组传入，不经 shell 解析；仅净化引号防
-        // AppleScript 注入（版本号来自远端 tag）。
-        let safe = |s: &str| s.replace('\\', "").replace('"', "'");
-        let script = format!(
-            "display notification \"{}\" with title \"Gesso\"",
-            safe(&body)
-        );
-        if let Err(e) = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .spawn()
-        {
-            println!("[update] 系统通知发送失败（忽略）：{e}");
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        use tauri_winrt_notification::Toast;
-        if let Err(e) = Toast::new("Gesso").title("Gesso").text1(&body).show() {
-            println!("[update] 系统 toast 发送失败（便携版未注册 AUMID 时预期内）：{e}");
-        }
-    }
-}
 
 /// 「打开安装包」：macOS 挂载 dmg；Windows 安装器直接运行、zip 交给资源管理器。
 pub fn open_installer(path: &str) {

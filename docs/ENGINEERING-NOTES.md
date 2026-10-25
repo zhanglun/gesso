@@ -30,6 +30,7 @@
 | 宿主页命令 | Rust 仅用 `HostCommand` 生成脚本；光标 30 Hz 推送，宿主页保存最新目标并自行平滑。 |
 | 数据完整性 | 清单解析失败时不得回退为空库再写回；临时输出写入 `.tmp` 后原子 rename；环境变量测试须持有共享锁。 |
 | UI 细节 | `overflow_y_scroll` 必须在 `.id(...)` 后调用；`AtomicBool` 切换用 `fetch_xor(true)`，不要用 `swap(true)`。 |
+| 系统通知 | Windows toast（tauri-winrt-notification）：**AUMID 未注册时 `show()` 仍返回 Ok——失败静默不可见，返回值不是送达凭证**（2026-10-25 本机实测：开发裸进程无 AUMID、注册表 HKCU/HKLM 均无 `AppUserModelId\Gesso`，API 照样成功）。送达以 AUMID 注册为前提：NSIS 安装版已注册、便携版/开发进程视为不可达，旧注释「未注册 AUMID 时预期内[报错]」的假设不成立。精简系统叠加 WinRT UI 运行时缺失的 E_ACCESSDENIED 面。故系统通知全线 best-effort，托盘/应用内通道才是事实兜底；可达性自检用 `GESSO_NOTIFY_TEST=1`（仅 debug）。 |
 
 ## 3. 高风险调试
 
