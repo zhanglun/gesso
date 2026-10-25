@@ -29,26 +29,24 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, CreateFontW, DeleteDC, DeleteObject, DrawTextW, GdiFlush,
-    SelectObject, SetBkMode, SetTextColor, ANTIALIASED_QUALITY, BI_RGB, BITMAPINFO,
-    BITMAPINFOHEADER, BLENDFUNCTION, AC_SRC_ALPHA, AC_SRC_OVER, CLIP_DEFAULT_PRECIS,
-    DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_END_ELLIPSIS, DT_SINGLELINE,
-    DT_VCENTER, HBITMAP, HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, TRANSPARENT,
+    SelectObject, SetBkMode, SetTextColor, AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY,
+    BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET,
+    DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_END_ELLIPSIS, DT_SINGLELINE, DT_VCENTER, HBITMAP,
+    HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CheckMenuRadioItem, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, DestroyWindow, GetCursorPos, GetWindowLongPtrW, GetWindowRect, HMENU,
-    IsWindowVisible, LoadCursorW, PostMessageW, RegisterClassW, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, SystemParametersInfoW, TrackPopupMenu,
-    UpdateLayeredWindow, WNDCLASSW, GWL_EXSTYLE, GWLP_USERDATA, HWND_TOPMOST, IDC_ARROW,
-    MF_BYCOMMAND, MF_POPUP, MF_SEPARATOR, MF_STRING, SPI_GETCLIENTAREAANIMATION, SW_HIDE,
-    SW_SHOWNA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, TPM_BOTTOMALIGN,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, ULW_ALPHA, WM_CAPTURECHANGED, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE,
-    WM_NULL, WM_RBUTTONUP, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
-    WS_POPUP,
+    AppendMenuW, CheckMenuRadioItem, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
+    DestroyWindow, GetCursorPos, GetWindowLongPtrW, GetWindowRect, IsWindowVisible, LoadCursorW,
+    PostMessageW, RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    SystemParametersInfoW, TrackPopupMenu, UpdateLayeredWindow, GWLP_USERDATA, GWL_EXSTYLE, HMENU,
+    HWND_TOPMOST, IDC_ARROW, MF_BYCOMMAND, MF_POPUP, MF_SEPARATOR, MF_STRING,
+    SPI_GETCLIENTAREAANIMATION, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
+    SW_SHOWNA, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, ULW_ALPHA, WM_CAPTURECHANGED,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 use crate::engine::{self, EngineAction};
@@ -353,7 +351,9 @@ unsafe fn cursor_and_origin(hwnd: HWND) -> Option<CursorCtx> {
 }
 
 fn on_left_down(hwnd: HWND) {
-    let Some(state) = (unsafe { state_of(hwnd) }) else { return };
+    let Some(state) = (unsafe { state_of(hwnd) }) else {
+        return;
+    };
     let Some(ctx) = (unsafe { cursor_and_origin(hwnd) }) else {
         return;
     };
@@ -369,14 +369,15 @@ fn on_left_down(hwnd: HWND) {
 }
 
 fn on_mouse_move(hwnd: HWND) {
-    let Some(state) = (unsafe { state_of(hwnd) }) else { return };
+    let Some(state) = (unsafe { state_of(hwnd) }) else {
+        return;
+    };
     let Some(ctx) = (unsafe { cursor_and_origin(hwnd) }) else {
         return;
     };
     let Some(mut press) = state.press.take() else {
         // 接近观察：注视方向 + 200ms 节流的 MouseMoved（macOS mouseMoved: 同款）
-        state.gaze_x =
-            ((ctx.cursor.0 - ctx.origin.0) / ctx.size.0.max(1.0)).clamp(0.0, 1.0);
+        state.gaze_x = ((ctx.cursor.0 - ctx.origin.0) / ctx.size.0.max(1.0)).clamp(0.0, 1.0);
         let now = Instant::now();
         if state
             .last_mouse_moved
@@ -417,7 +418,9 @@ fn on_mouse_move(hwnd: HWND) {
 }
 
 fn on_left_up(hwnd: HWND) {
-    let Some(state) = (unsafe { state_of(hwnd) }) else { return };
+    let Some(state) = (unsafe { state_of(hwnd) }) else {
+        return;
+    };
     let Some(press) = state.press.take() else {
         // 无按下也就没有捕获；ReleaseCapture 无副作用，直接收尾
         unsafe {
@@ -451,8 +454,12 @@ fn on_left_up(hwnd: HWND) {
 /// 穿透切换（命中区外也吞点击）。按拖动与否收尾，位置回报交回下一拍 sync。
 /// macOS 无显式信号（mouseUp 丢失时同样悬挂），Windows 靠本消息根治。
 fn on_capture_changed(hwnd: HWND) {
-    let Some(state) = (unsafe { state_of(hwnd) }) else { return };
-    let Some(press) = state.press.take() else { return };
+    let Some(state) = (unsafe { state_of(hwnd) }) else {
+        return;
+    };
+    let Some(press) = state.press.take() else {
+        return;
+    };
     if press.dragged {
         engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::DragEnded));
     }
@@ -475,7 +482,9 @@ fn to_wide(text: &str) -> Vec<u16> {
 }
 
 fn on_right_up(hwnd: HWND) {
-    let Some(state) = (unsafe { state_of(hwnd) }) else { return };
+    let Some(state) = (unsafe { state_of(hwnd) }) else {
+        return;
+    };
     if state.press.is_some() {
         return; // 按住左键拖动中不开菜单
     }
@@ -507,7 +516,12 @@ unsafe fn append_item(menu: HMENU, id: i32, text: &str) -> bool {
 /// 右键菜单（结构对齐 macOS NSMenu 版本）：
 /// 设置 / 活跃度(单选) / 尺寸(单选) / 模拟事件 / 统计 / 隐藏 / 退出。
 /// 返回 TrackPopupMenu 选中的命令 ID（取消 = 0）。
-fn build_and_show_menu(hwnd: HWND, activity: PetActivity, size: PetSize, cursor: (f64, f64)) -> i32 {
+fn build_and_show_menu(
+    hwnd: HWND,
+    activity: PetActivity,
+    size: PetSize,
+    cursor: (f64, f64),
+) -> i32 {
     unsafe {
         let Ok(menu) = CreatePopupMenu() else {
             return 0;
@@ -535,9 +549,21 @@ fn build_and_show_menu(hwnd: HWND, activity: PetActivity, size: PetSize, cursor:
             PetActivity::Normal => CMD_ACTIVITY_NORMAL,
             PetActivity::Lively => CMD_ACTIVITY_LIVELY,
         };
-        ok &= append_item(activity_menu, CMD_ACTIVITY_QUIET, strings::PET_ACTIVITY_QUIET());
-        ok &= append_item(activity_menu, CMD_ACTIVITY_NORMAL, strings::PET_ACTIVITY_NORMAL());
-        ok &= append_item(activity_menu, CMD_ACTIVITY_LIVELY, strings::PET_ACTIVITY_LIVELY());
+        ok &= append_item(
+            activity_menu,
+            CMD_ACTIVITY_QUIET,
+            strings::PET_ACTIVITY_QUIET(),
+        );
+        ok &= append_item(
+            activity_menu,
+            CMD_ACTIVITY_NORMAL,
+            strings::PET_ACTIVITY_NORMAL(),
+        );
+        ok &= append_item(
+            activity_menu,
+            CMD_ACTIVITY_LIVELY,
+            strings::PET_ACTIVITY_LIVELY(),
+        );
         // SAFETY: 组内单选；ID 连续（MF_BYCOMMAND）
         ok &= CheckMenuRadioItem(
             activity_menu,
@@ -568,7 +594,11 @@ fn build_and_show_menu(hwnd: HWND, activity: PetActivity, size: PetSize, cursor:
         ok &= append_popup(menu, sizes, strings::SET_PET_SIZE());
 
         ok &= append_item(notices, CMD_NOTICE_NEW, strings::PET_NOTICE_NEW());
-        ok &= append_item(notices, CMD_NOTICE_ATTENTION, strings::PET_NOTICE_ATTENTION());
+        ok &= append_item(
+            notices,
+            CMD_NOTICE_ATTENTION,
+            strings::PET_NOTICE_ATTENTION(),
+        );
         ok &= append_item(notices, CMD_NOTICE_WARNING, strings::PET_NOTICE_WARNING());
         ok &= append_popup(menu, notices, strings::PET_NOTICE_GROUP());
 
@@ -626,15 +656,15 @@ fn dispatch_menu_command(cmd: i32) {
         CMD_SIZE_SMALL => engine::enqueue(EngineAction::SetPetSize(PetSize::Small)),
         CMD_SIZE_MEDIUM => engine::enqueue(EngineAction::SetPetSize(PetSize::Medium)),
         CMD_SIZE_LARGE => engine::enqueue(EngineAction::SetPetSize(PetSize::Large)),
-        CMD_NOTICE_NEW => engine::enqueue(EngineAction::PetBehavior(
-            PetBehaviorEvent::Notify(PetNotice::NewResult),
-        )),
+        CMD_NOTICE_NEW => engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::Notify(
+            PetNotice::NewResult,
+        ))),
         CMD_NOTICE_ATTENTION => engine::enqueue(EngineAction::PetBehavior(
             PetBehaviorEvent::Notify(PetNotice::NeedsAttention),
         )),
-        CMD_NOTICE_WARNING => engine::enqueue(EngineAction::PetBehavior(
-            PetBehaviorEvent::Notify(PetNotice::Warning),
-        )),
+        CMD_NOTICE_WARNING => engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::Notify(
+            PetNotice::Warning,
+        ))),
         _ => {}
     }
 }
@@ -892,9 +922,13 @@ impl PetWindow {
         };
         let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
         // SAFETY: bmi 为本栈帧局部；bits 由系统写入
-        let dib = unsafe { CreateDIBSection(Some(self.memdc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) };
+        let dib =
+            unsafe { CreateDIBSection(Some(self.memdc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) };
         let Ok(dib) = dib else {
-            eprintln!("[pet] CreateDIBSection 失败：{}", windows::core::Error::from_thread());
+            eprintln!(
+                "[pet] CreateDIBSection 失败：{}",
+                windows::core::Error::from_thread()
+            );
             return;
         };
         // SAFETY: 新 DIB 选入 memdc，换下旧 DIB 后再删旧（选中态不可删）
@@ -942,7 +976,9 @@ impl PetWindow {
     /// 按住/拖动期间强制可交互，保证捕获链路稳定。
     fn update_hit_through(&mut self) {
         let pressing = self.state().press.is_some();
-        let Some(inside) = self.cursor_on_body() else { return };
+        let Some(inside) = self.cursor_on_body() else {
+            return;
+        };
         let want_transparent = !inside && !pressing;
         // SAFETY: 本进程窗口样式读写；仅翻转 WS_EX_TRANSPARENT 位
         unsafe {
@@ -1153,8 +1189,8 @@ impl PetWindow {
             .as_ref()
             .is_none_or(|(t, mw, mh, _)| *t != text || *mw != tw || *mh != th);
         if need_mask {
-            self.bubble_mask = text_mask(text, tw, th, font_h)
-                .map(|mask| (text.to_string(), tw, th, mask));
+            self.bubble_mask =
+                text_mask(text, tw, th, font_h).map(|mask| (text.to_string(), tw, th, mask));
         }
         // 掩码缺失时气泡整体退场（失败原因已在 text_mask 内打日志）；
         // 火苗强化档不受影响，通知语义仍可感知
@@ -1235,13 +1271,19 @@ fn text_mask(text: &str, w: i32, h: i32, font_h: i32) -> Option<Vec<u8>> {
         // SAFETY: bmi/bits 为本函数栈上对象（外层 fn 已是 unsafe 块）
         let Ok(dib) = CreateDIBSection(Some(hdc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) else {
             // 失败路径必须回收 DC（GDI 句柄进程级限额，泄漏会拖垮后续绘制）
-            eprintln!("[pet] 气泡文本 CreateDIBSection 失败：{}", windows::core::Error::from_thread());
+            eprintln!(
+                "[pet] 气泡文本 CreateDIBSection 失败：{}",
+                windows::core::Error::from_thread()
+            );
             let _ = DeleteDC(hdc);
             return None;
         };
         std::ptr::write_bytes(bits as *mut u8, 0xFF, (w * h * 4) as usize); // 白底
         let old_bmp = SelectObject(hdc, HGDIOBJ(dib.0));
-        let face: Vec<u16> = "Segoe UI".encode_utf16().chain(std::iter::once(0)).collect();
+        let face: Vec<u16> = "Segoe UI"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         // SAFETY: 常规 UI 字形参数；负高度 = 字符高（重量 400 = FW_NORMAL）
         let font: HFONT = CreateFontW(
             -font_h,
@@ -1565,13 +1607,13 @@ impl PetWindowManager {
         let actual = win.window_origin_now()?;
         let at_target = (actual.0 - px).abs() <= tol && (actual.1 - py).abs() <= tol;
         if !at_target {
-            let target_changed = self
-                .last_applied_origin
-                .is_some_and(|applied| (applied.0 - px).abs() > tol || (applied.1 - py).abs() > tol);
+            let target_changed = self.last_applied_origin.is_some_and(|applied| {
+                (applied.0 - px).abs() > tol || (applied.1 - py).abs() > tol
+            });
             if !target_changed {
                 if let Some(applied) = self.last_applied_origin {
-                    let moved = (actual.0 - applied.0).abs() > tol
-                        || (actual.1 - applied.1).abs() > tol;
+                    let moved =
+                        (actual.0 - applied.0).abs() > tol || (actual.1 - applied.1).abs() > tol;
                     if moved {
                         // 用户拖放后的窗口位置回报一次；等引擎写回存档再施加目标
                         if let Some(position) =
@@ -1642,8 +1684,8 @@ mod tests {
         classify_click, position_for_frame, size_scale, walking_origin, window_dimensions,
         window_origin, ClickOutcome, DEFAULT_POSITION, DOUBLE_CLICK_WINDOW, DRAG_THRESHOLD,
     };
-    use crate::pin::MonitorInfo;
     use crate::pet_template::BehaviorParams;
+    use crate::pin::MonitorInfo;
     use gesso_core::{PetBehavior, PetBehaviorEvent, PetSize};
     use std::time::Duration;
 
@@ -1651,8 +1693,7 @@ mod tests {
     /// （app 测试只在开发机跑，GDI 必可用；CI Windows job 不跑 app 测试。）
     #[test]
     fn text_mask_rasterizes_glyphs() {
-        let mask = super::text_mask("新结果 Done", 140, 24, 16)
-            .expect("GDI 文本光栅化不应失败");
+        let mask = super::text_mask("新结果 Done", 140, 24, 16).expect("GDI 文本光栅化不应失败");
         let ink = mask.iter().filter(|&&v| v > 128).count();
         let bg = mask.iter().filter(|&&v| v == 0).count();
         assert!(ink > 30, "应有可观的字形笔画像素，实际 {ink}");
@@ -1693,7 +1734,13 @@ mod tests {
     fn default_position_lands_bottom_right_in_top_left_coords() {
         let (w, h) = window_dimensions(PetSize::Medium);
         // 左上原点：y=0.92 → 窗口贴近屏幕底部
-        let (x, y) = window_origin((0.0, 0.0, 1440.0, 900.0), DEFAULT_POSITION.0, DEFAULT_POSITION.1, w, h);
+        let (x, y) = window_origin(
+            (0.0, 0.0, 1440.0, 900.0),
+            DEFAULT_POSITION.0,
+            DEFAULT_POSITION.1,
+            w,
+            h,
+        );
         assert!((x - 1165.12).abs() < 1e-9);
         assert!((y - 677.12).abs() < 1e-9);
         assert!(y > 900.0 - h - 200.0);
