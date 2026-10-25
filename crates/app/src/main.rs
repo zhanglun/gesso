@@ -1632,10 +1632,14 @@ fn main() {
                                 gesso_core::PetBehaviorEvent::Notify(kind),
                             ));
                         }
-                        // 开发验证钩子（仅 debug 构建）：GESSO_DEV_IMPORT=<文件路径>
-                        // 同一拍走 EngineAction::Import 生产臂导入本地文件——无头
-                        // 验证「导入 → 宠物气泡」链路（regress.ps1 -Phase devimport），如
-                        // GESSO_DEV_IMPORT=<png> GESSO_LOCK=dev ./target/debug/gesso
+                    }
+                    // 开发验证钩子（仅 debug 构建）：GESSO_DEV_IMPORT=<文件路径>
+                    // 同拍（tick 20）走 EngineAction::Import 生产臂导入本地文件——
+                    // 无头验证「导入 → 宠物气泡」链路（regress.ps1 -Phase devimport）。
+                    // 注意 import_entry 无去重：每跑一次多一个库条目，用完在库页移除。
+                    // 如 GESSO_DEV_IMPORT=<png> GESSO_LOCK=dev ./target/debug/gesso
+                    #[cfg(debug_assertions)]
+                    if tick == 20 {
                         if let Ok(path) = std::env::var("GESSO_DEV_IMPORT") {
                             engine::enqueue(engine::EngineAction::Import { path });
                         }

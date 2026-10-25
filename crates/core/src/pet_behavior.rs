@@ -57,9 +57,6 @@ impl PetNotice {
         }
     }
 
-    /// 冷却桶数量上界；priority() 的最大值。
-    const WARNING_PRIORITY: usize = 2;
-
     fn important(self) -> bool {
         self.priority() > 0
     }
@@ -83,9 +80,9 @@ pub struct PetBehavior {
     /// 否则走动阈值小于入睡阈值时会陷入连走循环而永不入睡。
     walk_elapsed: Duration,
     notice: Option<(PetNotice, Duration)>,
-    /// 各档位距上次气泡显示的时长（按 `PetNotice::priority()` 索引；None = 从未显示）。
+    /// 各档位距上次气泡显示的时长（None = 从未显示）；经 `cooldown_slot` 穷尽匹配访问。
     /// 在气泡被接受显示时置零——被更高优先级顶掉的档位同样起算，防其被连续重发。
-    notice_cooldown: [Option<Duration>; PetNotice::WARNING_PRIORITY + 1],
+    notice_cooldown: [Option<Duration>; 3],
 }
 
 impl PetBehavior {
@@ -153,7 +150,7 @@ impl PetBehavior {
                 if self.state == PetBehaviorState::Sleeping && !kind.important() {
                     return; // 睡眠中普通事件不打扰
                 }
-                if let Some(since) = self.notice_cooldown[kind.priority() as usize] {
+                if let Some(since) = *self.cooldown_slot(kind) {
                     if since < NOTICE_COOLDOWN {
                         return; // 同类冷却内合并：不显示、不打断
                     }
@@ -162,7 +159,7 @@ impl PetBehavior {
                     .notice
                     .is_none_or(|(current, _)| kind.priority() > current.priority());
                 if replace {
-                    self.notice_cooldown[kind.priority() as usize] = Some(Duration::ZERO);
+                    *self.cooldown_slot(kind) = Some(Duration::ZERO);
                     self.notice = Some((kind, kind.duration()));
                 }
                 if kind.important()
@@ -246,6 +243,16 @@ impl PetBehavior {
                 self.enter(PetBehaviorState::Walking)
             }
             _ => {}
+        }
+    }
+
+    /// 冷却桶访问：穷尽匹配——新增 `PetNotice` 档位会在此编译报错，强制补桶
+    /// （数组下标按 priority 索引则只会在运行时越界，编译器不设防）。
+    fn cooldown_slot(&mut self, kind: PetNotice) -> &mut Option<Duration> {
+        match kind {
+            PetNotice::NewResult => &mut self.notice_cooldown[0],
+            PetNotice::NeedsAttention => &mut self.notice_cooldown[1],
+            PetNotice::Warning => &mut self.notice_cooldown[2],
         }
     }
 
