@@ -16,13 +16,11 @@ use gesso_core::pet_events::PetEventReject;
 
 use crate::engine;
 
-/// Windows 命名管道名（集成方契约，冻结）。
+// 传输端点是冻结的集成方契约，单一事实源在 core（服务端/CLI 共用）。
 #[cfg(target_os = "windows")]
-pub const PIPE_NAME: &str = r"\\.\pipe\gesso-pet-events";
-
-/// macOS UDS 套接字文件名（挂在每用户临时目录下，集成方契约，冻结）。
+pub use gesso_core::pet_events::PIPE_PATH as PIPE_NAME;
 #[cfg(target_os = "macos")]
-pub const SOCKET_FILE: &str = "gesso-pet-events.sock";
+pub use gesso_core::pet_events::SOCKET_FILE_NAME as SOCKET_FILE;
 
 /// 首连审批等待时长：超时视为拒绝（客户端收 unauthorized）。
 /// debug 可用 GESSO_PET_APPROVAL_TIMEOUT_SECS 覆盖（无头冒烟用短超时）。

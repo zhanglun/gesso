@@ -1,0 +1,14 @@
+[package]
+name = "gesso-pet-notify"
+description = "Gesso 桌面宠物事件 CLI：一行命令给宠物发事件（连接本地管道/UDS）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gesso-pet-notify"
+path = "src/main.rs"
+
+[dependencies]
+# 只为线协议常量与请求行构造（to_line）；无平台依赖，二进制保持轻量
+gesso-core = { path = "../core" }

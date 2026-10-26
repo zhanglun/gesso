@@ -19,6 +19,11 @@ pub const MAX_SRC_CHARS: usize = 64;
 /// 成功响应行（含行尾换行）。
 pub const OK_LINE: &str = "{\"ok\":true}\n";
 
+/// Windows 传输端点：命名管道路径（集成方契约，冻结；服务端/CLI 共用此单源）。
+pub const PIPE_PATH: &str = "\\\\.\\pipe\\gesso-pet-events";
+/// macOS 传输端点：UDS 文件名，挂每用户临时目录下（集成方契约，冻结）。
+pub const SOCKET_FILE_NAME: &str = "gesso-pet-events.sock";
+
 /// 请求被拒的原因；`err_code()` 即线上 `err` 字段的冻结字符串。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PetEventReject {
