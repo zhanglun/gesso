@@ -67,7 +67,7 @@ pub fn open(cx: &mut App) {
         }),
         ..Default::default()
     };
-    if let Ok((handle, _)) = gpui_kit::open_window(options, cx, |window, cx| {
+    match gpui_kit::open_window(options, cx, |window, cx| {
         cx.new(|cx| {
             let _ = window;
             PetApprovalModal {
@@ -75,9 +75,13 @@ pub fn open(cx: &mut App) {
             }
         })
     }) {
-        if let Ok(mut g) = APPROVAL_WINDOW.lock() {
-            *g = Some(handle);
+        Ok((handle, _)) => {
+            println!("[pet-events] 审批窗已创建");
+            if let Ok(mut g) = APPROVAL_WINDOW.lock() {
+                *g = Some(handle);
+            }
         }
+        Err(e) => println!("[pet-events] 审批窗创建失败：{e:?}"),
     }
 }
 
