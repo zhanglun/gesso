@@ -42,6 +42,9 @@ pub fn open(cx: &mut App) {
             .update(cx, |_: gpui_kit::gpui::AnyView, window, cx: &mut App| {
                 cx.activate(true);
                 window.activate_window();
+                // 槽里可能已是新的待审批源（旧源超时清槽后新源入槽）——
+                // 激活不触发重绘，强制刷新让按钮闭包与显示一致
+                cx.refresh_windows();
             })
             .is_ok();
         if activated {

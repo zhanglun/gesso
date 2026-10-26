@@ -1052,9 +1052,12 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::PetApprovalDecision { src, approved } => {
             if approved {
                 let mut settings = sm.config().settings.clone();
-                settings.pet_event_sources.push(src.clone());
-                sm.update_settings(settings.clone());
-                bridge::pet_events::sync_allowed(&settings.pet_event_sources);
+                // 审批窗按钮双击会入队两份 Decision——contains 守卫防名单重复
+                if !settings.pet_event_sources.contains(&src) {
+                    settings.pet_event_sources.push(src.clone());
+                    sm.update_settings(settings.clone());
+                    bridge::pet_events::sync_allowed(&settings.pet_event_sources);
+                }
             }
             // 拒绝/批准都要唤醒监听线程（等待者拿着响应行）
             bridge::pet_events::resolve_pending(&src, approved);
