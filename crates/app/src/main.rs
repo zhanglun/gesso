@@ -570,6 +570,8 @@ struct ActionOutcome {
     focus_main: bool,
     /// 请求打开/激活「软件更新」小窗（§4.7 托盘入口；设置页在 UI 线程直接开）。
     open_update_modal: bool,
+    /// 请求打开宠物事件源首连审批小窗（监听线程发现未授权源）。
+    open_pet_approval: bool,
     /// 界面语言变化（托盘菜单文案需重建，见主循环）。
     lang_changed: bool,
     /// 请求打开宠物领养小窗。
@@ -727,6 +729,14 @@ fn unix_timestamp() -> u64 {
 fn reset_pet_data(app: &mut engine::AppState) -> Result<(), String> {
     if app.pet_storage_blocked {
         return Err("宠物存档不可写，原文件已保留".to_string());
+    }
+    // 事件源授权随宠物数据一并清空（选型文档 §7.4），先于未领养早退——
+    // 名单是宠物子系统的授权面，不随领养状态存在。
+    let mut settings = app.sm.config().settings.clone();
+    if !settings.pet_event_sources.is_empty() {
+        settings.pet_event_sources.clear();
+        app.sm.update_settings(settings.clone());
+        bridge::pet_events::sync_allowed(&settings.pet_event_sources);
     }
     let Some(pet) = app.pet_save.adoption.as_ref() else {
         return Ok(()); // 本就未领养，无需处理
@@ -1034,6 +1044,28 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                     Err(message) => app.pet_error = Some(message),
                 }
             }
+        }
+        engine::EngineAction::PetApprovalNeeded { src } => {
+            println!("[pet-events] 首连待审批：{src}");
+            out.open_pet_approval = true;
+        }
+        engine::EngineAction::PetApprovalDecision { src, approved } => {
+            if approved {
+                let mut settings = sm.config().settings.clone();
+                settings.pet_event_sources.push(src.clone());
+                sm.update_settings(settings.clone());
+                bridge::pet_events::sync_allowed(&settings.pet_event_sources);
+            }
+            // 拒绝/批准都要唤醒监听线程（等待者拿着响应行）
+            bridge::pet_events::resolve_pending(&src, approved);
+            println!("[pet-events] 审批结论 {src} approved={approved}");
+        }
+        engine::EngineAction::PetEventRevoke { src } => {
+            let mut settings = sm.config().settings.clone();
+            settings.pet_event_sources.retain(|s| s != &src);
+            sm.update_settings(settings.clone());
+            bridge::pet_events::sync_allowed(&settings.pet_event_sources);
+            println!("[pet-events] 已撤销事件源授权：{src}");
         }
         engine::EngineAction::FocusMainWindow => out.focus_main = true,
         // 软件更新（§4.7）：检查/下载在 update 模块自有线程执行（阻塞 IO），
@@ -1381,9 +1413,6 @@ fn main() {
     // 视频媒体回环服务：会话构建（ContentSpec → media_url）前必须就绪
     protocol::start_media_server();
 
-    // 宠物助手事件监听（P3-S2）：本地管道/UDS → 引擎动作（S3 加 opt-in 门）
-    bridge::pet_events::spawn_listener();
-
     // 更新下载目录清场（§4.7）：.part 半成品与已交付的旧安装包不跨会话保留
     update::cleanup_download_dir();
 
@@ -1413,6 +1442,10 @@ fn main() {
                 "[boot] 会话数：{}（first_run={first_run}）",
                 sm.session_count()
             );
+
+            // 宠物助手事件监听（P3-S2/S3）：本地管道/UDS → 鉴权门 → 引擎动作；
+            // 授权名单初值来自设置真源（此后由审批/撤销/重置各臂同步镜像）
+            bridge::pet_events::spawn_listener(&sm.config().settings.pet_event_sources);
 
             // 引擎全局（API.md §4：cx.set_global(AppState::new(sm))）+ UI 快照注入
             let autostart_on = sm.config().settings.autostart;
@@ -1519,6 +1552,7 @@ fn main() {
                     if !engine_actions.is_empty() {
                         let mut focus_main = false;
                         let mut open_update_modal = false;
+                        let mut open_pet_approval = false;
                         let mut open_pet_adoption = false;
                         let mut focus_pet = false;
                         let mut lang_changed = false;
@@ -1533,6 +1567,9 @@ fn main() {
                                 }
                                 if out.open_update_modal {
                                     open_update_modal = true;
+                                }
+                                if out.open_pet_approval {
+                                    open_pet_approval = true;
                                 }
                                 if out.open_pet_adoption {
                                     open_pet_adoption = true;
@@ -1572,6 +1609,10 @@ fn main() {
                         // 更新小窗同理（托盘「检查更新…」入口的 open_modal 兑现）
                         if open_update_modal {
                             cx.update(ui::update_view::open);
+                        }
+                        // 宠物事件源首连审批小窗（监听线程 → PetApprovalNeeded 兑现）
+                        if open_pet_approval {
+                            cx.update(ui::pet_approval_view::open);
                         }
                         if focus_pet {
                             cx.update(|cx| {

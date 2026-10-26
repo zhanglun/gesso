@@ -223,6 +223,18 @@ pub struct Texts {
     pub update_btn_reveal: &'static str,
     pub update_btn_close: &'static str,
     pub update_btn_retry: &'static str,
+
+    // 宠物事件源（P3-S3：首连审批 + 设置页名单）
+    pub pet_evt_title: &'static str,
+    pub pet_evt_body: &'static str,
+    pub pet_evt_note: &'static str,
+    pub pet_evt_none: &'static str,
+    pub pet_evt_btn_approve: &'static str,
+    pub pet_evt_btn_deny: &'static str,
+    pub set_pet_sources: &'static str,
+    pub set_pet_sources_desc: &'static str,
+    pub set_pet_sources_empty: &'static str,
+    pub set_pet_sources_revoke: &'static str,
 }
 
 /// 简体中文。
@@ -346,6 +358,17 @@ pub const ZH: Texts = Texts {
     update_btn_reveal: "打开所在文件夹",
     update_btn_close: "关闭",
     update_btn_retry: "重试",
+
+    pet_evt_title: "宠物事件",
+    pet_evt_body: "以下应用想给宠物发事件：",
+    pet_evt_note: "批准后加入授权名单，可随时在设置页撤销。",
+    pet_evt_none: "没有待审批的事件源。",
+    pet_evt_btn_approve: "批准",
+    pet_evt_btn_deny: "拒绝",
+    set_pet_sources: "宠物事件源",
+    set_pet_sources_desc: "已授权向宠物气泡发送事件的应用",
+    set_pet_sources_empty: "暂无已授权的事件源",
+    set_pet_sources_revoke: "撤销",
 
     btn_redetect: "重新检测",
     monitor_hover_note: "悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制",
@@ -539,6 +562,17 @@ pub const EN: Texts = Texts {
     update_btn_close: "Close",
     update_btn_retry: "Retry",
 
+    pet_evt_title: "Pet Events",
+    pet_evt_body: "This app wants to send events to your pet:",
+    pet_evt_note: "Approving adds it to the allowed list; revoke anytime in Settings.",
+    pet_evt_none: "No pending event source.",
+    pet_evt_btn_approve: "Approve",
+    pet_evt_btn_deny: "Deny",
+    set_pet_sources: "Pet event sources",
+    set_pet_sources_desc: "Apps allowed to send events to your pet's bubble",
+    set_pet_sources_empty: "No approved event sources",
+    set_pet_sources_revoke: "Revoke",
+
 
     btn_redetect: "Redetect",
     monitor_hover_note: "Hovering a library card highlights its display · Click a display to select and control it below",
@@ -728,6 +762,11 @@ accessors! {
     update_btn_later => UPD_BTN_LATER, update_btn_cancel_dl => UPD_BTN_CANCEL_DL,
     update_btn_install => UPD_BTN_INSTALL, update_btn_reveal => UPD_BTN_REVEAL,
     update_btn_close => UPD_BTN_CLOSE, update_btn_retry => UPD_BTN_RETRY,
+    pet_evt_title => PET_EVT_TITLE, pet_evt_body => PET_EVT_BODY,
+    pet_evt_note => PET_EVT_NOTE, pet_evt_none => PET_EVT_NONE,
+    pet_evt_btn_approve => PET_EVT_BTN_APPROVE, pet_evt_btn_deny => PET_EVT_BTN_DENY,
+    set_pet_sources => SET_PET_SOURCES, set_pet_sources_desc => SET_PET_SOURCES_DESC,
+    set_pet_sources_empty => SET_PET_SOURCES_EMPTY, set_pet_sources_revoke => SET_PET_SOURCES_REVOKE,
     btn_redetect => BTN_REDETECT, monitor_hover_note => MONITOR_HOVER_NOTE,
     st_select_wallpaper => ST_SELECT_WALLPAPER, monitors_empty_title => MONITORS_EMPTY_TITLE,
     edid_note_short => EDID_NOTE_SHORT, btn_change => BTN_CHANGE,

@@ -196,6 +196,12 @@ pub enum EngineAction {
     TogglePetVisibility,
     /// 设置页高级区域：重置宠物数据后重新领养。
     ResetPetData,
+    /// 宠物事件源首连审批：监听线程发现未授权源时入队，引擎循环弹确认窗。
+    PetApprovalNeeded { src: String },
+    /// 首连审批窗的结论：true = 加入授权名单并放行本次事件，false = 拒绝。
+    PetApprovalDecision { src: String, approved: bool },
+    /// 设置页撤销事件源授权（名单 + 持久化 + 监听侧镜像同步移除）。
+    PetEventRevoke { src: String },
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
     /// 托盘「恢复系统壁纸」：桌面桥接全量恢复（逃生门——怀疑接管残留时用；

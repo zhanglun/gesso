@@ -585,6 +585,68 @@ impl Render for SettingsView {
                 advanced,
                 cx,
             ))
+            .child(self.group(
+                div().child(SET_PET_SOURCES()).into_any_element(),
+                self.pet_event_source_rows(cx),
+                cx,
+            ))
+    }
+}
+
+impl SettingsView {
+    /// 宠物事件源授权名单（查看 + 逐项撤销）：真源在引擎 settings，撤销走
+    /// PetEventRevoke 动作（名单 + 持久化 + 监听镜像三处同步在臂内完成）。
+    /// 行标签是动态源名，set_row 只收 'static str——照其布局自建行。
+    fn pet_event_source_rows(&self, cx: &Context<Self>) -> Vec<AnyElement> {
+        let t = tokens(cx);
+        let sources = cx
+            .global::<crate::engine::AppState>()
+            .sm
+            .config()
+            .settings
+            .pet_event_sources
+            .clone();
+        if sources.is_empty() {
+            return vec![set_row(
+                SET_PET_SOURCES_EMPTY(),
+                Some(SET_PET_SOURCES_DESC()),
+                div().into_any_element(),
+                cx,
+            )];
+        }
+        sources
+            .iter()
+            .map(|src| {
+                let src = src.clone();
+                h_flex()
+                    .min_h(px(40.))
+                    .gap_3()
+                    .items_center()
+                    .child(
+                        v_flex().flex_1().child(
+                            div()
+                                .text_size(px(13.))
+                                .text_color(t.text1)
+                                .child(src.clone()),
+                        ),
+                    )
+                    .child(
+                        Button::new("pet-src-revoke")
+                            .label(SET_PET_SOURCES_REVOKE())
+                            .text()
+                            .with_size(Size::Small)
+                            .on_click(move |_, _, cx| {
+                                crate::engine::enqueue(
+                                    crate::engine::EngineAction::PetEventRevoke {
+                                        src: src.clone(),
+                                    },
+                                );
+                                cx.refresh_windows();
+                            }),
+                    )
+                    .into_any_element()
+            })
+            .collect()
     }
 }
 
@@ -592,7 +654,16 @@ impl Render for SettingsView {
 
 /// 投影 → 引擎落盘（UpdateSettings 动作；API.md §1 update_settings）。
 fn persist_settings(cx: &mut App) {
-    let core = state(cx).settings.to_core_settings();
+    let mut core = state(cx).settings.to_core_settings();
+    // 事件源名单由审批/撤销动作维护、不归表单模型（to_core_settings 置空占位）——
+    // 落盘前从引擎真源回填，避免任意开关切换把名单洗掉。
+    core.pet_event_sources = cx
+        .global::<crate::engine::AppState>()
+        .sm
+        .config()
+        .settings
+        .pet_event_sources
+        .clone();
     crate::engine::enqueue(crate::engine::EngineAction::UpdateSettings(core));
 }
 

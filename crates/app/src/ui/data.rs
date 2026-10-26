@@ -219,6 +219,9 @@ impl Settings {
             },
             update_check: self.update_check,
             desktop_bridge: self.desktop_bridge,
+            // 事件源名单不归设置页表单模型管（审批弹窗/撤销动作维护）；
+            // persist_settings 落盘前从引擎真源回填此占位。
+            pet_event_sources: Vec::new(),
         }
     }
 }

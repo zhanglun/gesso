@@ -30,6 +30,9 @@ pub struct Settings {
     /// 抑制窗口露出它（无缝过渡）；退出/取消指派恢复用户原壁纸。关闭则完全不
     /// 接管系统桌面（重配期显示系统原壁纸）。
     pub desktop_bridge: bool,
+    /// 宠物助手事件源授权名单（自我声明名，选型文档 §2.4 L3）：首连审批弹窗
+    /// 加入、设置页可撤销；重置宠物数据时一并清空（§7.4）。
+    pub pet_event_sources: Vec<String>,
 }
 
 impl Default for Settings {
@@ -44,6 +47,7 @@ impl Default for Settings {
             language: Language::Auto,
             update_check: true,
             desktop_bridge: true,
+            pet_event_sources: Vec::new(),
         }
     }
 }

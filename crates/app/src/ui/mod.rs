@@ -20,6 +20,7 @@ pub mod app_state;
 pub mod data;
 pub mod library_view;
 pub mod monitors_view;
+pub mod pet_approval_view;
 pub mod pet_view;
 pub mod settings_view;
 pub mod shell;
