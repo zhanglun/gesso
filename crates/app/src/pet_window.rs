@@ -903,6 +903,10 @@ mod macos {
             return;
         }
         layers.shown = notice;
+        // 诊断：GESSO_PET_BUBBLE_DIAG=1 时打印气泡显隐切换（无头验证用）
+        if std::env::var("GESSO_PET_BUBBLE_DIAG").as_deref() == Ok("1") {
+            eprintln!("[pet-bubble] {:?}", notice);
+        }
         // setFrame/setString 默认带 0.25s 隐式动画，首次显示会从零尺寸
         // 漂移到目标位置；气泡按规格静态显示，禁用本次事务的隐式动画。
         CATransaction::begin();
