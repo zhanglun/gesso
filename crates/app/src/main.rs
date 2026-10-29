@@ -1561,6 +1561,20 @@ fn main() {
                                 crate::web_control::WebOp::SetActivity(activity) => {
                                     engine::EngineAction::SetPetActivity(activity)
                                 }
+                                crate::web_control::WebOp::ResetRequest => {
+                                    engine::EngineAction::PetAdoption(
+                                        gesso_core::AdoptionEvent::RequestReset,
+                                    )
+                                }
+                                // 破坏性清除由引擎 reset_pet_data 事务执行（缓存备份 + 存档原子写）
+                                crate::web_control::WebOp::ResetConfirm => {
+                                    engine::EngineAction::ResetPetData
+                                }
+                                crate::web_control::WebOp::ResetCancel => {
+                                    engine::EngineAction::PetAdoption(
+                                        gesso_core::AdoptionEvent::CancelReset,
+                                    )
+                                }
                             };
                             engine::enqueue(action);
                         }

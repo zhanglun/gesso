@@ -59,6 +59,12 @@ pub enum WebOp {
     SetSize(PetSize),
     /// 活跃度档位（pet.set_activity：quiet/normal/lively）。
     SetActivity(PetActivity),
+    /// 重置第一阶段：进入待确认态（安全，不破坏数据）。
+    ResetRequest,
+    /// 重置第二阶段：执行清除（服务端额外校验待确认态）。
+    ResetConfirm,
+    /// 取消重置，回到 Adopted。
+    ResetCancel,
 }
 
 /// 写操作簿记：request_id → operation_id 去重，operation_id → 已执行标记。
@@ -122,8 +128,19 @@ fn parse_op(value: &serde_json::Value) -> Option<WebOp> {
             };
             Some(WebOp::SetActivity(activity))
         }
+        "pet.reset.request" => Some(WebOp::ResetRequest),
+        "pet.reset.confirm" => Some(WebOp::ResetConfirm),
+        "pet.reset.cancel" => Some(WebOp::ResetCancel),
         _ => None,
     }
+}
+
+/// 重置第二阶段只能在待确认态执行；其他任何状态都拒绝。
+fn reset_pending(body: &serde_json::Value) -> bool {
+    body.get("adoption")
+        .and_then(|a| a.get("status"))
+        .and_then(|s| s.as_str())
+        == Some("reset_confirm")
 }
 
 fn snapshot_json(
@@ -642,7 +659,15 @@ fn adoption_op(
         return_response(stream, 400, "unknown_op");
         return;
     };
-    let current_revision = state.lock().expect("宠物控制台快照").adoption_revision;
+    let current = state.lock().expect("宠物控制台快照");
+    let current_revision = current.adoption_revision;
+    // 二阶段守卫：reset.confirm 只能在 reset_confirm 态执行（防重复/乱序触发破坏性操作）
+    if matches!(op, WebOp::ResetConfirm) && !reset_pending(&current.body) {
+        drop(current);
+        return_response(stream, 409, "reset_not_pending");
+        return;
+    }
+    drop(current);
     if revision != current_revision {
         return_response(stream, 409, "stale_revision");
         return;
@@ -1039,6 +1064,28 @@ mod tests {
             parse_op(&json!({"op": "pet.set_activity", "activity": "lively"})),
             Some(WebOp::SetActivity(PetActivity::Lively))
         );
+        assert_eq!(
+            parse_op(&json!({"op": "pet.reset.request"})),
+            Some(WebOp::ResetRequest)
+        );
+        assert_eq!(
+            parse_op(&json!({"op": "pet.reset.confirm"})),
+            Some(WebOp::ResetConfirm)
+        );
+        assert_eq!(
+            parse_op(&json!({"op": "pet.reset.cancel"})),
+            Some(WebOp::ResetCancel)
+        );
+    }
+
+    #[test]
+    fn reset_confirm_only_when_pending() {
+        let mut body = json!({"adoption": {"status": "adopted"}});
+        assert!(!reset_pending(&body));
+        body = json!({"adoption": {"status": "reset_confirm"}});
+        assert!(reset_pending(&body));
+        body = json!({"adoption": {}});
+        assert!(!reset_pending(&body));
     }
 
     #[test]
