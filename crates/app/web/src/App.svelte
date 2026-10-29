@@ -12,6 +12,10 @@
   let previewState = 'idle';
   /** @type {Array<'idle'|'sleep'|'blink'>} */
   const previewStates = ['idle', 'sleep', 'blink'];
+  /** @type {Array<'small'|'medium'|'large'>} */
+  const sizeOptions = ['small', 'medium', 'large'];
+  /** @type {Array<'quiet'|'normal'|'lively'>} */
+  const activityOptions = ['quiet', 'normal', 'lively'];
 
   const nav = [
     ['overview', '概览'],
@@ -60,7 +64,7 @@
   let opBusy = false;
   let opError = '';
 
-  /** @param {'adoption.start'|'adoption.reroll'|'adoption.select'|'adoption.confirm'|'adoption.back'|'pet.set_visible'} op */
+  /** @param {'adoption.start'|'adoption.reroll'|'adoption.select'|'adoption.confirm'|'adoption.back'|'pet.set_visible'|'pet.set_size'|'pet.set_activity'} op */
   async function runOp(op, payload = {}) {
     if (!snapshot || opBusy) return;
     opBusy = true;
@@ -142,7 +146,7 @@
     {:else if active === 'lab'}
       <section class="lab-layout"><div class="lab-preview"><span class="eyebrow">PREVIEW CANVAS</span>{#if pet}<img class="lab-pet-image" src={previewUrl(previewState)} alt={`${previewState} preview`} />{:else}<span class="muted">领养宠物后可预览动作</span>{/if}</div><div class="lab-controls"><span class="eyebrow">PET LAB</span><h2>宠物实验室</h2><p>预览不会改变桌面宠物的真实状态。</p><div class="control-group"><span class="control-label">动作</span><div class="segmented">{#each previewStates as state}<button class:chosen={previewState === state} onclick={() => (previewState = state)}>{state}</button>{/each}</div></div><div class="lab-row"><span class="tag">{pet?.behavior ?? 'idle'}</span><span class="muted">MVP preview</span></div></div></section>
     {:else}
-      <section class="page-card"><span class="eyebrow">SETTINGS</span><h2>宠物设置</h2><p>尺寸和活跃度档位暂在 Gesso 桌面窗口调整；显示状态可直接切换。</p><div class="setting-list"><div class="setting-row"><span>显示宠物</span><button class="secondary" disabled={opBusy || !pet} onclick={() => pet && runOp('pet.set_visible', { visible: !pet.visible })}>{pet?.visible ? '显示中' : '已隐藏'}</button></div><div class="setting-row"><span>尺寸</span><strong>{pet?.size ?? '—'}</strong></div><div class="setting-row"><span>活跃度</span><strong>{pet?.activity ?? '—'}</strong></div><div class="setting-row"><span>连接状态</span><strong>{status === 'connected' ? '正常' : '等待连接'}</strong></div></div>{#if opError}<span class="op-error" role="alert">{opError}</span>{/if}</section>
+      <section class="page-card"><span class="eyebrow">SETTINGS</span><h2>宠物设置</h2><p>档位即改即存，与桌面窗口同一真源。</p><div class="setting-list"><div class="setting-row"><span>显示宠物</span><button class="secondary" disabled={opBusy || !pet} onclick={() => pet && runOp('pet.set_visible', { visible: !pet.visible })}>{pet?.visible ? '显示中' : '已隐藏'}</button></div><div class="setting-row"><span>尺寸</span><div class="segmented">{#each sizeOptions as option}<button class:chosen={pet?.size === option} disabled={opBusy || !pet} onclick={() => runOp('pet.set_size', { size: option })}>{option}</button>{/each}</div></div><div class="setting-row"><span>活跃度</span><div class="segmented">{#each activityOptions as option}<button class:chosen={pet?.activity === option} disabled={opBusy || !pet} onclick={() => runOp('pet.set_activity', { activity: option })}>{option}</button>{/each}</div></div><div class="setting-row"><span>连接状态</span><strong>{status === 'connected' ? '正常' : '等待连接'}</strong></div></div>{#if opError}<span class="op-error" role="alert">{opError}</span>{/if}</section>
     {/if}
   </main>
 </div>

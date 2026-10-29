@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use gesso_core::{AdoptionState, PetBehaviorState, PetSave};
+use gesso_core::{AdoptionState, PetActivity, PetBehaviorState, PetSave, PetSize};
 use serde_json::json;
 
 use crate::pet_template::FrameKind;
@@ -55,6 +55,10 @@ pub enum WebOp {
     AdoptionBack,
     /// 幂等设置宠物显示状态（pet.set_visible）。
     SetVisible(bool),
+    /// 尺寸档位（pet.set_size：small/medium/large）。
+    SetSize(PetSize),
+    /// 活跃度档位（pet.set_activity：quiet/normal/lively）。
+    SetActivity(PetActivity),
 }
 
 /// 写操作簿记：request_id → operation_id 去重，operation_id → 已执行标记。
@@ -100,6 +104,24 @@ fn parse_op(value: &serde_json::Value) -> Option<WebOp> {
         "adoption.confirm" => Some(WebOp::AdoptionConfirm),
         "adoption.select" => Some(WebOp::AdoptionSelect(index(2)?)),
         "pet.set_visible" => Some(WebOp::SetVisible(value.get("visible")?.as_bool()?)),
+        "pet.set_size" => {
+            let size = match value.get("size")?.as_str()? {
+                "small" => PetSize::Small,
+                "medium" => PetSize::Medium,
+                "large" => PetSize::Large,
+                _ => return None,
+            };
+            Some(WebOp::SetSize(size))
+        }
+        "pet.set_activity" => {
+            let activity = match value.get("activity")?.as_str()? {
+                "quiet" => PetActivity::Quiet,
+                "normal" => PetActivity::Normal,
+                "lively" => PetActivity::Lively,
+                _ => return None,
+            };
+            Some(WebOp::SetActivity(activity))
+        }
         _ => None,
     }
 }
@@ -1004,6 +1026,18 @@ mod tests {
         assert_eq!(
             parse_op(&json!({"op": "pet.set_visible", "visible": "yes"})),
             None
+        );
+        assert_eq!(
+            parse_op(&json!({"op": "pet.set_size", "size": "large"})),
+            Some(WebOp::SetSize(PetSize::Large))
+        );
+        assert_eq!(
+            parse_op(&json!({"op": "pet.set_size", "size": "huge"})),
+            None
+        );
+        assert_eq!(
+            parse_op(&json!({"op": "pet.set_activity", "activity": "lively"})),
+            Some(WebOp::SetActivity(PetActivity::Lively))
         );
     }
 

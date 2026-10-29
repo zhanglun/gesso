@@ -1555,6 +1555,12 @@ fn main() {
                                 crate::web_control::WebOp::SetVisible(visible) => {
                                     engine::EngineAction::SetPetVisibility(visible)
                                 }
+                                crate::web_control::WebOp::SetSize(size) => {
+                                    engine::EngineAction::SetPetSize(size)
+                                }
+                                crate::web_control::WebOp::SetActivity(activity) => {
+                                    engine::EngineAction::SetPetActivity(activity)
+                                }
                             };
                             engine::enqueue(action);
                         }

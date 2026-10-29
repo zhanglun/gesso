@@ -11,8 +11,8 @@ export async function getState() {
  * 提交领养写操作（异步）：服务器校验 adoption_revision 乐观锁并去重 request_id，
  * 返回 operation_id；实际执行在 Gesso 主循环，结果经 /api/state 轮询反映。
  * @param {number} adoptionRevision 快照里的 adoption_revision 乐观锁
- * @param {'adoption.start'|'adoption.reroll'|'adoption.select'|'adoption.confirm'|'adoption.back'|'pet.set_visible'} op
- * @param {{index?: number, visible?: boolean}} [payload]
+ * @param {'adoption.start'|'adoption.reroll'|'adoption.select'|'adoption.confirm'|'adoption.back'|'pet.set_visible'|'pet.set_size'|'pet.set_activity'} op
+ * @param {{index?: number, visible?: boolean, size?: string, activity?: string}} [payload]
  * @returns {Promise<{operation_id:string, duplicate?:boolean}>}
  */
 export async function postOp(adoptionRevision, op, payload = {}) {
