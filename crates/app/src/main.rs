@@ -30,6 +30,7 @@ mod ui;
 mod update;
 mod we;
 mod we_shim;
+mod web_control;
 
 use std::time::{Duration, Instant};
 
@@ -602,6 +603,7 @@ fn build_tray_menu_with_pet(
         true,
         None,
     );
+    let mi_pet_web = MenuItem::with_id("pet-web", ui::strings::TRAY_PET_WEB(), true, None);
     let mi_pet_visibility = adopted.then(|| {
         MenuItem::with_id(
             "pet-toggle",
@@ -634,7 +636,7 @@ fn build_tray_menu_with_pet(
     let sep_settings = PredefinedMenuItem::separator();
     let sep_exit = PredefinedMenuItem::separator();
     let mut items: Vec<&dyn tray_icon::menu::IsMenuItem> =
-        vec![&mi_pause, &mi_cycle, &sep_pet, &mi_pet];
+        vec![&mi_pause, &mi_cycle, &sep_pet, &mi_pet, &mi_pet_web];
     if let Some(item) = mi_pet_visibility.as_ref() {
         items.push(item);
     }
@@ -665,6 +667,7 @@ fn install_tray_menu_handler() {
             "cycle" => engine::enqueue(EngineAction::CycleMain),
             "pet-adopt" => engine::enqueue(EngineAction::OpenPetAdoption),
             "pet-settings" => engine::enqueue(EngineAction::OpenPetSettings),
+            "pet-web" => engine::enqueue(EngineAction::OpenWebControl),
             "pet-toggle" => engine::enqueue(EngineAction::TogglePetVisibility),
             "main" => engine::enqueue(EngineAction::FocusMainWindow),
             // 逃生门：全量恢复系统壁纸（重新指派壁纸会按设置再次接管）
@@ -933,6 +936,9 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             println!("[engine] {monitor_id} fps = {fps}");
             sm.set_fps(&monitor_id, fps);
         }
+        engine::EngineAction::OpenWebControl => {
+            crate::web_control::open();
+        }
         engine::EngineAction::OpenPetAdoption => out.open_pet_adoption = true,
         engine::EngineAction::OpenPetSettings => out.focus_pet = true,
         engine::EngineAction::StartPetAdoption { species } => {
@@ -999,9 +1005,14 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             }
         }
         engine::EngineAction::TogglePetVisibility => {
-            if app.pet_save.adoption.is_some() {
+            let next = !app.pet_save.visible;
+            apply_engine_action(app, engine::EngineAction::SetPetVisibility(next));
+        }
+        engine::EngineAction::SetPetVisibility(visible) => {
+            // 幂等：目标态与当前一致时零副作用
+            if app.pet_save.adoption.is_some() && app.pet_save.visible != visible {
                 let mut save = app.pet_save.clone();
-                save.visible = !save.visible;
+                save.visible = visible;
                 match app.pet_store.save(&save) {
                     Ok(()) => {
                         app.pet_error = None;
@@ -1050,6 +1061,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         // 拆会话 → 通知 shell 重绘露出原壁纸 → 退进程（此前托盘线程直接
         // process::exit，Drop 全跳过，桌面留黑底）。
         engine::EngineAction::Quit => {
+            crate::web_control::shutdown();
             if app.pet_stats_dirty && !app.pet_storage_blocked {
                 match app.pet_store.save(&app.pet_save) {
                     Ok(()) => {
@@ -1501,6 +1513,52 @@ fn main() {
                         }
                     }
                     // UI/托盘写动作入队（API.md §4）——引擎轮询统一执行
+                    // Web Server 未开启时不克隆快照（主循环热路径零开销）
+                    if crate::web_control::active() {
+                        let (web_pet, web_behavior, web_adoption) = cx.update(|cx| {
+                            let app = cx.global::<engine::AppState>();
+                            (
+                                app.pet_save.clone(),
+                                app.pet_behavior.state(),
+                                app.pet_adoption.clone(),
+                            )
+                        });
+                        crate::web_control::publish(&web_pet, web_behavior, &web_adoption);
+                        // Web 写操作 → 引擎动作（同一状态机，与 GPUI 窗口同通道）
+                        for (_, op) in crate::web_control::drain_ops() {
+                            let action = match op {
+                                crate::web_control::WebOp::AdoptionStart => {
+                                    engine::EngineAction::StartPetAdoption {
+                                        species: gesso_core::PetSpecies::Candle,
+                                    }
+                                }
+                                crate::web_control::WebOp::AdoptionReroll => {
+                                    engine::EngineAction::PetAdoption(
+                                        gesso_core::AdoptionEvent::Reroll,
+                                    )
+                                }
+                                crate::web_control::WebOp::AdoptionSelect(index) => {
+                                    engine::EngineAction::PetAdoption(
+                                        gesso_core::AdoptionEvent::SelectCandidate(index),
+                                    )
+                                }
+                                crate::web_control::WebOp::AdoptionConfirm => {
+                                    engine::EngineAction::PetAdoption(
+                                        gesso_core::AdoptionEvent::ConfirmAdoption,
+                                    )
+                                }
+                                crate::web_control::WebOp::AdoptionBack => {
+                                    engine::EngineAction::PetAdoption(
+                                        gesso_core::AdoptionEvent::BackToSpecies,
+                                    )
+                                }
+                                crate::web_control::WebOp::SetVisible(visible) => {
+                                    engine::EngineAction::SetPetVisibility(visible)
+                                }
+                            };
+                            engine::enqueue(action);
+                        }
+                    }
                     let engine_actions = engine::drain();
                     let mut refresh_ui = !engine_actions.is_empty();
                     let mut pending_thumbs: Vec<(String, WallpaperKind)> = Vec::new();
@@ -1940,6 +1998,13 @@ fn main() {
             #[cfg(debug_assertions)]
             if std::env::var("GESSO_PET_ADOPT").is_ok() {
                 engine::enqueue(engine::EngineAction::OpenPetAdoption);
+            }
+
+            // 开发验证钩子（仅 debug 构建）：GESSO_PET_WEB=1 启动本地宠物控制台
+            // 并打开系统浏览器，用于验证 bootstrap/session/API 链路。
+            #[cfg(debug_assertions)]
+            if std::env::var("GESSO_PET_WEB").is_ok() {
+                engine::enqueue(engine::EngineAction::OpenWebControl);
             }
 
             // 管理窗口：三页签 UI（§4.3–4.5；44px 顶栏 + 键盘模型 + 双主题）

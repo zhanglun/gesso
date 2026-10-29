@@ -174,6 +174,8 @@ pub enum EngineAction {
     UpdateDownload,
     /// 取消进行中的下载（回到 Available 态并清理 .part）。
     UpdateCancelDownload,
+    /// 在系统浏览器中打开本地宠物控制台。
+    OpenWebControl,
     /// 打开宠物领养窗口。
     OpenPetAdoption,
     /// 打开管理窗口的宠物页。
@@ -194,6 +196,8 @@ pub enum EngineAction {
     SetPetSize(PetSize),
     /// 切换宠物用户可见状态并持久化。
     TogglePetVisibility,
+    /// 幂等设置可见状态（Web 写操作用；避免 TOCTOU 读改写）。
+    SetPetVisibility(bool),
     /// 设置页高级区域：重置宠物数据后重新领养。
     ResetPetData,
     /// 托盘「管理窗口…」：激活主窗口。
