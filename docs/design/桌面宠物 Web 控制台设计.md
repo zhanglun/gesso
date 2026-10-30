@@ -33,7 +33,7 @@
 ### 1.2 保持不变
 
 - GPUI 管理窗口继续存在；
-- 托盘“开始领养 / 宠物设置 / 显示 / 隐藏”继续可用；
+- 托盘「管理宠物…」（2026-10-30 起合并原「开始领养/宠物设置」二态项）与「显示/隐藏宠物」继续可用；
 - macOS AppKit / Windows Win32 原生宠物窗口继续负责桌面显示；
 - 穿透、拖动、置顶、全屏隐藏、多屏位置和 DPI 逻辑不迁移到 Web；
 - Web 不直接读取或写入 `pet.json`、缓存目录或任意本地路径；
@@ -588,7 +588,9 @@ Web 控制台采用 **安静的像素工作台**：克制的 Gesso 工具界面�
 
 ### 10.1 领养会话
 
-引擎只保留一个 Web / GPUI 共享的领养会话。候选状态带 `adoption_session_id` 和 `adoption_revision`；所有 reroll、select、confirm 都必须携带两者。领养候选状态本身不写入 `pet.json`，但在当前进程内由引擎持有。
+> **2026-10-30 落地差异**：本节为草案期并发模型，实际契约以《技术方案》§9.1 为准——请求携带 `request_id`（去重幂等）+ `adoption_revision`（乐观锁），无 `adoption_session_id` 字段（候选由服务端领养状态机持有）；「GPUI 再次进入开始领养」已随入口收敛移除，引擎侧仅存演练钩子通道。
+
+引擎只保留一个 Web / GPUI 共享的领养会话。领养候选状态本身不写入 `pet.json`，但在当前进程内由引擎持有。
 
 - 相同 session 且 `adoption_revision` 正确：执行操作并递增 `adoption_revision`；
 - session 或 revision 过期：返回 `409 Conflict`，不改变候选；

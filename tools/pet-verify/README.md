@@ -1,4 +1,4 @@
-# Windows 宠物窗口自动化回归
+# 宠物行为与控制台回归
 
 开发机（真实桌面会话）上运行的行为回归，覆盖 P2-W 窗口层的关键路径：
 渲染 / 单击戳 / 300ms 连点摸 / 拖拽与位置存档 / 注视方向 / 火苗摇曳 /
@@ -28,3 +28,13 @@ powershell -ExecutionPolicy Bypass -File tools/pet-verify/regress.ps1 -Phase ren
   （菜单命令是否分发要看应用日志，需 `GESSO_PET_HIT_DIAG=1`）。
 - 坐标全部按窗口 116×164pt 比例换算，不依赖 DPI；像素断言基于
   PrintWindow（PW_RENDERFULLCONTENT），被遮挡也能拍。
+
+## Web 控制台回归（HTTP 驱动，跨平台）
+
+- `python3 tools/pet-verify/web-e2e.py <bootstrap-url>`：HTTP 契约回归（20 断言）。
+  先沙箱启动：`HOME=<临时目录> GESSO_LOCK=e2e GESSO_PET_WEB=1 GESSO_PET_WEB_ECHO=1
+  GESSO_PET_WEB_NO_OPEN=1 ./target/debug/gesso`，URL 取日志 `[pet-web] bootstrap url:`。
+- `python3 tools/pet-verify/web-drill.py`：GPUI↔Web 双入口并发演练（24 断言，
+  自启动沙箱实例）；引擎侧钩子 `GESSO_PET_GPUI_DRILL="秒:动作,…"`（仅 debug），
+  动作清单见《技术方案》§9.3。
+- 注意：改 `crates/app/web/` 前端后必须重新 `cargo build`（产物编译期内嵌）。

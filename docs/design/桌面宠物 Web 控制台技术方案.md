@@ -16,7 +16,7 @@
 - Gesso 退出时关闭 server，所有会话失效；
 - 静态 HTML/CSS/JS 内嵌在 Rust 二进制中，不引入前端构建链。
 
-本阶段不实现领养写操作、设置写操作、operation、WebSocket、SSE、局域网访问和完整资源 manifest。
+本阶段不实现领养写操作、设置写操作、operation、WebSocket、SSE、局域网访问和完整资源 manifest。（历史边界：领养/设置写操作已于 2026-10-28 按 §9 纪律落地，见 §9.1）
 
 ## 2. 线程与生命周期
 
@@ -193,7 +193,7 @@ GET /api/operations/{operation_id} → {status: pending|applied|unknown}
 关键设计：
 
 - **乐观锁用 `adoption_revision` 而非 `state_revision`**：state_revision 随行为状态（idle/blink）频繁跳动，会让写请求永远过期；adoption_revision 只在领养状态/候选变化时递增，才是领养操作的真正并发实体。
-- **执行在引擎线程**：操作入队后在主循环 drain 为既有 EngineAction（StartPetAdoption / PetAdoption(AdoptionEvent::…)），与 GPUI 领养窗口共用同一状态机和持久化事务；Web 线程绝不直接触碰 AdoptionState / PetStore。
+- **执行在引擎线程**：操作入队后在主循环 drain 为既有 EngineAction（StartPetAdoption / PetAdoption(AdoptionEvent::…)），与既有引擎动作共用同一状态机和持久化事务（历史上 GPUI 领养小窗亦走此通道，2026-10-30 已撤销）；Web 线程绝不直接触碰 AdoptionState / PetStore。
 - **状态机天然幂等兑底**：非法转移（如未选候选就 confirm、重复 start）在 `adoption_transition` 中是无害 no-op；request_id 去重另外解决 reroll 这类非幂等操作的重放。
 - **设置类写操作（2026-10-28）**：`pet.set_visible`（payload `{visible:bool}`）→ 幂等动作 `EngineAction::SetPetVisibility(bool)`（同值零副作用，不产生 revision 跳动）；托盘 `TogglePetVisibility` 也改为基于它实现，消除读改写 TOCTOU。`pet.set_size` / `pet.set_activity` 复用引擎既有档位动作（非法档位/缺 payload 400）。设置页与概览均已接入。
 - **两阶段重置（2026-10-28）**：`pet.reset.request` 进入 `reset_confirm` 态（安全，宠物不破坏）→ `pet.reset.confirm` 触发引擎 `reset_pet_data` 破坏性事务；`pet.reset.cancel` 回退 Adopted。服务端硬性守卫：confirm 仅在待确认态受理，否则 `409 reset_not_pending`（防重复/乱序触发不可恢复操作）。设置页危险区 UI（红色仅用于真危险语义）。
@@ -213,7 +213,7 @@ GET /api/operations/{operation_id} → {status: pending|applied|unknown}
 
 ### 9.3 双入口并发演练自动化（2026-10-30）
 
-GPUI↔Web 双入口并发不再依赖人工点窗口：debug 钩子 `GESSO_PET_GPUI_DRILL="秒:动作,…"`（仅 debug 构建，main.rs `parse_drill_step`）在主循环节拍里按秒向引擎队列注入 GPUI 侧动作——与领养小窗按钮 / 设置页「确认重置」**同一 EngineAction 通道**（二段式 armed 是 UI 本地状态，注入即确认段），配合 `tools/pet-verify/web-drill.py`（自启动沙箱实例，无需人工传 URL）：
+GPUI↔Web 双入口并发不再依赖人工点窗口：debug 钩子 `GESSO_PET_GPUI_DRILL="秒:动作,…"`（仅 debug 构建，main.rs `parse_drill_step`）在主循环节拍里按秒向引擎队列注入引擎侧动作——与真实入口**同一 EngineAction 通道**（入口收敛后领养 UI 唯一化为 Web，演练的引擎侧 actor 即代表任何非 Web 并发写者），配合 `tools/pet-verify/web-drill.py`（自启动沙箱实例，无需人工传 URL）：
 
 ```text
 动作：start / reroll / select:N / back / close / confirm /
@@ -224,6 +224,6 @@ GPUI↔Web 双入口并发不再依赖人工点窗口：debug 钩子 `GESSO_PET_
 
 演练断言（不变量而非具体交错，实测 24 项 × 2 轮全绿）：GPUI 3–10s 静默窗内 Web 确定性 409（自选后旧 revision 必过期）→ 刷新恢复；GPUI reroll/select 与 Web 覆盖选择交叉修改同一领养会话后状态收敛；GPUI confirm → adopted 且宠物即最后确认候选；Web reset.request → GPUI reset_confirm 清除 → not_adopted、非待确认态 confirm 拒绝（reset_not_pending）；adoption_revision 全程单调；退出后端口关闭、存档无领养残留。
 
-状态机对无效事件天然 no-op（`adoption_transition` 的兜底分支），因此双入口同时 `start` / 乱序 select 等交错无需逐一定时校准。剩余人工项：并发下领养小窗/设置页的窗口观感与日常体感。
+状态机对无效事件天然 no-op（`adoption_transition` 的兜底分支），因此双入口同时 `start` / 乱序 select 等交错无需逐一定时校准。剩余人工项：日常使用体感反馈（领养小窗已随入口收敛撤销）。
 
 顺手修复：`web-e2e.py` / `web-drill.py` 的 urllib opener 显式 `ProxyHandler({})`——代理环境变量（http_proxy 等）会拦截 127.0.0.1 回环流量，POST 被间歇 502 且 e2e 的 op() 不检查失败，导致回归假阴性。
