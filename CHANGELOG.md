@@ -7,7 +7,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 ### Added
 
 - 更新器根据 App 当前语言显示双语发布说明，并兼容旧版静态清单格式。
-- **桌面宠物（feat/desktop-pet）**：macOS AppKit 宠物窗口（拖动/戳/摸/注视/透明穿透/位置存档）+ Windows 分层窗口（P2-W）；领养状态机与确定性候选生成、行为状态机（睡眠/走动/气泡/锁屏暂停）；Web 控制台（loopback Server + Svelte，领养/设置/两阶段重置全流程）+ GPUI↔Web 双入口并发演练自动化（`GESSO_PET_GPUI_DRILL` + `tools/pet-verify/web-drill.py` 24 断言，另有 `web-e2e.py` 20 断言契约回归）。
+- **桌面宠物（feat/desktop-pet）**：macOS AppKit 宠物窗口（拖动/戳/摸/注视/透明穿透/位置存档）+ Windows 分层窗口（P2-W）；领养状态机与确定性候选生成、行为状态机（睡眠/走动/气泡/锁屏暂停）；Web 控制台（loopback Server + Svelte，领养/设置/两阶段重置/模拟事件全流程）+ GPUI↔Web 双入口并发演练自动化（`GESSO_PET_GPUI_DRILL` + `tools/pet-verify/web-drill.py` 24 断言，另有 `web-e2e.py` 20 断言契约回归）。
 
 ### Changed
 

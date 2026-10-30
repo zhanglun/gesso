@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use gesso_core::{AdoptionState, PetActivity, PetBehaviorState, PetSave, PetSize};
+use gesso_core::{AdoptionState, PetActivity, PetBehaviorState, PetNotice, PetSave, PetSize};
 use serde_json::json;
 
 use crate::pet_template::FrameKind;
@@ -65,6 +65,8 @@ pub enum WebOp {
     ResetConfirm,
     /// 取消重置，回到 Adopted。
     ResetCancel,
+    /// 模拟事件：触发一次宠物通知气泡（pet.notify）。
+    SimulateNotice(PetNotice),
 }
 
 /// 写操作簿记：request_id → operation_id 去重，operation_id → 已执行标记。
@@ -134,6 +136,15 @@ fn parse_op(value: &serde_json::Value) -> Option<WebOp> {
         "pet.reset.request" => Some(WebOp::ResetRequest),
         "pet.reset.confirm" => Some(WebOp::ResetConfirm),
         "pet.reset.cancel" => Some(WebOp::ResetCancel),
+        "pet.notify" => {
+            let kind = match value.get("kind")?.as_str()? {
+                "new" => PetNotice::NewResult,
+                "attention" => PetNotice::NeedsAttention,
+                "warning" => PetNotice::Warning,
+                _ => return None,
+            };
+            Some(WebOp::SimulateNotice(kind))
+        }
         _ => None,
     }
 }
@@ -1083,6 +1094,16 @@ mod tests {
             parse_op(&json!({"op": "pet.reset.cancel"})),
             Some(WebOp::ResetCancel)
         );
+        assert_eq!(
+            parse_op(&json!({"op": "pet.notify", "kind": "new"})),
+            Some(WebOp::SimulateNotice(PetNotice::NewResult))
+        );
+        assert_eq!(
+            parse_op(&json!({"op": "pet.notify", "kind": "attention"})),
+            Some(WebOp::SimulateNotice(PetNotice::NeedsAttention))
+        );
+        assert_eq!(parse_op(&json!({"op": "pet.notify", "kind": "bogus"})), None);
+        assert_eq!(parse_op(&json!({"op": "pet.notify"})), None);
     }
 
     #[test]

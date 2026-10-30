@@ -161,6 +161,21 @@ def main():
     status, _ = op({"op": "pet.set_size", "size": "huge"}, snap["adoption_revision"])
     check("非法档位 400", status == 400, str(status))
 
+    # ── 模拟事件（一次性动作；快照无可见变化，断言 202→operation applied）──
+    s1, b1 = op({"op": "pet.notify", "kind": "attention"}, snap["adoption_revision"])
+    check("模拟事件 202", s1 == 202, str(s1))
+    notify_op_id = json.loads(b1).get("operation_id")
+    applied = False
+    for _ in range(10):
+        _, bb = req("GET", f"/api/operations/{notify_op_id}")
+        if json.loads(bb).get("status") == "applied":
+            applied = True
+            break
+        time.sleep(0.3)
+    check("模拟事件已执行", applied)
+    status, _ = op({"op": "pet.notify", "kind": "bogus"}, snap["adoption_revision"])
+    check("非法 kind 400", status == 400, str(status))
+
     # ── 两阶段重置 ──────────────────────────────────────────
     status, _ = op({"op": "pet.reset.confirm"}, snap["adoption_revision"])
     check("未请求就 confirm 409", status == 409, str(status))

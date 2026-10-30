@@ -1665,6 +1665,12 @@ fn main() {
                                         gesso_core::AdoptionEvent::CancelReset,
                                     )
                                 }
+                                // 模拟事件：与宠物右键菜单/GESSO_PET_NOTICE 同一引擎通道
+                                crate::web_control::WebOp::SimulateNotice(kind) => {
+                                    engine::EngineAction::PetBehavior(
+                                        gesso_core::PetBehaviorEvent::Notify(kind),
+                                    )
+                                }
                             };
                             engine::enqueue(action);
                         }

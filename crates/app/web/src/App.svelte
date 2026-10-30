@@ -25,6 +25,8 @@
   const sizeOptions = ['small', 'medium', 'large'];
   /** @type {Array<'quiet'|'normal'|'lively'>} */
   const activityOptions = ['quiet', 'normal', 'lively'];
+  /** @type {Array<[string, string]>} 模拟事件：一次性动作，无持久选中态 */
+  const noticeOptions = [['new', '新结果'], ['attention', '需要关注'], ['warning', '警告']];
 
   const nav = [
     ['overview', '概览'],
@@ -84,7 +86,7 @@
   let opBusy = false;
   let opError = '';
 
-  /** @param {'adoption.start'|'adoption.reroll'|'adoption.select'|'adoption.confirm'|'adoption.back'|'pet.set_visible'|'pet.set_size'|'pet.set_activity'|'pet.reset.request'|'pet.reset.confirm'|'pet.reset.cancel'} op */
+  /** @param {'adoption.start'|'adoption.reroll'|'adoption.select'|'adoption.confirm'|'adoption.back'|'pet.set_visible'|'pet.set_size'|'pet.set_activity'|'pet.notify'|'pet.reset.request'|'pet.reset.confirm'|'pet.reset.cancel'} op */
   async function runOp(op, payload = {}) {
     if (!snapshot || opBusy) return;
     opBusy = true;
@@ -166,7 +168,7 @@
     {:else if active === 'lab'}
       <section class="lab-layout"><div class="lab-preview" class:bg-light={labBg === 'light'} class:bg-checker={labBg === 'checker'}><span class="eyebrow">PREVIEW CANVAS</span>{#if pet}<img class="lab-pet-image" src={previewUrl(displayState)} alt={`${displayState} preview`} />{:else}<span class="muted">领养宠物后可预览动作</span>{/if}</div><div class="lab-controls"><span class="eyebrow">PET LAB</span><h2>宠物实验室</h2><p>预览不会改变桌面宠物的真实状态。</p><div class="control-group"><span class="control-label">动作</span><div class="segmented">{#each previewStates as state}<button class:chosen={previewState === state} onclick={() => (previewState = state)}>{state}</button>{/each}</div></div><div class="control-group"><span class="control-label">自动播放</span><div class="segmented"><button class:chosen={autoplay} disabled={autoDisabled} onclick={() => (autoplay = !autoplay)}>{autoplay ? '开' : '关'}</button></div>{#if autoDisabled}<span class="muted">系统已开启减少动态，保持静态预览</span>{/if}</div><div class="control-group"><span class="control-label">背景</span><div class="segmented">{#each labBackgrounds as [id, label]}<button class:chosen={labBg === id} onclick={() => (labBg = id)}>{label}</button>{/each}</div></div><div class="lab-row"><span class="tag">{pet?.behavior ?? 'idle'}</span><span class="muted">MVP preview</span></div></div></section>
     {:else}
-      <section class="page-card"><span class="eyebrow">SETTINGS</span><h2>宠物设置</h2><p>档位即改即存，与桌面窗口同一真源。</p><div class="setting-list"><div class="setting-row"><span>显示宠物</span><button class="secondary" disabled={opBusy || !pet} onclick={() => pet && runOp('pet.set_visible', { visible: !pet.visible })}>{pet?.visible ? '显示中' : '已隐藏'}</button></div><div class="setting-row"><span>尺寸</span><div class="segmented">{#each sizeOptions as option}<button class:chosen={pet?.size === option} disabled={opBusy || !pet} onclick={() => runOp('pet.set_size', { size: option })}>{option}</button>{/each}</div></div><div class="setting-row"><span>活跃度</span><div class="segmented">{#each activityOptions as option}<button class:chosen={pet?.activity === option} disabled={opBusy || !pet} onclick={() => runOp('pet.set_activity', { activity: option })}>{option}</button>{/each}</div></div><div class="setting-row"><span>连接状态</span><strong>{status === 'connected' ? '正常' : '等待连接'}</strong></div></div>
+      <section class="page-card"><span class="eyebrow">SETTINGS</span><h2>宠物设置</h2><p>档位即改即存，与桌面窗口同一真源。</p><div class="setting-list"><div class="setting-row"><span>显示宠物</span><button class="secondary" disabled={opBusy || !pet} onclick={() => pet && runOp('pet.set_visible', { visible: !pet.visible })}>{pet?.visible ? '显示中' : '已隐藏'}</button></div><div class="setting-row"><span>尺寸</span><div class="segmented">{#each sizeOptions as option}<button class:chosen={pet?.size === option} disabled={opBusy || !pet} onclick={() => runOp('pet.set_size', { size: option })}>{option}</button>{/each}</div></div><div class="setting-row"><span>活跃度</span><div class="segmented">{#each activityOptions as option}<button class:chosen={pet?.activity === option} disabled={opBusy || !pet} onclick={() => runOp('pet.set_activity', { activity: option })}>{option}</button>{/each}</div></div><div class="setting-row"><span>模拟事件</span><div class="segmented">{#each noticeOptions as [kind, label]}<button disabled={opBusy || !pet} onclick={() => runOp('pet.notify', { kind })}>{label}</button>{/each}</div></div><div class="setting-row"><span>连接状态</span><strong>{status === 'connected' ? '正常' : '等待连接'}</strong></div></div>
         {#if adoption.status === 'reset_confirm'}
           <div class="danger-zone" role="alert"><strong>重置待确认</strong><p>宠物数据将被清除且不可恢复：个体、外观与互动统计全部清零。</p><div class="foot-buttons"><button class="danger" disabled={opBusy} onclick={() => runOp('pet.reset.confirm')}>确认重置（不可恢复）</button><button class="secondary" disabled={opBusy} onclick={() => runOp('pet.reset.cancel')}>取消</button></div></div>
         {:else if pet}
