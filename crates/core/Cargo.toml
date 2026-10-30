@@ -9,5 +9,5 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-# 随机不可猜条目 ID（安全模型 §7：wallpaper:// 路径白名单依赖不可猜测性）
+# 随机不可猜条目 ID（安全模型：gesso://library/<id>/ 路由依赖不可猜测性）
 getrandom = "0.3"

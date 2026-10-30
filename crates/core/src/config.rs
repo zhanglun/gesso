@@ -1,12 +1,12 @@
-//! 应用配置：显示器→壁纸映射 + 全局设置（技术方案 §10）。
+//! 应用配置：显示器→壁纸映射与全局设置。
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Result, WallpaperKind};
+use crate::{Fit, Result, WallpaperKind};
 
-/// 显示器→库条目映射；key 为 EDID 哈希稳定 ID（§4.3）。
+/// 显示器→库条目映射；key 为平台生成的显示器身份。
 pub type MonitorMap = BTreeMap<String, String>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -26,10 +26,6 @@ pub struct Settings {
     pub language: Language,
     /// 自动检查更新（启动后与每 24h 静默检查 GitHub Releases；手动检查不受此开关约束）。
     pub update_check: bool,
-    /// 桌面桥接：在屏期间把系统桌面壁纸设为当前壁纸的静态帧，显示器重配的
-    /// 抑制窗口露出它（无缝过渡）；退出/取消指派恢复用户原壁纸。关闭则完全不
-    /// 接管系统桌面（重配期显示系统原壁纸）。
-    pub desktop_bridge: bool,
 }
 
 impl Default for Settings {
@@ -43,7 +39,6 @@ impl Default for Settings {
             startup_behavior: StartupBehavior::RestoreLast,
             language: Language::Auto,
             update_check: true,
-            desktop_bridge: true,
         }
     }
 }
@@ -81,6 +76,9 @@ pub struct AppConfig {
     pub monitors: MonitorMap,
     /// 显示器稳定 ID → 帧率上限（缺省用 settings.fps_cap_default）。
     pub monitor_fps: MonitorFpsMap,
+    /// 显示器稳定 ID → 填充模式（缺省 Cover=裁切铺满；§4.4 填充下拉，
+    /// 2026-10-12：视频/图片类可调，shader/html 由内容作者控制语义）。
+    pub monitor_fit: MonitorFitMap,
     pub settings: Settings,
     /// 首启初始化已完成（§4.6）：内置样例一次性指派的触发标志，真首启的唯一
     /// 判定。不放进 [`Settings`]——设置页「重置全部设置」与 UpdateSettings 均
@@ -89,6 +87,9 @@ pub struct AppConfig {
 }
 
 pub type MonitorFpsMap = BTreeMap<String, u8>;
+
+/// 显示器稳定 ID → 填充模式（spec::Fit 三态序列化为 cover/contain/fill）。
+pub type MonitorFitMap = BTreeMap<String, Fit>;
 
 /// 配置热更新 diff：会话管理器据此只重建受影响的壁纸窗口（§10）。
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -189,11 +190,25 @@ mod tests {
     fn config_roundtrip() {
         let mut cfg = AppConfig::default();
         cfg.monitors.insert("edid-aaa".into(), "entry-1".into());
+        cfg.monitor_fit.insert("edid-aaa".into(), Fit::Contain);
         let dir = std::env::temp_dir().join(format!("gesso-test-{}", std::process::id()));
         let p = dir.join("config.json");
         cfg.save(&p).unwrap();
         let back = AppConfig::load(&p).unwrap();
         assert_eq!(cfg, back);
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn legacy_config_without_monitor_fit_loads_default() {
+        // 升级路径：0.1.1 及更早的 config.json 无 monitor_fit 键 → 空表 +
+        // 解析侧回退 Cover（裁切铺满 = 业界默认，2026-10-12 填充下拉）
+        let dir = std::env::temp_dir().join(format!("gesso-fit-legacy-{}", std::process::id()));
+        let p = dir.join("config.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&p, r#"{"monitors":{},"monitor_fps":{},"settings":{}}"#).unwrap();
+        let cfg = AppConfig::load(&p).unwrap();
+        assert!(cfg.monitor_fit.is_empty());
         std::fs::remove_file(&p).ok();
     }
 

@@ -168,6 +168,11 @@ pub enum EngineAction {
     Remove { entry_id: String },
     /// 单显示器帧率上限（SessionManager::set_fps，§4.4）。
     SetMonitorFps { monitor_id: String, fps: u8 },
+    /// 单显示器填充模式（SessionManager::set_fit，§4.4 填充下拉，2026-10-12）。
+    SetMonitorFit {
+        monitor_id: String,
+        fit: gesso_core::Fit,
+    },
     /// 检查应用更新（§4.7；update 模块后台线程执行，open_modal = 兑现时开小窗）。
     UpdateCheck { open_modal: bool },
     /// 下载可用更新的安装包（仅 Available 态受理；进度经状态代数回灌）。
@@ -202,8 +207,8 @@ pub enum EngineAction {
     ResetPetData,
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
-    /// 托盘「恢复系统壁纸」：桌面桥接全量恢复（逃生门——怀疑接管残留时用；
-    /// 之后重新指派壁纸会按设置再次接管）。
+    /// 托盘「恢复系统壁纸」：清全部指派 + 拆全部壁纸窗——运行时不接管
+    /// 系统桌面，桌面即回到用户自己的壁纸；重新指派即可再上壁纸。
     RestoreSystemWallpaper,
     /// 后台抽帧任务完成（thumb 调度 → 引擎：释放在途标记 + 触发快照回灌）。
     ThumbsDone { dir: String },

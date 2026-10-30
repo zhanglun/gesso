@@ -11,3 +11,6 @@
 
 # UI 审查工具产物
 /.impeccable/
+
+# 官网设计工作目录（taste-skill 检查产物与诊断脚本）
+/.taste-skill/

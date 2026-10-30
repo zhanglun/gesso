@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        提交前请先扫一眼 [docs/FAQ.md](../docs/FAQ.md)（截图权限、HEVC/mkv 拒绝等已知行为）与 [docs/ROADMAP.md](../docs/ROADMAP.md) 的 Known gaps。
+        提交前请先扫一眼 [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md) 的排查速查表（截图权限、视频诊断等已知行为）与 [docs/ROADMAP.md](../../docs/ROADMAP.md) 的已知缺口。
   - type: input
     id: version
     attributes:

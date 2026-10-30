@@ -1,6 +1,6 @@
 //! 平台贴壁层：创建并管理"钉在桌面图标层之下"的壁纸窗口。
 //!
-//! M1.5 定稿架构（SPIKE-REPORT）：壁纸窗口是**本模块自有的原生窗口**
+//! 定稿架构（可行性 spike 结论见 docs/archive/SPIKE-REPORT.md）：壁纸窗口是**本模块自有的原生窗口**
 //! （macOS: 纯 AppKit NSWindow；Windows: 自有 Win32 窗口 + WorkerW 挂载，见 windows.rs），
 //! **不经 GPUI 窗口管理**——GPUI 协调器与桌面级全屏几何必然冲突。
 //! webview 由 wry 直挂窗口 contentView。
@@ -16,8 +16,9 @@ pub type MonitorFrame = (f64, f64, f64, f64);
 /// 显示器信息（枚举产物，稳定 ID 是配置映射的 key）。
 #[derive(Debug, Clone)]
 pub struct MonitorInfo {
-    /// 稳定 ID：macOS v1 用 CGDirectDisplayID（`cg-<id>`）、Windows v1 用设备名
-    /// （`win-<DISPLAYn>`）；升级路径：EDID 哈希（技术方案 §4.3）
+    /// 稳定 ID：macOS 优先使用 EDID vendor/model/serial，缺失时回落
+    /// `cg-<id>` 并在同身份多屏时追加 CG ID；Windows 优先使用显示器 PnP ID，
+    /// 缺失时回落 `win-<DISPLAYn>`。唤醒/重连后由几何平移承接既有指派。
     pub id: String,
     #[allow(dead_code)] // 展示名：平台枚举填充；UI 投影用自己的命名规则（主屏/屏N）
     pub name: String,
@@ -34,7 +35,7 @@ pub struct MonitorInfo {
 pub trait WallpaperWindow {
     /// 加载宿主页 URL（gesso://host/index.html?spec=...）。
     fn load(&mut self, url: &str);
-    /// JS 层暂停/恢复（技术方案 §5.3：暂停 = 停 RAF/video.pause，窗口常驻）。
+    /// JS 层暂停/恢复：停止 RAF 或视频解码，窗口保持驻留。
     fn set_paused(&mut self, paused: bool);
     /// 隐藏/显示整个壁纸窗口（露出系统桌面 = 回退静态壁纸语义）。
     fn set_visible(&mut self, visible: bool);
@@ -56,9 +57,14 @@ pub trait WallpaperWindow {
         None
     }
 
+    /// 单显示器填充模式活切换（§4.4 填充下拉，2026-10-12）：仅视频原生窗
+    /// 实现（macOS = AVLayerVideoGravity；Windows = 渲染线程原子量）；
+    /// webview 内容由会话层热重载宿主页，不走这里（默认 no-op）。
+    fn set_fit(&mut self, _fit: gesso_core::Fit) {}
+
     /// 当前 URL（诊断用：判断导航是否被 WKWebView 拒绝）
     fn current_url(&self) -> String;
-    /// 透传 JS（M5 数据桥通道：时间 tick / 降帧 setFps；暂停仍走 set_paused）。
+    /// 透传 JS（数据桥通道：时间 tick / 降帧 setFps；暂停仍走 set_paused）。
     fn evaluate(&mut self, _js: &str) {}
 
     /// 带回调的 JS 求值（诊断探针用；默认 no-op，平台按需实现）。
@@ -102,10 +108,12 @@ pub fn topology_epoch() -> u64 {
     0
 }
 
-/// 平台分派（Linux 按非目标返回 Unsupported）。
+/// 平台分派（Linux 按非目标返回 Unsupported）。`fit` 仅视频原生窗消费
+/// （创建即定初始 gravity/缩放语义）；webview 内容经 spec.fit 由宿主页消费。
 pub fn create_wallpaper_window(
     monitor: &MonitorInfo,
     entry: &gesso_core::LibraryEntry,
+    fit: gesso_core::Fit,
 ) -> gesso_core::Result<Box<dyn WallpaperWindow>> {
     // macOS 视频：原生 AVPlayer 窗（webview 远端层树对视频上屏节奏不均，
     // 60fps 实测 rVFC 53~56/s 波动 = 卡顿；原生管线有显示锁相）。其余照旧 webview。
@@ -122,7 +130,7 @@ pub fn create_wallpaper_window(
                 format!("file://{}", path.display())
             }
         };
-        return macos::create_video_window(monitor, &url)
+        return macos::create_video_window(monitor, &url, fit)
             .map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
     }
     #[cfg(target_os = "macos")]
@@ -135,17 +143,17 @@ pub fn create_wallpaper_window(
         // 读），不与回环 HTTP 服务耦合——精简系统/服务失败零依赖（win15 实测）。
         let rel = crate::encoding::entry_main_source(entry);
         let path = std::path::Path::new(&entry.source_dir).join(&rel);
-        return windows::create_video_window(monitor, path.to_string_lossy().as_ref())
+        return windows::create_video_window(monitor, path.to_string_lossy().as_ref(), fit)
             .map(|w| Box::new(w) as Box<dyn WallpaperWindow>);
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = entry;
+        let _ = (entry, fit);
         windows::create(monitor).map(|w| Box::new(w) as Box<dyn WallpaperWindow>)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (monitor, entry);
+        let _ = (monitor, entry, fit);
         Err(gesso_core::GessoError::UnsupportedPlatform(
             "不支持的平台".into(),
         ))

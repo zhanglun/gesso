@@ -15,7 +15,7 @@ cargo run -p gesso-app                        # tray + manager window + wallpape
 
 ## Read these first (they exist to prevent rework)
 
-1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** — 5 architecture rules + 15 verified pitfalls. The rules are binding; the pitfall table exists because each entry cost us a debugging session.
+1. **[docs/ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md)** — architecture rules, platform discipline and high-risk debugging paths.
 2. **[crates/app/API.md](crates/app/API.md)** — the only interface UI code may use to talk to the engine.
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — what lives where and why.
 4. **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** — local dev & debugging guide (logging, diagnostics, troubleshooting table).
@@ -30,8 +30,8 @@ The two rules that have caused the most rework historically:
 ```
 crates/core    pure domain logic: ContentSpec, config, library, state machine (unit-tested, no platform deps)
 crates/app     the application:
-  ├─ pin/        platform wallpaper windows (macOS: AppKit; Windows: planned)
-  ├─ protocol.rs asset paths & the gesso:// scheme (currently file:// self-contained entries)
+  ├─ pin/        platform wallpaper windows (macOS: AppKit; Windows: Win32 + WorkerW)
+  ├─ protocol.rs asset paths, gesso:// routes, CSP and media HTTP service
   ├─ session.rs  SessionManager — the single orchestrator
   ├─ engine.rs   AppState global + EngineAction queue
   └─ ui/         manager window (gpui-kit): library / monitors / settings (+ URL-import dialog)
@@ -54,7 +54,7 @@ The UI's visual contract is a frozen interaction spec + prototype (tokens, six-s
 
 ## Reporting bugs
 
-Use the issue templates. Performance reports should include the wallpaper type, resolution and Activity Monitor / Task Manager numbers for the GPU and window-server processes. If `screencapture` can't see the wallpaper window, check Screen Recording permission for your terminal first (see FAQ).
+Use the issue templates. Performance reports should include the wallpaper type, resolution and Activity Monitor / Task Manager numbers for the GPU and window-server processes. If `screencapture` can't see the wallpaper window, check Screen Recording permission for your terminal first (see [DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 
 ## Security
 

@@ -1,7 +1,7 @@
 # 本地开发与调试指南
 
 > 面向：要在本机构建、运行、调试 Gesso 的开发者。
-> 配套阅读：[ARCHITECTURE.md](ARCHITECTURE.md)（架构）· [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md)（架构规则与踩坑）· [../design/技术方案.md](design/技术方案.md)（完整工程方案）· [../crates/app/API.md](../crates/app/API.md)（引擎接口）
+> 配套阅读：[ARCHITECTURE.md](ARCHITECTURE.md)（当前架构）· [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md)（工程规则与平台纪律）· [../design/技术方案.md](design/技术方案.md)（中文实现细节）· [../crates/app/API.md](../crates/app/API.md)（引擎接口）
 
 ---
 
@@ -26,8 +26,8 @@
 cargo build -p gesso-app                  # 构建
 cargo run   -p gesso-app                  # 运行（托盘 + 管理窗口 + 壁纸）
 cargo test  -p gesso-core -p gesso-app    # 单测（core + app 全量）
-cargo clippy -p gesso-core --all-targets -- -D warnings
-cargo fmt -p gesso-core
+cargo clippy -p gesso-core -p gesso-app --all-targets -- -D warnings
+cargo fmt --all
 pkill -f "target/debug/gesso"             # 退出（有单实例锁）
 ```
 
@@ -47,16 +47,23 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 
 > ⚠️ 多实例会叠多个壁纸窗口与托盘，验证完记得 `pkill -f "target/debug/gesso"`。
 
+**调试钩子**（仅 debug 构建存在，release 零开销）：
+
+```bash
+GESSO_QUIT_AFTER_SECS=10 ./target/debug/gesso    # N 秒后走托盘同款优雅退出（拆会话 → 按平台清理窗口/桌面壳层 → 退进程）
+GESSO_RESTORE_AFTER_SECS=10 ./target/debug/gesso # N 秒后模拟托盘「恢复系统壁纸」（释放全部指派，进程存活）
+```
+
 ## 3. 调试手册
 
 ### 3.1 壁纸窗口"看不见/不渲染"
 
-按顺序排除（每一步都有实测先例，详见 ENGINEERING-NOTES §2）：
+按顺序排除（详见 ENGINEERING-NOTES §3）：
 
-1. **截图权限**：系统设置 → 隐私与安全性 → 屏幕录制 → 给终端授权。未授权时 `screencapture` 只拍到桌面壁纸，像素判读全部失真（本项目踩过的最大的坑）。
+1. **截图权限**（macOS）：系统设置 → 隐私与安全性 → 屏幕录制 → 给终端授权。未授权时 `screencapture` 只拍到桌面壁纸，像素判读全部失真（本项目踩过的最大的坑）。Windows 无对应权限门槛，实机截图直接可用（`PrintWindow` 对 flip 呈现的视频窗可能拿到黑帧，勿单凭它下结论）。
 2. **验证窗口存在**：`osascript -e 'tell application "System Events" to tell process "gesso" to get {position, size, name} of every window'`
 3. **别用裁剪截图测像素**——窗口可能不在你以为的位置（曾因此误判三轮）。要么用 `screencapture -R x,y,w,h` 精确到窗口区域，要么直接看屏幕。
-4. **区分“加载失败”与“播放失败”**：看 `[session]` / `[protocol]` 日志与 `GESSO_VIDEO_DIAG=1` 帧率探针。宿主页调试底色已于 0.1.1 移除（它正是 F11 绿屏的根因，教训见工程笔记 §2，勿再引入）。
+4. **区分“加载失败”与“播放失败”**：看 `[session]` / `[protocol]` 日志。视频条目先检查平台原生视频窗：macOS 是 `MacVideoWindow`/AVPlayerLayer，Windows 是 `WinVideoWindow`/Media Foundation + DXGI；shader/html/image 才检查宿主页 WebView。宿主页调试底色已移除，勿再引入。（`GESSO_VIDEO_DIAG=1` 帧率探针对原生视频窗当前无输出，待接原生统计后再用。）
 5. **运动判据**：间隔 1.5s 截两帧比 sha256——相同=静止（视频没播），不同=在播。注意测试图源（testsrc2）本身大部分区域是暗色，均值接近系统壁纸，**别用均值下结论**。
 
 ### 3.2 壁纸窗口挂载诊断（DIAG）
@@ -67,19 +74,19 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 
 ### 3.3 探针页技巧
 
-怀疑"页面没加载"还是"加载了没渲染"时，写一个 `/tmp/probe.html`（纯色 + 大字 + 秒级变色脚本），`window.load("file:///tmp/probe.html")` 后截图：
-- 看到颜色 → 渲染管线正常，问题在内容/URL；
-- 看到桌面壁纸 → webview 没挂上或没绘制（按 §2 排查表走）。
+怀疑“页面没加载”还是“加载了没渲染”时，用当前宿主页或一个临时本地条目复现，不要绕过 Gesso 协议直接加载临时页面。通过 `evaluate_script` 写入标题或日志标记后截图：
+- 看到标记 → 渲染管线正常，问题在内容/URL；
+- 看到桌面壁纸 → webview 没挂上或没绘制（按本节排查表走）。
 
 ### 3.4 托盘与菜单
 
 - 托盘左键（无菜单时）与右键菜单项都会进 `EngineAction` 队列；菜单文案**不能**在轮询里动态修改（muda handler 要求 `Send`）——需要动态文案时改用「动作 → 快照回灌」模式。
-- `PredefinedMenuItem::quit` 在 GPUI 循环下不可靠；退出**只走** `engine::enqueue(EngineAction::Quit)`——引擎线程先拆全部壁纸会话、还原桌面再退出（`cx.quit()` / `process::exit` 会跳过窗口销毁，桌面留黑底）。
+- `PredefinedMenuItem::quit` 在 GPUI 循环下不可靠；退出**只走** `engine::enqueue(EngineAction::Quit)`——引擎线程先拆全部 Gesso 壁纸会话再退出。Windows 额外触发桌面重绘；macOS 运行时不执行系统桌面壁纸恢复，因为 Gesso 从未在运行中修改它。
 
 ### 3.5 宿主页调试
 
 宿主页没有 devtools 入口（v1），调试手段：
-- ~~页面状态写进背景色~~（诊断色已于 0.1.1 移除——F11 绿屏根因，勿再引入）；
+- ~~页面状态写进背景色~~（诊断色已移除——F11 绿屏根因，勿再引入）；
 - `evaluate_script` 从 Rust 侧注入探针：`wv.evaluate_script("document.title = JSON.stringify(window.__gesso_state)")` 后读窗口标题；
 - 视频/媒体问题先查 MIME（`protocol.rs::mime_of`）与相对路径——webview 按扩展名判定类型。
 
@@ -88,8 +95,9 @@ GESSO_LOCK=dev ./target/debug/gesso       # 用独立锁名起一个开发实例
 | 症状 | 根因 | 处置 |
 |------|------|------|
 | 桌面纯白 | 宿主页加载失败（协议/URL 非法） | 看 `[protocol]` 日志；资源经 gesso:// 路由，路径由 handler 内部解析 |
-| 桌面显示系统壁纸（静止） | webview 未挂载 / 页面透明 | `[diag]` 看 subview 数量与 frame；查创建顺序（§4.1 顺序陷阱） |
-| 壁纸不动（有画面） | 自动播放被策略拦截 / 视频解码失败 | 确认 `with_autoplay(true)`；看宿主页诊断色 |
+| 桌面显示系统壁纸（静止） | webview 未挂载 / 页面透明 | `[diag]` 看 subview 数量与 frame；Windows 查 WorkerW 挂载后再创建 WebView2 |
+| 桌面纯黑（连壁纸也没有）且日志全绿 | Windows 原生视频窗 D3D 静默失败（拓扑 / 顶点缓冲 / 常量绑定三要素，见 ENGINEERING-NOTES「Windows 原生视频窗」），或退出后的 DWM 合成残尸 | 唯一取证手段是实机截图；残尸用托盘退出（触发壁纸重设）或重设壁纸唤醒 |
+| 视频壁纸不动（有画面） | 原生视频窗未创建 / 媒体服务或解码失败 | macOS 查 `MacVideoWindow`/AVPlayerLayer，Windows 查 `WinVideoWindow`/MF/DXGI；再看 `[session]` 与媒体服务日志 |
 | 图标点不动 | 穿透标志丢失 | 查 `setIgnoresMouseEvents(true)` 是否生效 |
 | 顶部菜单栏带露馅 | 窗口几何未按全屏 frame（含菜单栏带）施加 | 看 `[diag]` 行 frame；托盘「重新检测显示器」（走 epoch 收敛） |
 | explorer/ Finder 重启后壁纸消失 | 重钉逻辑未触发 | 查 `TaskbarCreated`（Win）/ 空间通知（mac）监听 |
@@ -107,7 +115,7 @@ cargo build --release -p gesso-app
 
 | 文档 | 内容 |
 |------|------|
-| [design/技术方案.md](design/技术方案.md) | **完整工程方案**（14 章：选型/架构/贴壁/渲染/数据桥/安全/WE 兼容/节奏/风险） |
+| [design/技术方案.md](design/技术方案.md) | 当前实现细节（中文） |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 架构提炼（英文） |
 | [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | 架构规则 + 踩坑实录（**改代码前必读**） |
 | [../crates/app/API.md](../crates/app/API.md) | UI 层唯一允许调用的引擎接口 |

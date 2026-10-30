@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes how Gesso actually works. Everything below was verified on macOS; items marked *planned* are not implemented yet.
+This document describes the current Gesso implementation. Future work belongs in [ROADMAP.md](ROADMAP.md).
 
 ## 1. Layers
 
@@ -16,7 +16,7 @@ This document describes how Gesso actually works. Everything below was verified 
 ├─ platform layer (pin/) ──────────────────────────────────┤
 │  macOS: AppKit NSWindow    Windows: Win32 + WorkerW        │
 └─ content rendering ──────────────────────────────────────┘
-   wallpaper window + wry webview (host page, sandboxed)
+   wallpaper window — wry webview host page for non-video; native rendering for video
 ```
 
 - `gesso-core` is **pure domain logic** (ContentSpec, config diffing, library manifest, state machine) — no platform or UI dependencies, fully unit-tested.
@@ -39,46 +39,33 @@ On macOS the wallpaper window is a plain `NSWindow` created with:
 
 The webview (`lb-wry`, the gpui-kit ecosystem fork of wry) is attached as a child of the window's content view and sized by us (no layout system involved).
 
-**Video wallpapers on macOS do not use the webview at all.** `pin::MacVideoWindow` mounts an `AVQueuePlayer` + `AVPlayerLooper` + `AVPlayerLayer` (aspect-fill) directly on the content view and streams via the loopback media server (RAM-cached — see §3). Reason (measured 2026-10-10): WKWebView ships video frames through its remote layer tree with no display phase-lock; a 60 fps clip presented at a wavering 53–56 fps while the page ticked at a steady 60 Hz — visible judder no transport/compositor fix could cure. Windows measured the same disease (2026-10-11; full evidence in ENGINEERING-NOTES §2): every build, transport and content size stuttered under WebView2 while local players and Edge played the same files smoothly — the presentation handoff itself, unfixable in-page. The fix mirrors macOS: `pin::WinVideoWindow` presents through a flip-model DXGI swap chain on the WorkerW child window — MF SourceReader decodes RGB32 at native size (scaling done by DWM), a dedicated thread paces by PTS and presents vsync-locked, and looping rebuilds the reader each lap. Video comes straight from the local file; the webview handles shader/html/image only, on BOTH platforms now. The video window is deliberately overscanned 2pt past the screen on every side (`video_pin_frame`): aspect-fill at non-integer scale leaves a ~2-device-px bilinear edge band on `AVPlayerLayer` that no API disables, and the now-opaque black window background makes any edge gap visible.
+**Video wallpapers use native rendering on both platforms.** `pin::MacVideoWindow` uses `AVQueuePlayer`, `AVPlayerLooper`, and `AVPlayerLayer`; `pin::WinVideoWindow` uses Media Foundation and a flip-model DXGI swap chain. Shader, HTML, and image wallpapers use the webview. macOS video windows overscan the monitor frame by 2 pt to hide AVPlayer sampling seams at aspect-fill boundaries; Windows renders at the exact monitor frame.
 
-**Why not GPUI windows?** GPUI's window coordinator resets desktop-level full-screen geometry (it pushed `origin.y` to `-menuBarHeight` on every notification cycle), and its layout insets content by safe areas. Fighting it from outside loses — verified by a dedicated spike (`SPIKE-REPORT.md`, M1.5). Windows mirrors this (M1, real-machine verified): our own Win32 window (`WS_POPUP`, toolwindow/no-activate, click-through via `WM_NCHITTEST → HTTRANSPARENT`) + WebView2 child, `SetParent` onto the spawned `WorkerW` (Progman `0x052C` ladder, Progman fallback when desktop icons are hidden, HWND_BOTTOM until explorer is ready). **Creation order is load-bearing: mount first, create the WebView2 second** — the DComp visual tree binds to the host hierarchy at controller creation, and the reverse order renders nothing (window tree looks healthy; verified by detaching the window mid-run, which instantly restores rendering). Explorer restarts destroy cross-process children, so `TaskbarCreated` (received by a hidden listener window) triggers a full window rebuild per session, not a re-parent. The process declares `PerMonitorV2` itself in `main()` (neither GPUI nor wry sets it) — physical pixels all the way.
+**Why not GPUI windows?** Its coordinator and safe-area layout do not preserve desktop-level geometry. On Windows, Gesso uses a Win32 popup mounted below icons on WorkerW. Mount before creating WebView2; Explorer restarts require a full window rebuild. The process declares PerMonitorV2 DPI awareness before any window is created. The wallpaper WorkerW is reused when present — the Progman `0x052C` spawn fires only when none is found (respawning stacks orphan WorkerWs and reshuffles the desktop tree). Quit and panic teardown invalidate the shell windows and then re-apply the user's wallpaper file via `SPI_SETDESKWALLPAPER`: on some driver + DWM combos, removing a cross-process child from the wallpaper WorkerW leaves a stale composition (last frame or black) that invalidation alone cannot clear.
 
 GPUI owns the manager window and the tray. Both run in the same process/event loop; AppKit windows created by `pin/` coexist with the GPUI app (creation order matters: after `gpui_kit::init`, before GPUI windows — otherwise tray-icon init panics on `NSApplication`).
 
 The macOS desktop pet is a separate AppKit overlay managed by `crates/app/src/pet_window.rs`. It does not enter `SessionManager` or the wallpaper pin layer. Its current placeholder view overrides `hitTest:` so only the rounded body area receives mouse events; transparent window areas return `nil` and remain click-through. Clicks are classified in the window layer as `Poke` or a 300ms `Touch`, while movement beyond 6pt is handed to native window dragging; all writes enter the engine through `EngineAction` and statistics are persisted with throttling. The hit shape is temporary: production assets should provide alpha/outline hit testing, and behavior animation remains planned.
 
-**Display reconfiguration is event-driven convergence, not polling discovery.** During sleep/wake the OS reconfigures displays and WindowServer re-homes desktop-level windows it finds orphaned (clamp/move) and can reset pin invariants — none of which is detectable from our bookkeeping alone. Polling (the old 2 s rescan) both delays the correction until the wrong geometry is visible and risks sampling a half-configured display set. Instead:
+**Display reconfiguration is event-driven convergence, not polling discovery.** Platform callbacks only increment a topology epoch. The engine debounces the epoch, compares each session's applied frame with the enumerated monitors, hides stale windows, then reapplies geometry and pinning once the topology is stable. A short periodic patrol reasserts unchanged sessions as a recovery path for missed events or platform mutations.
 
-- Platform topology events (`CGDisplayReconfigurationCallback` on macOS, `WM_DISPLAYCHANGE` on the hidden listener window on Windows) bump a process-wide epoch counter (`pin::topology_epoch`). The callback does nothing but increment — WindowServer holds locks during delivery.
-- The 150 ms engine heartbeat consumes the epoch with a **1.5 s quiet-period debounce** (4 s max staleness under continuous bursts; display handshakes run 1–2 s — a shorter quiet sampled half-done states), then runs **one convergence pass** (`SessionManager::converge`): plan → suppress → mutate → show.
-  1. **Plan** (pure function `plan_converge`): diff each session's *applied belief* (`Session.applied_frame` — the geometry last pushed to the window) plus a frame read-back (`WallpaperWindow::actual_frame`, monitor-coordinate semantics; the video window un-applies its 2 pt overscan) against the enumerated monitor. The belief — not the recorded monitor frame — is the comparison base: records update on remap/bookkeeping, only window mutations update the belief.
-  2. **Suppress**: windows about to be torn down are hidden first; untouched ("keep") sessions never flicker. (In settling passes, geometry-stale reassert targets are already hidden by the instant sweep below.)
-  3. **Mutate**: teardown / `reassert_pinning` (level + collection behavior + frame, always all three — level resets are not reliably detectable, so invariants are re-asserted rather than detected) / build new windows (created hidden on macOS — geometry before visibility).
-  4. **Show**: converged sessions are revealed only after their geometry is applied.
-- **Two-phase commit across converges.** The debounce cannot guarantee the *first* post-event sample sees the final arrangement — display handshakes can outlast the quiet period, so even a debounced sample may be transitional (real-machine repro: lid-open showed a small corner window, lid-close an oversized frame — both transitional enumerations that two samples ~750 ms apart wrongly agreed on). Closing mechanisms:
-  - **Quiet period 1.5 s** (max staleness 4 s under continuous bursts) so the first sample is very likely final;
-  - **Instant stale sweep**: a 30 ms watcher fires on every topology event and immediately hides any window that is *out of sync with the current topology* — its display vanished, or the display is present but the enumerated frame differs from the applied belief (displays can switch modes at lid transitions: measured 2560×1440 → 1920×1080 — a stale full-size window reads as "zoomed wallpaper"). The desktop bridge covers the gap with the correct static frame;
-  - **Deferred reasserts**: in a settling pass whose enumeration differs from the previous sample, geometry corrections are *not* applied (the windows are already hidden by the sweep); new displays' windows are built hidden. Only when a pass samples the *same* enumeration as its predecessor (cross-sample stability) are deferred corrections applied as a **visible atomic setFrame** and hidden windows revealed. Transitional geometry is therefore never visible, by construction; screens whose geometry did not change keep playing uninterrupted. Boot and the tray's re-detect run in immediate mode; the ≈5 s deep patrol reveals immediately (stable context).
-- A slow patrol (≈5 s) runs the same convergence in **deep** mode, which additionally re-asserts pin invariants on unchanged sessions — the safety net for events lost while the process was suspended and for silent WindowServer mutations. The tray's 「重新检测显示器」 maps to the same convergence. Each convergence logs the enumeration signature only when it changed, so transitional arrangements (half-done sequences) are directly visible in the log.
-
-**Desktop bridge (`desktop_bridge.rs`): while a session owns a screen, the OS desktop picture for that screen is a static frame of its wallpaper.** The suppression windows above reveal whatever is behind our windows — the system desktop picture — so Gesso takes it over (verified by spike: lid transitions render the currently-set per-screen desktop image) and the gap becomes seamless. Ownership discipline: the ledger is keyed by **entry id** (stable across display-ID reshuffles; the bridge image path `bridge/<entry_id>.<ext>` doubles as the restore join key); acquire records the original only on first takeover and never overwrites (multi-screen same-entry and re-assigns included); release restores only screens whose desktop URL is still our bridge image (a wallpaper the user changed mid-run is never clobbered); restore failures keep their ledger records for the next-launch reconciliation — clearing an unrestored record is the lost-original path (E2E lesson). Restore combines content scanning with an in-process last-set binding, because `desktopImageURLForScreen` read-back lags a recent write by seconds. Known edges (documented, accepted): SIGKILL residue until next launch; per-screen original disambiguation is approximate on the crash path when several screens shared one entry; a rotating-wallpaper manager (e.g. pavo) invalidates recorded original files — the content check then simply skips restoration. macOS binds `NSWorkspace.setDesktopImageURL:forScreen:options:error:` (the synchronous variant — the only one in the SDK headers; `osascript System Events` wallpaper setting is broken on macOS 26). Windows symmetric follow-up: `IDesktopWallpaper`.
+**Transition frames (`desktop_bridge.rs`): runtime never changes the OS desktop picture.** Before hiding a geometry-stale macOS wallpaper window, Gesso may show a same-level transition window with a predecoded static frame. It is removed after the real wallpaper becomes visible. Startup performs one-time cleanup only if an older Gesso version left a bridge image as the system desktop. Image entries without an available decoded frame may briefly reveal the user's desktop.
 
 ## 3. Content pipeline
 
 ```
-LibraryEntry (library/<random-id>/index.<ext>)
+LibraryEntry
    → macOS video: pin::MacVideoWindow + AVPlayerLayer (loopback media stream, no host page)
    → Windows video: pin::WinVideoWindow + MF SourceReader → flip-model swapchain (local file, no host page)
-   → everything else:
+   → everything else (image / shader / html):
      ContentSpec { kind, source, fit, fps_cap, audio, meta }
      → host page URL  gesso://host/index.html?spec=<urlencoded JSON>
      → wallpaper webview
-        video src → http://127.0.0.1:<port>/… (loopback media server, AVPlayer native pipeline)
-        other assets → gesso://library/<id>/<asset>
+        assets → gesso://library/<id>/<asset> (remote url entries load the https:// page in the iframe)
 ```
 
 - **Video bytes never stream through the custom scheme on any platform.** WKWebView/WebView2 load media over custom schemes via small fragmented Range requests relayed through the WebContent process (measured: ~92 req/s of 2–4 KB chunks on dual screens) — `protocol::start_media_server` serves `library`/`steam` routes over a loopback-only HTTP socket so AVPlayer uses its native streaming path (one socket, whole-file reads; ~6 requests total). Path resolution and traversal guards are shared with the scheme handler (`resolve()`); CSP is generated per-boot with the random port (`csp()`).
-- **Looping video is served from RAM (≤256 MB per entry).** Players re-read the whole file every loop (AVPlayerLooper clones the item each cycle; web engines don't cache custom-scheme media), and OS page cache is evictable — on memory-pressured machines a 20 MB wallpaper hits disk every loop (measured in the wild). The media server pins entries ≤256 MB in RAM on first read and slices every Range request from memory; larger entries keep streaming from disk. The native video window therefore points at the loopback URL instead of `file://`.
+- **Looping video is served from RAM (≤256 MB per entry).** Players re-read the whole file every loop (AVPlayerLooper clones the item each cycle; web engines don't cache custom-scheme media), and OS page cache is evictable — on memory-pressured machines a 20 MB wallpaper hits disk every loop (measured in the wild). The media server pins entries ≤256 MB in RAM on first read and slices every Range request from memory; larger entries keep streaming from disk. The native macOS video window uses the loopback URL.
 
 - Each local library entry is **self-contained** on disk; the host page is a single shared copy served from `gesso://host/index.html` (no per-entry duplication) and entry media is referenced relatively.
 - **Remote web entries** (`origin="url"`): the `https://` URL itself is stored in `LibraryEntry.source_url` (no local copy); the host page loads it directly in the sandboxed iframe. Thumbnails use the live-capture path (same as html).
@@ -86,7 +73,7 @@ LibraryEntry (library/<random-id>/index.<ext>)
 - The host page exposes `window.__gesso`; commands are typed on the Rust side (`HostCommand` — Pause/Resume/SetFps/Tick/Mouse), serialized in exactly one place (`host_cmd.rs`) and delivered via `evaluate_script`. Pause is a **JS-level frame stop**; the window and webview stay resident.
 - Renderer coverage today: video, image (gif/webp/jpg/jpeg/png/avif — animated gif/webp distinguished from static photos in the UI), shader (WebGL2 + Shadertoy subset, source via `code=` base64url), html (user page fixed at `wallpaper.html`, loaded in a sandboxed iframe `allow-scripts allow-same-origin` — same-scheme subresources load, storage of cross-origin frames throws `SecurityError`; pause/resume delivered via `postMessage {__gesso:"pause"|"resume"}`).
 - The type ↔ extension ↔ MIME ↔ thumbnail-strategy knowledge lives in one table: `gesso_core::content` (`ContentType`). Import classification, main-asset discovery, protocol MIME and thumbnail dispatch all read it — no scattered extension lists.
-- **Thumbnails are WYSIWYG captures, not translated previews**: strategy per kind is declared in the content table — static photos are `Direct` (reference the source file, zero generation), everything else is captured from a persistent near-invisible capture window running the real host page; output is one static `thumb.png` plus 15 hover frames under a shared contract, and captures run on one global serial queue. **Windows (M4-W):** the pipeline is webview-native — video via a shadow `crossorigin=anonymous` video drawn to canvas (`toDataURL`), shader via `preserveDrawingBuffer` + `#gl.toDataURL` (`__gessoSeek(t)` freeze), html via PrintWindow screen capture (the only platform seam) — see `capture_win.rs`. **macOS:** video still uses AVFoundation extraction and shader/html use WKWebView snapshots; once both platforms are verified against the shared pipeline, the AVFoundation path (and its objc2 crash surface) is slated for retirement.
+- **Thumbnails are WYSIWYG captures, not translated previews**: static photos use their source directly; other types produce one `thumb.png` and 15 hover frames on a global serial queue. Windows captures through `capture_win.rs`; macOS uses AVFoundation for video and WKWebView snapshots for shader and HTML.
 
 ## 4. Session state machine (gesso-core)
 
@@ -97,13 +84,13 @@ Idle ──Assign──▶ Loading ──Loaded──▶ Playing ⇄ PausedUser
 Error ──Reselect──▶ Idle     any ──Quit──▶ Stopped
 ```
 
-Pure function `transfer(state, event)`; every transition is unit-tested. Sessions are per-monitor (stable ID = `cg-<CGDirectDisplayID>` on macOS; EDID hashing is the upgrade path).
+Pure function `transfer(state, event)`; every transition is unit-tested. Sessions are per-monitor. On macOS, IDs prefer the EDID vendor/model/serial tuple, fall back to `cg-<CGDirectDisplayID>` when unavailable, and append the CG ID to disambiguate identical displays. Windows prefers the monitor PnP identity and falls back to `win-<DISPLAYn>`; wake/reconnect still has geometry remapping as a fallback.
 
 ## 5. Engine ↔ UI data flow
 
 - **Writes**: UI/tray enqueue `EngineAction` — the authoritative action set lives in [API.md](../crates/app/API.md) (assign / pause / import / settings / update-check and friends). One poller (150 ms) executes them against the `SessionManager` — single writer, no UI-side optimistic updates (a failed assign must run the engine's fallback path).
 - **Reads**: `snapshot_ui(&sm)` projects engine state into the UI global after any action and on topology changes (epoch-driven convergence — see §2).
-- Menu/tray events arrive on handlers without GPUI context — everything funnels through the queue. (Toggling booleans in handlers must use `fetch_xor`, not `swap(true)`: see pitfalls.)
+- Menu/tray events arrive on handlers without GPUI context — everything funnels through the queue. (Toggling booleans in handlers must use `fetch_xor`, not `swap(true)` — see ENGINEERING-NOTES §2.)
 
 ## 6. Security model
 
@@ -111,13 +98,12 @@ Wallpaper content is untrusted code. Containment: webview sandbox, zero IPC from
 
 ## 7. Performance notes
 
-- Pause really stops work (JS loop + decoding; native video: `player.pause()`). Fullscreen/battery triggers drive the state machine's `Autopause` state (M5, verified), with a per-display fullscreen-downscale policy (5 fps target via `__gesso.setFps`).
+- Pause really stops work (JS loop + decoding; native video: `player.pause()`). Fullscreen/battery triggers drive the state machine's `Autopause` state, with a per-display fullscreen-downscale policy (5 fps target via `__gesso.setFps`).
 - Multi-monitor: one wallpaper window per display; webview content processes are shared by the platform, decoders are not (accepted).
-- Frame pacing is measurable, not guessed: the host page counts presented video frames (`requestVideoFrameCallback`) and page ticks (rAF); `GESSO_VIDEO_DIAG=1` makes the engine sample every 5 s and print per-session rates. Use it before touching anything playback-related — the 2026-10 stutter hunt went data-supply (92 req/s fragmented ranges → loopback HTTP) → decode (hardware, fine) → compositor (window opacity) → presentation (webview no phase-lock → native player), each step decided by numbers.
+- Frame pacing: the host page counts presented video frames (`requestVideoFrameCallback`) and page ticks (rAF); `GESSO_VIDEO_DIAG=1` samples them for webview playback. Native video windows have no frame probe yet — their diagnosis rides on engine logs.
 - Frame-rate control: the engine pushes the per-display fps cap to the host page (`__gesso.setFps`, live without reload) — shader frames are RAF-gated; for html it is an advisory value since the iframe owns its own RAF; video has no frame-rate lever. Cursor feed: the engine routes the global mouse location to the display it is on and pushes it at 30 Hz (`__gesso.mouse`); the host stores only the latest target and smooths per-frame into `iMouse` (read on the main thread — background reads of `NSEvent.mouseLocation` are stale during fast movement). Idle 5 min → 5 fps.
 
 ## 8. Where the deeper history lives
 
-- `SPIKE-REPORT.md` — the three feasibility spikes and 14 API facts extracted from them.
-- `docs/ENGINEERING-NOTES.md` — binding rules + the pitfall ledger (§2, continuously appended).
-- Design archive (interaction spec, visual tokens, prototype) is maintained alongside the project author; the repo carries its engineering conclusions.
+- [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) — current engineering rules and debugging paths.
+- [design/README.md](design/README.md) — current interaction spec, tokens, prototype, diagram sources, and archive boundary.

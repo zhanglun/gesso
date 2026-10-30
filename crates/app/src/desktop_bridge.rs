@@ -1,30 +1,30 @@
-//! 桌面桥接（Desktop Bridge）：Gesso 在屏期间，系统桌面壁纸 = 当前壁纸的
-//! 静态帧；释放所有权时恢复用户原壁纸。
+//! 桌面桥接（Desktop Bridge）：重配/建窗过渡的静帧供给。
 //!
-//! 动机：显示器重配（唤醒/合盖开盖/插拔/改分辨率）走两段式提交，抑制窗口
-//! （≈0.5–1s）露出的底是系统桌面壁纸——把它提前设为当前壁纸的静帧，过渡即
-//! 无缝（2026-10-11 spike 实测：过渡期显示的正是当前按屏设置的系统桌面图；
-//! 注意 macOS 26 上 `osascript System Events` 设壁纸已失效，必须走
-//! `NSWorkspace.setDesktopImageURL`）。
+//! **2026-10-13 终局重构**（三轮卡顿排障 + 实测定案）：
 //!
-//! 所有权纪律（评审定稿，非补丁的三个支点）：
-//! 1. **台账按【条目】键控**（`bridge/<entry_id>.<ext>`，entry id 跨显示器
-//!    ID 重编稳定）：显示器键控会在唤醒重编后把我们自己设的桥接图误记为
-//!    「用户原壁纸」，永久顶替原值；桥接图路径本身即恢复的连接键。
-//! 2. **acquire 三态**：当前桌面已是本条目桥接图（重入，原值保持）／是其它
-//!    条目桥接图（同屏换壁纸，继承那条记录的原值）／是用户壁纸（仅首次记录，
-//!    首接管定原值——多屏同指派、重复指派都不覆盖）。
-//! 3. **release 内容连接**：只恢复「当前桌面 URL 仍是我们的桥接图」的屏——
-//!    用户运行期间手改过的壁纸不被覆盖；硬杀残留由下次启动对账兜底
-//!    （台账落盘 sidecar `desktop_bridge.json`）。
+//! 旧路线（把静帧写进**系统桌面壁纸**以盖住过渡间隙）已整体移除——
+//! macOS 壁纸代理 FIFO 每张 5–16 秒、拥塞时 `setDesktopImageURL` 单次
+//! 实测 2 秒：任何运行时写入都在交互路径（主线程）制造 UI 冻结，且
+//! 临时覆盖下静帧永远来不及在间隙内渲染，收益从未兑现（详见
+//! CHANGELOG 0.1.3 / 工程笔记 §2）。
 //!
-//! 已知边界（设计取舍，如实入档）：SIGKILL/断电来不及恢复，残留到下次启动；
-//! 崩溃对账路径上多屏同指派一张壁纸时逐屏原值无法消歧（恢复为同一张）；
-//! 硬杀时离线的屏其存储的桌面偏好仍是桥接图，无法远程修复。
+//! 新路线：静帧只落本地文件（`bridge/<entry_id>.png`），过渡间隙由
+//! **自家过渡窗**（pin 层毫秒级建窗）显示静帧盖住——全程不碰系统桌面。
+//! 本模块职责收敛为三件事：
+//! 1. 静帧文件供给（启动预生成 + 指派后按需补产，全部后台线程）；
+//! 2. 旧版本残留的一次性启动清理（桌面仍是旧版桥接帧 → 恢复原壁纸，
+//!    零等待，此后进程不再写系统桌面）；
+//! 3. 条目移除时清理静帧文件。
+//!
+//! 恢复目标的回退纪律（继承实测教训）：台账原值不可用（文件消失/航拍）
+//! → 回退静态系统桌面图；**记录与恢复两侧都严禁航拍路径**——macOS 26
+//! 的 `DefaultDesktop.heic` 是航拍视频壁纸软链，静态 API 设置渲染为黑屏。
 
+// 实现主体为 macOS 专属（Windows 侧全部 no-op 门控）——跨平台 Clippy 的
+// 死代码豁免同 74996ee 先例
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -32,16 +32,15 @@ use serde::{Deserialize, Serialize};
 
 use gesso_core::{LibraryEntry, WallpaperKind};
 
-// ── 台账与决策（纯数据/纯函数，跨平台可测）─────────────────────────────
+// ── 台账与回退（纯数据/纯函数，跨平台可测）─────────────────────────────
 
-/// entry_id → 接管时该屏的原始桌面图（文件路径）。
+/// entry_id → 接管时该屏的原始桌面图（仅用于旧版本残留的启动清理）。
 #[derive(Default, Serialize, Deserialize)]
 struct Ledger {
     entries: BTreeMap<String, String>,
 }
 
-/// 是否我们的桥接图（按路径前缀判定——桥接图只产出到 `bridge_dir` 之下，
-/// 这同时是恢复的凭据：用户改过的屏桌面 URL 已不在此前缀下，自然跳过）。
+/// 是否旧版桥接图（按路径前缀判定——桥接图只产出到 `bridge_dir` 之下）。
 fn is_bridge_path(bridge_dir: &Path, p: &str) -> bool {
     Path::new(p).starts_with(bridge_dir)
 }
@@ -53,27 +52,35 @@ fn path_stem(p: &str) -> &str {
         .unwrap_or("")
 }
 
-/// acquire 后台账应持有的原值；None = 读不到现状且无记录，无法保证可恢复，
-/// 跳过接管。规则见模块注释「acquire 三态」——核心是**首次记录定原值，
-/// 之后永不覆盖**（重入/换壁纸/多屏同指派/用户手改都不改写）。
-fn acquire_original(
-    current: Option<&str>,
-    entry_id: &str,
-    bridge_dir: &Path,
-    ledger: &Ledger,
-) -> Option<String> {
-    let known = ledger.entries.get(entry_id).cloned();
-    match current {
-        None => known,
-        Some(c) if is_bridge_path(bridge_dir, c) => {
-            let stem = path_stem(c);
-            let inherited = (stem != entry_id)
-                .then(|| ledger.entries.get(stem).cloned())
-                .flatten();
-            inherited.or(known)
-        }
-        Some(c) => Some(known.unwrap_or_else(|| c.to_string())),
+/// 静态回退桌面图探测序（取第一个存在的）。
+const FALLBACK_DESKTOPS: &[&str] = &[
+    "/System/Library/Desktop Pictures/Sonoma.heic",
+    "/System/Library/Desktop Pictures/Mac Blue.heic",
+];
+
+/// 航拍桌面判定：静态 API 设置航拍路径渲染为黑屏（2026-10-13 实测）。
+fn is_aerial_desktop(p: &str) -> bool {
+    p == "/System/Library/CoreServices/DefaultDesktop.heic"
+        || p.starts_with("/System/Library/Wallpapers/")
+        || p.ends_with(".madesktop")
+}
+
+/// 静态回退目标解析（探测序取第一个存在的）；None = 无可回退。
+fn static_fallback(exists: impl Fn(&str) -> bool) -> Option<String> {
+    FALLBACK_DESKTOPS
+        .iter()
+        .copied()
+        .find(|p| exists(p))
+        .map(String::from)
+}
+
+/// 恢复目标决议：台账原值可用（存在且非航拍）→ 原值；否则 → 回退静态
+/// 系统桌面图；全部不可用 → None（无恢复目标，落日志留台账待下次尝试）。
+fn restore_target(original: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+    if exists(original) && !is_aerial_desktop(original) {
+        return Some(original.to_string());
     }
+    static_fallback(exists)
 }
 
 // ── 主体 ────────────────────────────────────────────────────────────
@@ -83,10 +90,6 @@ pub struct DesktopBridge {
     ledger: Ledger,
     /// 桥接图目录（`<config_dir>/bridge/`）。
     dir: PathBuf,
-    /// 本进程的最后写入绑定：monitor_id → (entry_id, 时刻)。`setDesktopImageURL`
-    /// 的读回有秒级滞后（spike 实测 set 后立即读回还是旧值）——恢复扫描可能
-    /// 读到陈旧值而漏判「是我们的」。绑定用于滞后窗口内的兜底恢复。
-    last_set: BTreeMap<String, (String, std::time::Instant)>,
 }
 
 impl DesktopBridge {
@@ -94,7 +97,6 @@ impl DesktopBridge {
         let mut b = Self {
             ledger: Ledger::default(),
             dir,
-            last_set: BTreeMap::new(),
         };
         b.load();
         b
@@ -125,8 +127,7 @@ impl DesktopBridge {
         }
     }
 
-    /// 桥接图路径：`<dir>/<entry_id>.<ext>`。图片类沿用源扩展名（系统按
-    /// 内容/扩展名双保险识别），其余统一 png。
+    /// 静帧文件路径：`<dir>/<entry_id>.<ext>`。图片类沿用源扩展名，其余 png。
     fn static_path(&self, entry: &LibraryEntry) -> PathBuf {
         let ext = match entry.kind {
             WallpaperKind::Image => crate::encoding::main_asset_name(&entry.source_dir, entry.kind)
@@ -142,12 +143,13 @@ impl DesktopBridge {
         self.dir.join(format!("{}.{}", entry.id, ext))
     }
 
-    /// 静帧供给（按类型分派，对齐 ThumbStrategy 的表驱动思路）：
-    /// 视频 = AVAssetImageGenerator 首帧全分辨率；图片 = 源文件拷贝（刻意的
-    /// 拷贝——绝不把用户文件路径写进系统设置）；shader/html = 现成缩略图档
-    /// （过渡零点几秒内肉眼难辨，全分辨率快照留后续）。
+    /// 静帧供给（只做毫秒级文件操作；视频**绝不在此同步解码**——解码
+    /// 秒级且曾在指派路径主线程执行导致冻结，现全部走后台，见
+    /// `preseed_video_frames` / `ensure_frame_async`）。返回 true = 帧文件
+    /// 已就位。图片 = 源文件拷贝（绝不把用户文件路径写进系统设置）；
+    /// shader/html = 现成缩略图档拷贝。
     fn produce_frame(&self, entry: &LibraryEntry, out: &Path) -> bool {
-        // 桥接目录可能尚不存在（首次 acquire 早于任何 save() 的 create_dir_all）
+        // 桥接目录可能尚不存在（首次产出早于任何 save() 的 create_dir_all）
         let _ = std::fs::create_dir_all(&self.dir);
         match entry.kind {
             WallpaperKind::Image => {
@@ -156,18 +158,9 @@ impl DesktopBridge {
                 src.exists() && std::fs::copy(&src, out).is_ok()
             }
             WallpaperKind::Video => {
-                let src = crate::encoding::entry_main_source(entry);
-                let src = Path::new(&entry.source_dir).join(&src);
-                src.exists() && {
-                    #[cfg(target_os = "macos")]
-                    {
-                        extract_video_first_frame(&src, out)
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        false
-                    }
-                }
+                // 视频帧由后台线程解码产出，此处只认现成文件
+                let _ = out;
+                false
             }
             _ => {
                 let home = crate::encoding::thumb_home(entry);
@@ -178,151 +171,10 @@ impl DesktopBridge {
             }
         }
     }
-
-    /// 接管：产出静帧 → 记原值（三态）→ 设系统桌面 → 落台账。
-    /// 必须主线程（AppKit）。
-    #[cfg(target_os = "macos")]
-    fn acquire_inner(&mut self, entry: &LibraryEntry, monitor_id: &str) {
-        use objc2_foundation::NSURL;
-
-        let path = self.static_path(entry);
-        if !path.exists() && !self.produce_frame(entry, &path) {
-            println!("[bridge] {} 桥接帧产出失败，跳过接管", entry.id);
-            return;
-        }
-        let Some(screen) = crate::pin::macos::screens()
-            .into_iter()
-            .find(|(m, _)| m.id == monitor_id)
-            .map(|(_, s)| s)
-        else {
-            println!("[bridge] {monitor_id} 未找到对应系统屏，跳过接管");
-            return;
-        };
-        // NSWorkspace 桌面图 API 在 objc2 0.2 绑定里声明为安全（文档语义
-        // 无 UB 面）；AVFoundation 的资产/帧提取仍按 unsafe 纪律走
-        let ws = objc2_app_kit::NSWorkspace::sharedWorkspace();
-        let current = ws
-            .desktopImageURLForScreen(&screen)
-            .and_then(|u| u.path())
-            .map(|p| p.to_string());
-        // 原值判定先于任何写入；无法保证可恢复（读不到且无记录）则不接管
-        let Some(original) =
-            acquire_original(current.as_deref(), &entry.id, &self.dir, &self.ledger)
-        else {
-            println!(
-                "[bridge] {} 原壁纸不可读且无记录，跳过接管（安全优先）",
-                entry.id
-            );
-            return;
-        };
-        let url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(
-            &path.display().to_string(),
-        ));
-        let empty = objc2_foundation::NSDictionary::new();
-        // SAFETY: 主线程；screen 来自当前枚举的存活 NSScreen，url 指向有效文件
-        if let Err(e) =
-            unsafe { ws.setDesktopImageURL_forScreen_options_error(&url, &screen, &empty) }
-        {
-            println!("[bridge] 设系统桌面失败：{e:?}");
-            return;
-        }
-        self.ledger.entries.insert(entry.id.clone(), original);
-        self.last_set.insert(
-            monitor_id.to_string(),
-            (entry.id.clone(), std::time::Instant::now()),
-        );
-        self.save();
-        println!(
-            "[bridge] {} ← {}（接管系统桌面，桥接帧 {}）",
-            monitor_id,
-            entry.id,
-            path.display()
-        );
-    }
-
-    /// 恢复：扫描当前所有屏，凡桌面图是（限定条目的）桥接图 → 恢复该条目
-    /// 记录的原值；再对「读回滞后」的本进程写入做绑定兜底。返回成功恢复的
-    /// 条目集合（调用方据此决定台账清理——没恢复成的不清，留对账）。
-    /// 必须主线程。
-    #[cfg(target_os = "macos")]
-    fn restore(&mut self, only: Option<&str>) -> BTreeSet<String> {
-        use objc2_foundation::NSURL;
-
-        /// set 后读回的滞后窗口：窗口内读不到「是我们的」按我们刚写的算
-        ///（spike 实测 set 后立即读回还是旧值，秒级沉降）。
-        const LAG_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
-
-        let ws = objc2_app_kit::NSWorkspace::sharedWorkspace();
-        let screens = crate::pin::macos::screens();
-        let mut restored: BTreeSet<String> = BTreeSet::new();
-        // ① 内容扫描：桌面图仍是我们的桥接图 → 恢复（用户手改过的屏 URL
-        //    已不是我们的 → 自然跳过，绝不覆盖，评审 B2）
-        for (info, screen) in &screens {
-            let Some(url) = ws
-                .desktopImageURLForScreen(screen)
-                .and_then(|u| u.path())
-                .map(|p| p.to_string())
-            else {
-                continue;
-            };
-            if !is_bridge_path(&self.dir, &url) {
-                continue;
-            }
-            let stem = path_stem(&url).to_string();
-            if only.is_some_and(|o| stem != o) || restored.contains(&stem) {
-                continue;
-            }
-            let Some(original) = self.ledger.entries.get(&stem).cloned() else {
-                println!("[bridge] 桥接图无台账记录（硬杀丢台账），无法恢复：{url}");
-                continue;
-            };
-            let orig_url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(&original));
-            let empty = objc2_foundation::NSDictionary::new();
-            // SAFETY: 主线程，存活 screen，orig 指向台账记录的有效文件
-            let ok =
-                unsafe { ws.setDesktopImageURL_forScreen_options_error(&orig_url, screen, &empty) }
-                    .is_ok();
-            if ok {
-                println!("[bridge] {} 恢复系统壁纸 → {original}", info.id);
-                restored.insert(stem);
-            }
-        }
-        // ② 绑定兜底：本进程刚写入（LAG_WINDOW 内）但读回滞后的屏——
-        //    按显示器 ID 直接恢复；窗口外读不到我们的图视为用户已改，不动
-        for (monitor_id, (entry_id, at)) in self.last_set.clone() {
-            if only.is_some_and(|o| entry_id != o) || restored.contains(&entry_id) {
-                continue;
-            }
-            let recent = at.elapsed() < LAG_WINDOW;
-            let Some((info, screen)) = screens.iter().find(|(m, _)| m.id == monitor_id) else {
-                continue; // 屏已离线：记录保留，交下次启动对账
-            };
-            let Some(original) = self.ledger.entries.get(&entry_id).cloned() else {
-                continue;
-            };
-            if !recent {
-                println!("[bridge] {monitor_id} 桌面图非桥接帧（疑似用户已改），跳过恢复");
-                continue;
-            }
-            let orig_url = NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(&original));
-            let empty = objc2_foundation::NSDictionary::new();
-            // SAFETY: 同上
-            let ok =
-                unsafe { ws.setDesktopImageURL_forScreen_options_error(&orig_url, screen, &empty) }
-                    .is_ok();
-            if ok {
-                println!(
-                    "[bridge] {monitor_id} 读回滞后兜底恢复（{}）→ {original}",
-                    info.id
-                );
-                restored.insert(entry_id);
-            }
-        }
-        restored
-    }
 }
 
-/// 视频首帧全分辨率提取（复用 thumb.rs 的 objc2 所有权纪律与 ImageIO 写盘）。
+/// 视频首帧全分辨率提取（仅后台线程调用；复用 thumb.rs 的 objc2 所有权
+/// 纪律与 ImageIO 写盘）。
 #[cfg(target_os = "macos")]
 fn extract_video_first_frame(src: &Path, out: &Path) -> bool {
     use objc2_av_foundation::{AVAssetImageGenerator, AVURLAsset};
@@ -369,88 +221,244 @@ fn global() -> &'static Mutex<DesktopBridge> {
     })
 }
 
-/// 接管一个屏（assign 成功后调用）。非 macOS 平台 no-op。
-pub fn acquire(entry: &LibraryEntry, monitor_id: &str) {
-    #[cfg(target_os = "macos")]
-    global()
-        .lock()
-        .expect("桌面桥接")
-        .acquire_inner(entry, monitor_id);
-    #[cfg(not(target_os = "macos"))]
-    let _ = (entry, monitor_id);
-}
-
-/// 取消指派/移除条目：恢复显示该条目桥接图的屏并清其记录（未恢复成则保留，
-/// 交启动对账）、删桥接图。
-pub fn release_entry(entry_id: &str) {
+/// 旧版本残留的一次性启动清理：扫描各屏桌面 URL，仍在旧版桥接目录下的
+/// → set 回台账原值（或静态回退），零等待（渲染由壁纸代理自行完成）；
+/// 恢复成功的清台账。此后进程不再写系统桌面。非 macOS no-op。
+pub fn cleanup_legacy_takeovers() {
     #[cfg(target_os = "macos")]
     {
+        use objc2_foundation::{NSDictionary, NSString, NSURL};
+
+        let ws = objc2_app_kit::NSWorkspace::sharedWorkspace();
         let mut b = global().lock().expect("桌面桥接");
-        let restored = b.restore(Some(entry_id));
-        if restored.contains(entry_id) {
-            b.ledger.entries.remove(entry_id);
+        let mut restored: Vec<String> = Vec::new();
+        for (info, screen) in crate::pin::macos::screens() {
+            let Some(url) = ws
+                .desktopImageURLForScreen(&screen)
+                .and_then(|u| u.path())
+                .map(|p| p.to_string())
+            else {
+                continue;
+            };
+            if !is_bridge_path(&b.dir, &url) {
+                continue;
+            }
+            let stem = path_stem(&url).to_string();
+            let Some(original) = b.ledger.entries.get(&stem).cloned() else {
+                println!("[bridge] 残留桥接帧无台账记录（{url}），跳过（安全优先）");
+                continue;
+            };
+            let Some(target) = restore_target(&original, |p| Path::new(p).exists()) else {
+                println!("[bridge] {stem} 原壁纸不可用（{original}）且无静态回退，留台账待下次");
+                continue;
+            };
+            let nsurl = NSURL::fileURLWithPath(&NSString::from_str(&target));
+            let empty = NSDictionary::new();
+            // SAFETY: 主线程（启动路径）；存活 screen；target 已确认存在
+            match unsafe { ws.setDesktopImageURL_forScreen_options_error(&nsurl, &screen, &empty) }
+            {
+                Ok(()) => {
+                    println!("[bridge] {stem} 残留清理 → {target}（{}）", info.id);
+                    restored.push(stem);
+                }
+                Err(e) => println!("[bridge] {stem} 残留清理失败：{e:?}"),
+            }
+        }
+        if !restored.is_empty() {
+            b.ledger.entries.retain(|k, _| !restored.contains(k));
             b.save();
         }
     }
-    let _ = entry_id;
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = entry_id;
-    }
 }
 
-/// 全量恢复（退出 / 关闭开关 / 托盘逃生门）。返回恢复的屏数；没恢复成的
-/// 记录保留在台账里，交下次启动对账（绝不「清了记录却没恢复」——那是
-/// 原壁纸丢失的通路）。
-pub fn restore_all() -> usize {
+/// 视频桥接帧启动预生成（后台线程，串行）：把库里缺帧的视频条目逐个
+/// 解出全分辨率首帧（`.tmp` → rename 原子落盘）。主线程永不解码视频。
+pub fn preseed_video_frames(library: &[LibraryEntry]) {
     #[cfg(target_os = "macos")]
     {
-        let mut b = global().lock().expect("桌面桥接");
-        let restored = b.restore(None);
-        // 只清「确实恢复了」的记录；没恢复成的保留（启动对账重试）——
-        // 反过来就是「清了记录却没恢复」的原壁纸丢失通路（E2E 实测教训）
-        b.ledger.entries.retain(|k, _| !restored.contains(k));
-        b.last_set.retain(|_, (e, _)| !restored.contains(e));
-        b.save();
-        restored.len()
-    }
-    #[cfg(not(target_os = "macos"))]
-    0
-}
-
-/// 启动对账：硬杀残留的接管记录按当前活跃指派清理；开关关闭则全量恢复。
-/// `active` = 本次启动有会话的条目集合。
-pub fn reconcile(active: &BTreeSet<String>, enabled: bool) {
-    if !enabled {
-        restore_all();
-        return;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let mut b = global().lock().expect("桌面桥接");
-        let inactive: Vec<String> = b
-            .ledger
-            .entries
-            .keys()
-            .filter(|e| !active.contains(*e))
-            .cloned()
+        let b = global().lock().expect("桌面桥接");
+        let jobs: Vec<(PathBuf, PathBuf)> = library
+            .iter()
+            .filter(|e| e.kind == WallpaperKind::Video)
+            .filter_map(|e| {
+                let out = b.static_path(e);
+                (!out.exists()).then(|| {
+                    let src = Path::new(&e.source_dir).join(crate::encoding::entry_main_source(e));
+                    (src, out)
+                })
+            })
+            .filter(|(src, _)| src.exists())
             .collect();
-        for e in inactive {
-            let restored = b.restore(Some(&e));
-            if restored.contains(&e) {
-                b.ledger.entries.remove(&e);
-            }
+        drop(b);
+        if jobs.is_empty() {
+            return;
         }
-        b.save();
+        println!("[bridge] 预生成 {} 个视频桥接帧（后台）", jobs.len());
+        std::thread::spawn(move || {
+            for (src, out) in jobs {
+                let tmp = out.with_extension("png.tmp");
+                if extract_video_first_frame(&src, &tmp) {
+                    let _ = std::fs::rename(&tmp, &out);
+                } else {
+                    let _ = std::fs::remove_file(&tmp);
+                }
+            }
+            println!("[bridge] 视频桥接帧预生成完成");
+        });
     }
-    let _ = active;
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (active, enabled);
+        let _ = library;
     }
 }
 
-/// 移除条目时顺手清桥接图（台账记录由 release_entry 清理）。
+/// 指派后按需补产并解码静帧（后台线程）：
+/// - 图片/shader/html：补拷贝帧文件（毫秒级）→ PNG 解码；
+/// - 视频：等预生成产出的帧文件（最多 30s）→ PNG 解码；
+/// - 图片类源为 jpeg 等非 PNG 格式，无解码器，跳过（v1 已知限制：图片条目
+///   的重配间隙退回露出用户壁纸）。
+///   解码结果进 FRAMES 缓存（RGBA，Send），过渡窗建窗时主线程包装成 NSImage。
+pub fn refresh_frame(entry: &LibraryEntry) {
+    #[cfg(target_os = "macos")]
+    {
+        if entry.kind == WallpaperKind::Image {
+            return; // v1 限制：无通用图片解码器，不缓存（日志一次不打，静默降级）
+        }
+        let entry = entry.clone();
+        std::thread::spawn(move || {
+            let out = global().lock().expect("桌面桥接").static_path(&entry);
+            if !out.exists() {
+                let tmp = out.with_extension("tmp");
+                if global()
+                    .lock()
+                    .expect("桌面桥接")
+                    .produce_frame(&entry, &tmp)
+                {
+                    let _ = std::fs::rename(&tmp, &out);
+                }
+            }
+            // 视频帧可能还在预生成中：有限等待（250ms × 120 = 30s 上限）
+            for _ in 0..120 {
+                if out.exists() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+            let Some((w, h, rgba)) = decode_png(&out) else {
+                println!("[bridge] 静帧解码失败（{}）", out.display());
+                return;
+            };
+            frames()
+                .lock()
+                .expect("静帧缓存")
+                .insert(entry.id.clone(), DecodedFrame { w, h, rgba });
+            println!("[bridge] 静帧就绪（{} {}×{}）", entry.title, w, h);
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = entry;
+    }
+}
+
+/// 已解码静帧（后台线程生产，主线程消费）。RGBA 字节，Send 无虞。
+#[derive(Clone)]
+struct DecodedFrame {
+    w: usize,
+    h: usize,
+    rgba: Vec<u8>,
+}
+
+static FRAMES: OnceLock<Mutex<BTreeMap<String, DecodedFrame>>> = OnceLock::new();
+
+fn frames() -> &'static Mutex<BTreeMap<String, DecodedFrame>> {
+    FRAMES.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn decode_png(path: &Path) -> Option<(usize, usize, Vec<u8>)> {
+    let file = std::fs::File::open(path).ok()?;
+    let decoder = png::Decoder::new(std::io::BufReader::new(file));
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    let (w, h) = (info.width as usize, info.height as usize);
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => buf,
+        png::ColorType::Rgb => {
+            let (chunks, _) = buf.as_chunks::<3>();
+            chunks
+                .iter()
+                .flat_map(|px| [px[0], px[1], px[2], 0xFF])
+                .collect()
+        }
+        _ => return None,
+    };
+    Some((w, h, rgba))
+}
+
+// —— 过渡窗生命周期（全部主线程；非 macOS no-op）——
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    /// monitor_id → 过渡窗。仅主线程触碰（AppKit），thread_local 免 Send 约束。
+    static COVERS: std::cell::RefCell<BTreeMap<String, crate::pin::macos::MacCoverWindow>> =
+        const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// 遮盖一屏：显示该条目静帧的过渡窗（先盖后熄旧窗，无闪现）。无缓存帧则
+/// 不遮盖（退回露出用户壁纸）。已存在同屏过渡窗则替换。
+pub fn cover(monitor_id: &str, frame: (f64, f64, f64, f64), entry_id: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(f) = frames().lock().expect("静帧缓存").get(entry_id).cloned() else {
+            return;
+        };
+        let mtm = match objc2::MainThreadMarker::new() {
+            Some(m) => m,
+            None => return,
+        };
+        let image = crate::pin::macos::nsimage_from_rgba(&f.rgba, f.w, f.h, mtm);
+        match crate::pin::macos::create_cover_window(frame, image) {
+            Ok(win) => {
+                COVERS.with(|c| {
+                    c.borrow_mut().insert(monitor_id.to_string(), win);
+                });
+                println!("[bridge] {monitor_id} 过渡窗遮盖（{}）", entry_id);
+            }
+            Err(e) => println!("[bridge] 过渡窗创建失败：{e}"),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (monitor_id, frame, entry_id);
+    }
+}
+
+/// 撤除一屏的过渡窗（真壁纸窗已点亮后调用）。
+pub fn uncover(monitor_id: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        COVERS.with(|c| {
+            c.borrow_mut().remove(monitor_id);
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = monitor_id;
+    }
+}
+
+/// 撤除全部过渡窗（拆会话/退出路径）。
+pub fn uncover_all() {
+    #[cfg(target_os = "macos")]
+    {
+        COVERS.with(|c| {
+            c.borrow_mut().clear();
+        });
+    }
+}
+
+/// 移除条目时顺手清静帧文件。
 pub fn discard_file(entry_id: &str) {
     #[cfg(target_os = "macos")]
     {
@@ -470,56 +478,6 @@ pub fn discard_file(entry_id: &str) {
 mod tests {
     use super::*;
 
-    fn ledger(pairs: &[(&str, &str)]) -> Ledger {
-        Ledger {
-            entries: pairs
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-        }
-    }
-
-    #[test]
-    fn acquire_original_three_states() {
-        let dir = Path::new("/cfg/bridge");
-        let user_wp = "/Users/u/Pictures/wall.jpg";
-        let e1_img = "/cfg/bridge/e1.png";
-        let e2_img = "/cfg/bridge/e2.png";
-
-        // 首接管用户壁纸 → 记录
-        assert_eq!(
-            acquire_original(Some(user_wp), "e1", dir, &Ledger::default()),
-            Some(user_wp.to_string())
-        );
-        // 重入（已是本条目桥接图）→ 保持已有记录
-        let l = ledger(&[("e1", user_wp)]);
-        assert_eq!(
-            acquire_original(Some(e1_img), "e1", dir, &l),
-            Some(user_wp.to_string())
-        );
-        // 同屏换壁纸（屏上还是旧条目 e1 的桥接图，接管新条目 e2）→ 继承
-        // e1 记录的原值
-        assert_eq!(
-            acquire_original(Some(e1_img), "e2", dir, &l),
-            Some(user_wp.to_string())
-        );
-        // 屏上是本条目桥接图但台账无记录（硬杀丢台账）→ 无法保证可恢复，
-        // 跳过接管（安全优先）
-        assert_eq!(acquire_original(Some(e2_img), "e2", dir, &l), None);
-        // 已有记录时永不覆盖（多屏同指派第二次 acquire / 用户手改后重放）
-        let other_user_wp = "/Users/u/Pictures/other.jpg";
-        assert_eq!(
-            acquire_original(Some(other_user_wp), "e1", dir, &l),
-            Some(user_wp.to_string())
-        );
-        // 读不到当前桌面且有记录 → 沿用；无记录 → 跳过接管（安全优先）
-        assert_eq!(
-            acquire_original(None, "e1", dir, &l),
-            Some(user_wp.to_string())
-        );
-        assert_eq!(acquire_original(None, "e2", dir, &l), None);
-    }
-
     #[test]
     fn bridge_path_detection_by_prefix() {
         let dir = Path::new("/cfg/bridge");
@@ -527,5 +485,41 @@ mod tests {
         assert!(!is_bridge_path(dir, "/Users/u/wall.jpg"));
         // 前缀同名的兄弟目录不算（组件级比较，非字符串前缀）
         assert!(!is_bridge_path(dir, "/cfg/bridge-extra/e1.png"));
+    }
+
+    #[test]
+    fn aerial_desktop_detection() {
+        // macOS 26：DefaultDesktop.heic 是航拍软链，静态 API 渲染必黑屏
+        assert!(is_aerial_desktop(
+            "/System/Library/CoreServices/DefaultDesktop.heic"
+        ));
+        assert!(is_aerial_desktop(
+            "/System/Library/Wallpapers/Aerial/xxx.heic"
+        ));
+        assert!(is_aerial_desktop("/Users/u/movie.madesktop"));
+        assert!(!is_aerial_desktop("/Users/u/wall.jpg"));
+        assert!(!is_aerial_desktop(
+            "/System/Library/Desktop Pictures/Sonoma.heic"
+        ));
+    }
+
+    #[test]
+    fn restore_target_prefers_live_original_then_static_fallback() {
+        let exists = |p: &str| p != "/gone.jpg";
+        // 原值活着且非航拍 → 原值
+        assert_eq!(
+            restore_target("/Users/u/wall.jpg", exists).as_deref(),
+            Some("/Users/u/wall.jpg")
+        );
+        // 原值消失 → 静态回退（探测序首个存在者）
+        assert_eq!(
+            restore_target("/gone.jpg", exists).as_deref(),
+            Some("/System/Library/Desktop Pictures/Sonoma.heic")
+        );
+        // 航拍原值视同死值 → 强制静态回退（静态 API 渲染航拍必黑屏）
+        assert_eq!(
+            restore_target("/System/Library/CoreServices/DefaultDesktop.heic", exists).as_deref(),
+            Some("/System/Library/Desktop Pictures/Sonoma.heic")
+        );
     }
 }

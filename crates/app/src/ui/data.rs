@@ -38,7 +38,7 @@ impl Kind {
     }
 }
 
-/// 预览配色渐变（M4 起换抽帧真图；shader/html 保留图标占位）。
+/// 预览配色渐变（缩略图就绪前的占位；失败兜底用类型图标）。
 #[derive(Clone, Copy)]
 pub struct Art {
     pub from: u32,
@@ -72,7 +72,7 @@ pub struct LibraryItem {
     pub thumb_pending: bool,
 }
 
-/// 运行状态（技术方案 §9 状态机的视图投影）。
+/// 运行状态（状态机的 UI 投影）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PlayState {
     Playing,
@@ -89,7 +89,7 @@ impl PlayState {
     }
 }
 
-/// 显示器条目（视图投影；稳定 ID 在 core 用 EDID 哈希，UI 只见名字）。
+/// 显示器条目（视图投影；平台稳定 ID 只用于引擎映射，UI 主要展示友好名称）。
 #[derive(Clone)]
 pub struct MonitorEntry {
     pub name: SharedString,
@@ -105,6 +105,49 @@ pub struct MonitorEntry {
     pub wallpaper: Option<SharedString>,
     pub state: PlayState,
     pub fps: u32,
+    /// 填充模式（详情条下拉；真源 = core Fit，快照回灌）。
+    pub fit: FitMode,
+}
+
+/// 填充模式（§4.4 详情条下拉，2026-10-12；真源 = core Fit 三态）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum FitMode {
+    /// 填充（cover）：等比放大裁切铺满，无黑边——默认。
+    #[default]
+    Cover,
+    /// 适应（contain）：完整显示不裁切，比例不合留边。
+    Contain,
+    /// 拉伸（fill）：无视比例铺满，比例不合变形。
+    Fill,
+}
+
+impl FitMode {
+    /// 下拉选项（文案唯一出处 = strings）。
+    pub fn label(self) -> &'static str {
+        match self {
+            FitMode::Cover => super::strings::FIT_COVER(),
+            FitMode::Contain => super::strings::FIT_CONTAIN(),
+            FitMode::Fill => super::strings::FIT_FILL(),
+        }
+    }
+
+    /// core Fit → UI 投影（快照回灌唯一映射点）。
+    pub fn from_core(fit: gesso_core::Fit) -> Self {
+        match fit {
+            gesso_core::Fit::Cover => FitMode::Cover,
+            gesso_core::Fit::Contain => FitMode::Contain,
+            gesso_core::Fit::Fill => FitMode::Fill,
+        }
+    }
+
+    /// UI 投影 → core Fit（动作入队唯一映射点）。
+    pub fn to_core(self) -> gesso_core::Fit {
+        match self {
+            FitMode::Cover => gesso_core::Fit::Cover,
+            FitMode::Contain => gesso_core::Fit::Contain,
+            FitMode::Fill => gesso_core::Fit::Fill,
+        }
+    }
 }
 
 /// 全屏/电池时的策略（设置页下拉）。
@@ -170,9 +213,6 @@ pub struct Settings {
     pub language: u32,
     /// 自动检查更新（真源 = core Settings.update_check）。
     pub update_check: bool,
-    /// 桌面桥接（真源 = core Settings.desktop_bridge）：重配期接管系统桌面
-    /// 显示静态帧，退出恢复原壁纸。
-    pub desktop_bridge: bool,
 }
 
 impl Default for Settings {
@@ -188,7 +228,6 @@ impl Default for Settings {
             weather_key: String::new(),
             language: 0,
             update_check: true,
-            desktop_bridge: true,
         }
     }
 }
@@ -218,7 +257,6 @@ impl Settings {
                 _ => gesso_core::config::Language::Auto,
             },
             update_check: self.update_check,
-            desktop_bridge: self.desktop_bridge,
         }
     }
 }

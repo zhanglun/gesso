@@ -6,11 +6,51 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Added
 
+- 更新器根据 App 当前语言显示双语发布说明，并兼容旧版静态清单格式。
+
+### Changed
+
+- README（中英）改版为产品门面：顶部应用图标、新增「下载安装」一节与内置壁纸清单；图片统一放在 `docs/assets/`，发布清单同步新增截图维护步骤。
+- 发布清单保留旧客户端使用的 `notes`，同时增加 `notes_localized.zh/en` 供新版本按语言选择。
+
+### Fixed
+
+- **Windows 系统代理下更新检查恒失败（Proxy failed to connect）**：从注册表读取系统代理时，`RegGetValueW` 返回的字节计数含结尾 NUL 终止符，截出的代理 URI 带着它传给了 HTTP 库——带 NUL 的 CONNECT 隧道建不起来，更新检查在配置了系统代理的 Windows 上**从未成功过**（0.1.2 起一直如此），且重试无效（代理地址被进程内缓存）。现解析前剥掉 NUL 并加回归测试；经系统代理实测检查成功（远端 v0.1.3 → 「已是最新」）。
+
+## [0.1.3] - 2026-10-15
+
+### Added
+
+- 更新检查只读取 GitHub Release 里的 `latest.json` 静态清单，不再访问未认证 GitHub API；清单不可用时显示明确失败原因并提供发布页入口。
+
 ### Changed
 
 - **桌面宠物 macOS P0 基础链路（`feat/desktop-pet`）**：完成 v1.0 产品/领养规格与原型；新增 `gesso-core::pet` 纯数据确定性生成器（root seed、命名空间子 seed、三候选去重、版本输入、临时候选身份）、`gesso-core::adoption` 领养状态机和 `gesso-core::pet_save` 正式个体/存档纯数据模型；macOS app 已接入 `pet_store` 安全加载、损坏备份、版本保护和领养确认写盘骨架；正式 ID 使用 128 位随机值；已接入托盘“开始领养”和最小领养小窗（物种选择、三候选程序化占位外观预览、reroll、900ms 单任务冷却、确认保存状态、存档错误提示和“重试保存”按钮）；已接入版本化缓存元数据事务（缓存目录当前只写入 `pet.json`）、独立 macOS AppKit 占位宠物窗口（主屏右下角显示）、窗口拖动后的位置识别与存档、托盘显示/隐藏和全屏临时隐藏；正式视觉资源、互动动画、Windows 宠物窗口和跨平台回归暂缓；macOS 占位窗口已支持身体矩形命中、透明区域穿透、6pt 拖动阈值、300ms 连点摸和单击戳判定；互动统计经引擎动作更新并约 1s 节流写盘；宠物与壁纸平级、产品上独立但由 Gesso 承载。详见 `docs/design/桌面宠物设计.md` v1.0。
 
 ### Fixed
+
+- **Windows 视频壁纸全黑（0.1.2 quad 管线三处叠加缺陷）**：0.1.2 引入的全屏 quad 管线在本机实测一个像素都画不出来——Draw 前未设图元拓扑（D3D11 默认 UNDEFINED，Draw 静默不画）、着色器用不绑顶点缓冲的 SV_VertexID 生成顶点（部分 AMD 驱动同样静默吞掉该 Draw）、fit 常量缓冲从未 `PSSetConstantBuffers` 绑到像素着色器（读到全零常量，缩放除零全屏落「越界黑」）。三处失败都不报错、Present 照常成功、解码正常循环，日志全绿。现改为顶点缓冲全屏三角（uv 随顶点走、画面方向随之转正）、显式设拓扑与 CullNone、绑定常量缓冲，实机验证视频正常播放、填充三态数学不变。
+- **Windows 桌面壳层被挂载流程搞乱：孤儿 WorkerW 堆积 + 退出后壁纸不回来**。两处根因一起修：其一，`find_wallpaper_parent` 每次挂载都无条件向 Progman 发一次 0x052C，Explorer 每次都新生成一个壁纸 WorkerW——一晚上实测堆积 14+ 个隐藏孤儿，还会触发桌面结构重组、把已挂载的壁纸窗孤儿化。现改为先找现成的壁纸 WorkerW，找不到才生成一次（三轮启动退出实测 WorkerW 数量零新增）。其二，部分驱动 + DWM 组合下（WindowDev/RX580 实测），跨进程子窗从壁纸 WorkerW 移除后 DWM 不重新合成该子树，屏幕残留已销毁窗口的最后一帧或黑底，失效重绘唤不醒——连普通 GDI 子窗都如此，非 Gesso 特有。退出清理在失效重绘之后追加「同文件重设一次系统壁纸」，让 Explorer 重载重绘；实测优雅退出（含 panic 清场路径）桌面完整恢复。
+- 更新失败态改为浅红提示面板，复制错误详情改为低存在感的行内操作并用图标反馈；macOS 改为菜单栏常驻应用，不出现在 Cmd+Tab，托盘首次点击管理窗口或更新弹窗即可激活。
+
+## [0.1.2] - 2026-10-13
+
+### Added
+
+- **更新检查与下载遵循系统代理**：macOS 读 `scutil --proxy`（HTTPS > HTTP > SOCKS），Windows 读 Internet Settings 注册表；环境变量代理优先级更高；PAC 不解析（回落直连）。此前 GUI 进程不继承 shell 代理变量、HTTP 客户端又不读系统代理——国内网络下浏览器能下载而应用内超时（os error 60）。另：下载连接加 30 秒读超时（停滞不再无限挂起），失败文案补「前往发布页手动下载」出路。
+
+- **填充模式（§4.4 填充下拉）**：显示器页详情条新增填充下拉——填充（cover，默认）/ 适应（contain）/ 拉伸（fill），按屏持久化、切换即时生效。此前壁纸本体硬编码 contain（比例不合留黑边），且 Windows 原生视频 swapchain 按帧尺寸建、整缓冲交 DWM 拉伸（比例不合变形）——双平台语义不一致。现默认与 WE / 系统桌面习惯对齐（裁切铺满）：macOS 视频窗映射 AVLayerVideoGravity 三态活切换；Windows 视频渲染引入全屏 quad 管线（swapchain 改窗口客户区尺寸 + UV 常量采样，几何/填充变更逐圈追赶，Present(1)/PTS 节拍不变）；图片经 spec.fit 直达宿主页 object-fit；shader/html 由内容作者控制画布语义，下拉置灰。采集管线恒按适应全帧语义钉死，缩略图契约不变。
+
+### Changed
+
+### Fixed
+
+- **双击/随机换壁纸 UI 冻结，桌面桥接重构为自家过渡窗（三轮排障定案）**：根因是运行时把系统桌面壁纸写进换图循环——macOS 壁纸代理 FIFO 每张 5–16 秒、拥塞时 `setDesktopImageURL` 单次实测 2 秒，高频指派把代理喂堵后，所有同步等它的调用（设桌面图、建窗落位、WebView 握手）统一付出 ~2 秒，UI 冻结、通知卡顿，且静帧永远来不及在 1–2 秒的建窗间隙内渲染。终局：运行时**永不写系统桌面**。显示器重配的无缝过渡改由 Gesso 自己的过渡窗承担——清扫几何过时屏前先上预解码静帧窗（毫秒级），真壁纸窗点亮后撤；静帧后台预生成/预解码，主线程永不解码视频。连带效果：右键移除 /「恢复系统壁纸」/ 退出的所有等待全部消失、瞬时完成；设置页「桌面桥接」开关移除；0.1.x 旧版把桌面设成桥接帧的残留，由启动一次性清理。旧「恢复系统壁纸」相关的静帧滞留、黑屏、信任窗口等缺陷随接管路径一并消失（运行时不再写桌面，无恢复动作）。已知取舍：图片类条目（非 PNG 源）暂无解码器，其重配间隙退回露出用户壁纸（v1）。
+- **更新下载失败后「重试」无反应**：下载线程的三条结束路径（完成/取消/失败）都不释放检查/下载互斥标志，此后所有检查与下载请求被「进行中」挡死直至重启。同时修复更新小窗在失败态关闭后重开仍显示旧错误（关闭即重置失败态）。
+- **「随机换一张」不是随机**：实现实为按库顺序循环（+1），与托盘文案不符。现改为真随机（排除当前条目，std RandomState 播种，无新增依赖）。
+- **「随机换一张」在恢复系统壁纸之后没有反应**：恢复会释放全部壁纸会话，随机换一张取不到会话即静默空转。现无会话时回退到主显示器重新随机指派一张。
+- **显示器页细节（0.1.1 反馈）**：「重新检测」按钮改 Small 档；详情条行距与控件疏密调整；下拉长文本不再截断。
+- **沙盘小像 hover/选中描边串扰**：悬停 A 屏小像会连带点亮 B 屏的选中描边——hover 态此前误用全局选中索引，改为视图本地按屏索引。
 
 ## [0.1.1] - 2026-10-12
 
@@ -93,7 +133,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 **Project / docs**
 
 - Feasibility spikes with verified conclusions (`SPIKE-REPORT.md`): GPUI integration, macOS desktop layering, Xcode-free builds via `runtime_shaders`.
-- Engine API contract (`crates/app/API.md`), engineering notes (architecture rules + pitfall ledger), architecture doc, roadmap, FAQ, security policy, contribution guide, dual MIT/Apache-2.0 licensing.
+- Engine API contract (`crates/app/API.md`), engineering notes (architecture rules + pitfall ledger), architecture doc, roadmap, security policy, contribution guide, dual MIT/Apache-2.0 licensing.
 - Product icon set ("gesso ground" concept, DESIGN.md §品牌图形): `mac/Gesso.icns` (16→1024), `win/gesso.ico` (16→256), tray glyphs (macOS template @2x / Windows white); tray placeholder pixels in `main.rs` replaced by embedded PNGs (template-aware on macOS), runtime Dock icon via `NSImage`; regen pipeline `crates/app/assets/icons/tools/build.mjs` + brand spec sheet `docs/design/06-品牌图标.brand.html`.
 
 ### Changed

@@ -1,4 +1,4 @@
-//! 系统数据桥（M5）：只读系统真值，不含策略。
+//! 系统数据桥：只读系统真值，不含策略。
 //!
 //! 策略解析（PausePolicy → 暂停/降帧/忽略）在 `session::suspend_effect`
 //! （纯函数可单测）；本模块只回答三件事：哪些显示器正被全屏应用覆盖、
@@ -47,7 +47,7 @@ pub fn sample_mouse() -> MouseSample {
     }
 }
 
-/// 只采样光标（Windows M5-W）。
+/// 只采样光标（Windows）。
 #[cfg(target_os = "windows")]
 pub fn sample_mouse() -> MouseSample {
     let (x, y) = windows::mouse_location();

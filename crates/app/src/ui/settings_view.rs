@@ -1,4 +1,4 @@
-//! 设置页（§4.5）：分组表单，全部即时生效（无保存按钮；M3 接 core 后设置即写盘）。
+//! 设置页（§4.5）：分组表单，全部即时生效（无保存按钮；设置即写盘）。
 //! 危险操作红字 + 内联二次确认。
 
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -326,18 +326,6 @@ impl Render for SettingsView {
                     .checked(s.idle_downclock)
                     .on_click(|checked, window, cx| {
                         update(window, cx, |g| g.settings.idle_downclock = *checked);
-                        persist_settings(cx);
-                    })
-                    .into_any_element(),
-                cx,
-            ),
-            set_row(
-                SET_BRIDGE(),
-                Some(SET_BRIDGE_DESC()),
-                Switch::new("set-bridge")
-                    .checked(s.desktop_bridge)
-                    .on_click(|checked, window, cx| {
-                        update(window, cx, |g| g.settings.desktop_bridge = *checked);
                         persist_settings(cx);
                     })
                     .into_any_element(),

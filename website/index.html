@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gesso — 动态壁纸，钉在图标下面。Windows / macOS 动态壁纸引擎</title>
+<meta name="description" content="Gesso：给 Windows 和 macOS 的动态壁纸引擎。视频、网页、着色器都能当壁纸；壁纸在桌面图标下面，图标照常显示、照常点击。免费开源。">
+<meta property="og:title" content="Gesso — 动态壁纸，钉在图标下面。">
+<meta property="og:description" content="给 Windows 和 macOS 的动态壁纸引擎。视频、网页、着色器都能当壁纸；图标照常点击。免费开源。">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://zhanglun.github.io/gesso/assets/logo.png">
+<link rel="icon" type="image/png" href="assets/logo.png">
+<link rel="preconnect" href="https://api.fontshare.com">
+<link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=sentient@300,400,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="#top"><img src="assets/logo.png" width="22" height="22" alt="Gesso 应用图标"><span>Gesso</span></a>
+  <nav class="links"><a href="#board-live">活的</a><a href="#board-keep">它管什么</a><a href="#board-how">怎么工作</a><a href="#board-faq">问答</a></nav>
+  <a class="chip" href="https://github.com/zhanglun/gesso/releases" rel="noopener">下载 v0.1.3</a>
+</header>
+
+<!-- ===== Gesso 官网 · 整页一块板：12 列、8px 缝、四种格子尺寸 ===== -->
+<main class="board" id="top">
+
+  <section class="tile t-statement">
+    <h1>动态壁纸，<br>钉在图标下面。</h1>
+    <p>Gesso 是一款 Windows / macOS 动态壁纸引擎：视频、GIF、着色器、网页，钉在桌面图标之下。</p>
+  </section>
+
+  <section class="tile t-live" id="board-live" data-ui aria-label="Gesso 壁纸实时演示">
+    <div class="live-frame" data-wall-frame>
+      <canvas data-wall-canvas width="1280" height="720" aria-hidden="true"></canvas>
+      <div class="clock-wall" data-clock-wall hidden aria-hidden="true">
+        <span class="clock-time" data-clock-time></span>
+        <span class="clock-date" data-clock-date></span>
+      </div>
+      <ul class="desk-icons" aria-hidden="true">
+        <li><span class="dicon-art"><svg viewBox="0 0 32 32" width="24" height="24"><path fill="#4c8df6" d="M3 9c0-1.7 1.3-3 3-3h6l3 3h11c1.7 0 3 1.3 3 3v11c0 1.7-1.3 3-3 3H6c-1.7 0-3-1.3-3-3V9z"/></svg></span><span class="dicon-label">项目</span></li>
+        <li><span class="dicon-art"><svg viewBox="0 0 32 32" width="24" height="24"><rect x="3" y="5" width="26" height="22" rx="3" fill="#eef2f8"/><circle cx="11" cy="12" r="2.6" fill="#f0b878"/><path d="M6 24l7-8 5 5 4-4 4 7v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z" fill="#316ef5"/></svg></span><span class="dicon-label">截图 042</span></li>
+        <li><span class="dicon-art"><svg viewBox="0 0 32 32" width="24" height="24"><rect x="6" y="3" width="20" height="26" rx="3" fill="#f4f6fa"/><path d="M11 11h10M11 16h10M11 21h6" stroke="#9aa3b2" stroke-width="2" stroke-linecap="round"/></svg></span><span class="dicon-label">todo.txt</span></li>
+      </ul>
+    </div>
+    <div class="live-names" role="group" aria-label="切换预置壁纸">
+      <button type="button" data-wall-name="plasma" class="is-active">Plasma</button>
+      <button type="button" data-wall-name="aurora">Aurora</button>
+      <button type="button" data-wall-name="starfield">Starfield</button>
+      <button type="button" data-wall-name="ember">Ember</button>
+      <button type="button" data-wall-name="clock">Clock</button>
+    </div>
+    <p class="live-note">页面里跑的是 Gesso 预置的着色器与网页壁纸；首次启动共注册十款，图标照常点击。</p>
+  </section>
+
+  <section class="tile t-photos" aria-label="预置壁纸静帧">
+    <figure><img src="assets/wall-plasma.jpg" alt="Plasma 预置壁纸静帧" width="640" height="360"><figcaption>Plasma</figcaption></figure>
+    <figure><img src="assets/wall-aurora.jpg" alt="Aurora 预置壁纸静帧" width="640" height="360"><figcaption>Aurora</figcaption></figure>
+    <figure><img src="assets/wall-starfield.jpg" alt="Starfield 预置壁纸静帧" width="640" height="360"><figcaption>Starfield</figcaption></figure>
+    <figure><img src="assets/wall-ember.jpg" alt="Ember 预置壁纸静帧" width="640" height="360"><figcaption>Ember</figcaption></figure>
+    <figure><img src="assets/wall-clock.jpg" alt="Clock 预置网页壁纸静帧" width="640" height="360"><figcaption>Clock</figcaption></figure>
+  </section>
+
+  <section class="tile t-pipeline" id="board-routes" data-ui>
+    <h2>什么都能当壁纸。</h2>
+    <dl class="routes">
+      <div><dt>视频 mp4 / webm</dt><dd>能用。系统播放器直接放，流畅省电。</dd></div>
+      <div><dt>着色器 glsl</dt><dd>能用。实时演算的动画，Aurora 就是这种。</dd></div>
+      <div><dt>网页 html / 网址</dt><dd>能用。贴个网址就行，不占磁盘空间。</dd></div>
+      <div><dt>Wallpaper Engine</dt><dd>选中 project.json 就能导入，只读取原文件夹。</dd></div>
+    </dl>
+  </section>
+
+  <section class="tile t-stat" data-ui>
+    <h2>该省电时，它自己让路。</h2>
+    <ul class="stat-list">
+      <li>打游戏、看视频，壁纸自动暂停</li>
+      <li>用电池时，降到每秒 5 帧</li>
+      <li>暂停就是真的停了，不是画面冻住</li>
+    </ul>
+    <p class="stat-note">回到桌面，它接着播。</p>
+  </section>
+
+  <section class="tile t-keep" id="board-keep">
+    <h2>它替你管好的事。</h2>
+    <ul class="keep-list">
+      <li><b>打游戏看视频，壁纸自动让路。</b>全屏应用在前台时自动暂停；回到桌面接着播。</li>
+      <li><b>每块屏，一张壁纸。</b>显示器插上拔下、改分辨率，壁纸都会回到原来的位置。</li>
+      <li><b>菜单栏随手控制。</b>暂停、换一张、打开壁纸库，都在菜单栏里。</li>
+      <li><b>壁纸碰不到你的系统。</b>在隔离环境里运行，不联网上传、没有遥测；代码全部开源。</li>
+    </ul>
+  </section>
+
+  <section class="tile t-how" id="board-how">
+    <h2>怎么工作。</h2>
+    <ol class="how-list">
+      <li><b>加壁纸。</b>拖个文件，或贴个网址，都行。</li>
+      <li><b>选屏幕。</b>把卡片拖到目标屏，松手就好。</li>
+      <li><b>各就各位。</b>图标留在最上面照常点，壁纸在最下面铺满整块屏。</li>
+      <li><b>平时。</b>菜单栏一点就能暂停、换一张；重启电脑，一切照旧。</li>
+    </ol>
+  </section>
+
+  <section class="tile t-faq" id="board-faq">
+    <h2>装它之前，常被问到的。</h2>
+    <details><summary>macOS 第一次打开被拦？</summary><p>未签名构建：右键 → 打开 → 打开，一次即可；或 <code>xattr -dr com.apple.quarantine /Applications/Gesso.app</code>。</p></details>
+    <details><summary>Windows 弹 SmartScreen？</summary><p>「更多信息」→「仍要运行」，同样是一次性放行。</p></details>
+    <details><summary>支持 Wallpaper Engine 吗？</summary><p>支持主动导入的 video / web 两类，只读引用原目录；不扫描、不连创意工坊。</p></details>
+    <details><summary>多显示器？</summary><p>每块屏独立会话；Windows 多显示器机型仍在实机回归的路上。</p></details>
+    <details><summary>Linux？</summary><p>v1 不做，先把 macOS 和 Windows 做扎实。</p></details>
+  </section>
+
+  <section class="tile t-download">
+    <h2>十款壁纸已经内置，<br>下载就能换上。</h2>
+    <a class="get" href="https://github.com/zhanglun/gesso/releases" rel="noopener">下载 Gesso v0.1.3</a>
+    <p>macOS .dmg 与 Windows 安装包 / 绿色版；未签名构建，首次打开放行一次即可。</p>
+  </section>
+
+  <section class="tile t-contact">
+    <h2>源码、问题、路线图，都在 GitHub。</h2>
+    <a href="https://github.com/zhanglun/gesso" rel="noopener">github.com/zhanglun/gesso</a>
+    <p class="meta"><span>Gesso · Rust + GPUI + wry · v0.1.3 · 2026-10-15</span><span>© 2026 zhanglun · MIT OR Apache-2.0</span><span>站在 Lively Wallpaper、Plash、gpui-kit、wry、Lucide 的肩膀上</span></p>
+  </section>
+
+</main>
+<script>document.documentElement.classList.replace("no-js", "js");</script>
+<script src="assets/page.js"></script>
+</body>
+</html>

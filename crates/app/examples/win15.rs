@@ -13,7 +13,7 @@
 //! DXGI 路线，对精简系统免疫。
 //!
 //! 运行：cargo run -p gesso-app --example win15 -- <视频路径>
-//! 验收：视频丝滑（对照 WebView2 路径的卡顿）；ESC 退出并还原桌面。
+//! 验收：视频丝滑（对照 WebView2 路径的卡顿）；ESC 退出并触发桌面重绘。
 
 #[cfg(target_os = "windows")]
 mod imp {

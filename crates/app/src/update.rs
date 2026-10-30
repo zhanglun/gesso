@@ -8,7 +8,8 @@
 //! 检查/下载跑在独立线程（阻塞 IO，见 `spawn_check`/`spawn_download`），引擎主循环
 //! 每拍比对代数、变化即回灌快照 + 刷新窗口——与 150ms 动作轮询同一节奏，无额外通道。
 //!
-//! 纯函数（`version_newer`/`parse_release`/`pick_asset`）带单测，网络路径不测。
+//! 更新检查只读取 release 资产里的静态 `latest.json`，不访问 GitHub REST API。
+//! 纯函数（`version_newer`/`parse_manifest`/`pick_asset`）带单测，网络路径不测。
 
 use std::io::{Read as _, Write as _};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -16,23 +17,48 @@ use std::sync::Mutex;
 
 use crate::ui::data::{UpdatePhase, UpdateView};
 
-/// 正式发布查询（GitHub API 自动排除 draft/prerelease；UA 为 GitHub API 强制要求）。
-pub const RELEASE_API: &str = "https://api.github.com/repos/zhanglun/gesso/releases/latest";
+/// 检查更新端点：release 自带的静态清单资产（`releases/latest/download/`
+/// 是 github.com 网页端点；由 release.yml 随每次发布生成）。
+pub const RELEASE_MANIFEST: &str =
+    "https://github.com/zhanglun/gesso/releases/latest/download/latest.json";
 /// 发布页（弹窗「前往发布页」出口；手动下载兜底）。
 pub const RELEASE_PAGE: &str = "https://github.com/zhanglun/gesso/releases/latest";
 /// 自动检查抑制窗口（§4.7：启动首查后每 24h 一次）。
 const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 3600;
+
+/// 发布说明的双语内容。新客户端按当前 App 语言选择；旧清单仍可回退到同一份文本。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseNotes {
+    pub zh: String,
+    pub en: String,
+}
+
+impl ReleaseNotes {
+    fn localized(&self) -> String {
+        if crate::ui::strings::lang() == 1 {
+            if self.en.is_empty() {
+                self.zh.clone()
+            } else {
+                self.en.clone()
+            }
+        } else if self.zh.is_empty() {
+            self.en.clone()
+        } else {
+            self.zh.clone()
+        }
+    }
+}
 
 /// 一次发布的可交付信息（已选定本平台安装包）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseInfo {
     /// 不带 v 前缀的语义版本，如 "0.1.2"。
     pub version: String,
-    /// release body（按纯文本展示）。
-    pub notes: String,
+    /// 发布说明的双语内容，投影到 UI 时按当前 App 语言选择。
+    pub notes: ReleaseNotes,
     pub asset_name: String,
     pub asset_url: String,
-    /// 字节（API 提供的资产大小；Content-Length 缺失时进度条兜底用它）。
+    /// 字节（清单提供的资产大小；Content-Length 缺失时进度条兜底用它）。
     pub asset_size: u64,
 }
 
@@ -121,6 +147,8 @@ pub fn spawn_check() {
         println!("[update] 已有检查/下载进行中，忽略本次检查请求");
         return;
     }
+    // 先切到 Checking，再打开窗口/启动线程，避免窗口第一帧沿用上一次 Failed 的红字。
+    set(UpdateState::Checking);
     std::thread::spawn(run_check);
 }
 
@@ -143,6 +171,17 @@ pub fn cancel_download() {
     }
 }
 
+/// 关闭更新小窗时调用：失败态重置为 Idle（重开从「检查更新」干净起步，
+/// 不停留在旧错误）；其余态保留——Available 还能回来下载、Ready 还能打开安装包。
+pub fn reset_failure() {
+    let mut s = STATE.lock().expect("update 状态锁");
+    if matches!(*s, UpdateState::Failed { .. }) {
+        *s = UpdateState::Idle;
+        drop(s);
+        GEN.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 /// 发起下载（仅「发现新版本」态受理；后台流式写盘，进度经状态回灌）。
 pub fn spawn_download() {
     let Some(release) = state_snapshot().available().cloned() else {
@@ -159,24 +198,29 @@ pub fn spawn_download() {
         downloaded: 0,
         total,
     });
-    std::thread::spawn(move || match download_with_progress(&release) {
-        DownloadOutcome::Done(path) => {
-            set(UpdateState::Ready {
-                release,
-                path: path.display().to_string(),
-            });
-        }
-        DownloadOutcome::Cancelled => {
-            // 回到「发现新版本」：弹窗按既有发布信息重新给出下载入口
-            println!("[update] 下载已取消");
-            set(UpdateState::Available(release));
-        }
-        DownloadOutcome::Failed(message) => {
-            println!("[update] 下载失败：{message}");
-            set(UpdateState::Failed {
-                message,
-                can_retry_download: true,
-            });
+    std::thread::spawn(move || {
+        let outcome = download_with_progress(&release);
+        // 三条结束路径统一释放互斥标志：漏掉即「重试无反应」（BUSY 死锁到进程重启）
+        BUSY.store(false, Ordering::SeqCst);
+        match outcome {
+            DownloadOutcome::Done(path) => {
+                set(UpdateState::Ready {
+                    release,
+                    path: path.display().to_string(),
+                });
+            }
+            DownloadOutcome::Cancelled => {
+                // 回到「发现新版本」：弹窗按既有发布信息重新给出下载入口
+                println!("[update] 下载已取消");
+                set(UpdateState::Available(release));
+            }
+            DownloadOutcome::Failed(message) => {
+                println!("[update] 下载失败：{message}");
+                set(UpdateState::Failed {
+                    message,
+                    can_retry_download: true,
+                });
+            }
         }
     });
 }
@@ -186,7 +230,6 @@ pub fn spawn_download() {
 fn run_check() {
     // BUSY 已由 spawn_check 持有；LAST_CHECK 在发起时刷新（失败也不至高频重试）
     LAST_CHECK.store(unix_secs(), Ordering::SeqCst);
-    set(UpdateState::Checking);
     let current = env!("CARGO_PKG_VERSION");
     match fetch_latest() {
         Ok(release) => {
@@ -238,7 +281,11 @@ fn download_with_progress(release: &ReleaseInfo) -> DownloadOutcome {
         .call()
     {
         Ok(r) => r,
-        Err(e) => return DownloadOutcome::Failed(format!("下载连接失败：{e}")),
+        Err(e) => {
+            return DownloadOutcome::Failed(format!(
+                "下载连接失败：{e}；请检查网络/代理后重试，或前往发布页手动下载"
+            ))
+        }
     };
     let total = resp
         .header("Content-Length")
@@ -293,33 +340,175 @@ fn user_agent() -> String {
 /// 共享 agent：连接超时 15s（下载体用整体超时无意义——大文件 + 慢网会被误杀，
 /// 停滞依赖用户「取消下载」兜底）。检查请求在其上再叠 15s 整体超时。
 fn http_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
+    let mut builder = ureq::AgentBuilder::new()
         .timeout_connect(std::time::Duration::from_secs(15))
-        .build()
+        // 连接停滞不再无限挂起（读不到数据 30s 即报错；慢速下载不受影响）
+        .timeout_read(std::time::Duration::from_secs(30));
+    // 代理优先级：环境变量（ureq proxy-from-env 默认行为）> 系统代理 > 直连。
+    // GUI 进程不继承 shell 环境变量、ureq 不读系统代理——国内用户浏览器能下、
+    // 应用内超时（os error 60）的根因即此，故系统代理要自己补读。
+    if !env_proxy_set() {
+        if let Some(uri) = SYSTEM_PROXY.get_or_init(system_proxy_uri) {
+            if let Ok(p) = ureq::Proxy::new(uri) {
+                builder = builder.proxy(p);
+            }
+        }
+    }
+    builder.build()
+}
+
+static SYSTEM_PROXY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+fn env_proxy_set() -> bool {
+    ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
+        .iter()
+        .any(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
+}
+
+/* ---------- 系统代理读取（macOS: scutil --proxy；Windows: Internet Settings 注册表） ---------- */
+
+/// macOS 系统代理（含 Clash/Surge「系统代理」模式写入的静态代理）；PAC 不解析回落直连。
+#[cfg(target_os = "macos")]
+fn system_proxy_uri() -> Option<String> {
+    let out = std::process::Command::new("scutil")
+        .arg("--proxy")
+        .output()
+        .ok()?;
+    parse_scutil_proxy(&String::from_utf8_lossy(&out.stdout))
+}
+/// `scutil --proxy` 输出 → 代理 URI（纯函数，单测覆盖）。优先 HTTPS 代理，
+/// 其次 HTTP，最后 SOCKS；各自需 Enable=1 且地址/端口齐全；PAC 不解析。
+#[cfg(any(target_os = "macos", test))]
+fn parse_scutil_proxy(s: &str) -> Option<String> {
+    let get = |key: &str| -> Option<String> {
+        s.lines()
+            .find(|l| l.trim_start().starts_with(key))
+            .and_then(|l| l.split(':').nth(1))
+            .map(|v| v.trim().to_string())
+    };
+    let httpish = |enable: &str, host: &str, port: &str| {
+        (get(enable).as_deref() == Some("1"))
+            .then(|| {
+                get(host)
+                    .zip(get(port))
+                    .map(|(h, p)| format!("http://{h}:{p}"))
+            })
+            .flatten()
+    };
+    httpish("HTTPSEnable", "HTTPSProxy", "HTTPSPort")
+        .or_else(|| httpish("HTTPEnable", "HTTPProxy", "HTTPPort"))
+        .or_else(|| {
+            (get("SOCKSEnable").as_deref() == Some("1"))
+                .then(|| {
+                    get("SOCKSProxy")
+                        .zip(get("SOCKSPort"))
+                        .map(|(h, p)| format!("socks5://{h}:{p}"))
+                })
+                .flatten()
+        })
+}
+
+/// Windows 系统代理（WinInet Internet Settings；`ProxyServer` 形如
+/// `host:port` 或 `http=h:p;https=h:p;socks=h:p`）。
+#[cfg(target_os = "windows")]
+fn system_proxy_uri() -> Option<String> {
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::System::Registry::{
+        RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
+    };
+    const SUBKEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings");
+    unsafe {
+        let mut enabled: u32 = 0;
+        let mut cb = std::mem::size_of::<u32>() as u32;
+        if RegGetValueW(
+            HKEY_CURRENT_USER,
+            SUBKEY,
+            w!("ProxyEnable"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut enabled as *mut u32 as *mut _),
+            Some(&mut cb),
+        )
+        .0 != 0
+            || enabled != 1
+        {
+            return None;
+        }
+        let mut buf = [0u16; 256];
+        let mut cb = (buf.len() * 2) as u32;
+        if RegGetValueW(
+            HKEY_CURRENT_USER,
+            SUBKEY,
+            w!("ProxyServer"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr() as *mut _),
+            Some(&mut cb),
+        )
+        .0 != 0
+        {
+            return None;
+        }
+        let s = String::from_utf16_lossy(&buf[..(cb as usize) / 2]);
+        parse_windows_proxy_server(&s)
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn parse_windows_proxy_server(s: &str) -> Option<String> {
+    // RegGetValueW 的 pcbData 含结尾 NUL，截出的串带着它——带 NUL 的代理 URI
+    // 会被对端拒绝（CONNECT 隧道建不起来，报 Proxy failed to connect）。
+    let s = s.trim_end_matches('\x00').trim();
+    if s.is_empty() {
+        return None;
+    }
+    if !s.contains('=') {
+        return Some(format!("http://{s}")); // 单一形态：对所有协议生效
+    }
+    let val = |want: &str| {
+        s.split(';').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            (k.trim() == want).then(|| v.trim().to_string())
+        })
+    };
+    val("https")
+        .or_else(|| val("http"))
+        .map(|v| format!("http://{v}"))
+        .or_else(|| val("socks").map(|v| format!("socks5://{v}")))
 }
 
 fn fetch_latest() -> Result<ReleaseInfo, String> {
-    // 开发验证钩子（仅 debug）：GESSO_RELEASE_API=<url> 覆盖检查端点——无头验证
-    // 走本地 mock（绕开 GitHub 匿名限额/离线造失败态），未来也可指向 staging 源
     #[cfg(debug_assertions)]
-    let endpoint = std::env::var("GESSO_RELEASE_API").unwrap_or_else(|_| RELEASE_API.to_string());
+    let endpoint =
+        std::env::var("GESSO_RELEASE_MANIFEST").unwrap_or_else(|_| RELEASE_MANIFEST.to_string());
     #[cfg(not(debug_assertions))]
-    let endpoint = RELEASE_API;
-    let ua = user_agent();
+    let endpoint = RELEASE_MANIFEST;
+
+    let body = fetch_text(&endpoint)?;
+    parse_manifest(&body)
+        .map_err(|e| format!("GitHub 更新清单格式无效（{e}）；请前往发布页手动下载"))
+}
+
+/// GET 文本（共用 UA/代理/超时/错误文案）。
+fn fetch_text(url: &str) -> Result<String, String> {
     let resp = http_agent()
-        .get(&endpoint)
-        .set("User-Agent", &ua)
-        .set("Accept", "application/vnd.github+json")
+        .get(url)
+        .set("User-Agent", &user_agent())
         .timeout(std::time::Duration::from_secs(15))
         .call()
-        .map_err(|e| format!("无法连接 GitHub（{e}）；请检查网络后重试，或前往发布页手动下载"))?;
-    let body = resp
-        .into_string()
-        .map_err(|e| format!("响应读取失败：{e}"))?;
-    parse_release(&body)
+        .map_err(check_err_message)?;
+    resp.into_string().map_err(|e| format!("响应读取失败：{e}"))
 }
 
 /* ---------- 纯函数（单测覆盖） ---------- */
+
+/// 清单请求失败的用户文案；更新路径不访问 GitHub REST API，因此不会出现 API 限流误导。
+fn check_err_message(e: ureq::Error) -> String {
+    if matches!(e, ureq::Error::Status(404, _)) {
+        return "GitHub 更新清单暂未发布；请前往发布页手动下载".into();
+    }
+    format!("无法获取 GitHub 更新清单（{e}）；请检查网络后重试，或前往发布页手动下载")
+}
 
 /// 语义版本三元组比较；任一侧无法解析（含预发布后缀剥离后仍非法）保守返回 false。
 pub fn version_newer(current: &str, candidate: &str) -> bool {
@@ -342,33 +531,36 @@ fn triplet(v: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-/// 从 GitHub Release JSON 提取本平台可交付信息。
-pub fn parse_release(json: &str) -> Result<ReleaseInfo, String> {
+/// 静态清单（latest.json，release.yml 随每次发布生成并作为 release 资产上传）
+/// → ReleaseInfo。新结构为 `{version, notes, notes_localized:{zh,en}, assets:[...]}`。
+/// `notes` 保留给旧客户端；新客户端优先读取 `notes_localized`。旧版只有
+/// `notes: "..."` 的清单也继续兼容。解析失败（清单缺失返回的 404 页/HTML）直接
+/// 提示用户前往发布页，不访问 API。
+pub fn parse_manifest(json: &str) -> Result<ReleaseInfo, String> {
     let v: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| format!("发布信息解析失败：{e}"))?;
+        serde_json::from_str(json).map_err(|e| format!("更新清单解析失败：{e}"))?;
     let version = v
-        .get("tag_name")
+        .get("version")
         .and_then(|t| t.as_str())
-        .ok_or("发布信息缺少 tag_name")?
+        .ok_or("更新清单缺少 version")?
         .trim()
         .trim_start_matches('v')
         .to_string();
     let notes = v
-        .get("body")
-        .and_then(|b| b.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .get("notes_localized")
+        .map(|value| parse_notes(Some(value)))
+        .unwrap_or_else(|| parse_notes(v.get("notes")));
     let assets = v
         .get("assets")
         .and_then(|a| a.as_array())
-        .ok_or("发布信息缺少 assets")?;
+        .ok_or("更新清单缺少 assets")?;
     let list: Vec<(String, u64, String)> = assets
         .iter()
         .filter_map(|a| {
             Some((
                 a.get("name")?.as_str()?.to_string(),
                 a.get("size")?.as_u64()?,
-                a.get("browser_download_url")?.as_str()?.to_string(),
+                a.get("url")?.as_str()?.to_string(),
             ))
         })
         .collect();
@@ -381,6 +573,31 @@ pub fn parse_release(json: &str) -> Result<ReleaseInfo, String> {
         asset_url,
         asset_size,
     })
+}
+
+fn parse_notes(value: Option<&serde_json::Value>) -> ReleaseNotes {
+    match value {
+        Some(serde_json::Value::Object(map)) => ReleaseNotes {
+            zh: map
+                .get("zh")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            en: map
+                .get("en")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        },
+        Some(serde_json::Value::String(text)) => ReleaseNotes {
+            zh: text.clone(),
+            en: text.clone(),
+        },
+        _ => ReleaseNotes {
+            zh: String::new(),
+            en: String::new(),
+        },
+    }
 }
 
 /// 本机构建对应的发布资产 arch 标记（与 packaging 产物命名对齐：
@@ -533,7 +750,7 @@ pub fn public_view() -> UpdateView {
             phase: UpdatePhase::Available,
             current_version: current.into(),
             version: r.version.into(),
-            notes: r.notes.into(),
+            notes: r.notes.localized().into(),
             asset_name: r.asset_name.into(),
             asset_size: r.asset_size,
             ..UpdateView::default()
@@ -606,48 +823,88 @@ mod tests {
         assert!(!version_newer("0.1.1", "0.1.1-beta"), "同版本预发布不算新");
     }
 
-    const SAMPLE_JSON: &str = r###"{
-        "tag_name": "v0.2.0",
-        "body": "## Fixes\n- 竖版适配",
+    const SAMPLE_MANIFEST: &str = r###"{
+        "version": "v0.3.0",
+        "notes": "legacy notes",
+        "notes_localized": {
+            "zh": "## 更新\n- 不再查询 GitHub API",
+            "en": "## Updates\n- No GitHub API requests"
+        },
         "assets": [
-            {"name": "Gesso-0.2.0-arm64.dmg", "size": 48000000, "browser_download_url": "https://x/arm64.dmg"},
-            {"name": "Gesso-0.2.0-x64.dmg", "size": 52000000, "browser_download_url": "https://x/x64.dmg"},
-            {"name": "Gesso-0.2.0-x64-portable.zip", "size": 41000000, "browser_download_url": "https://x/x64.zip"},
-            {"name": "Gesso-0.2.0-x64-setup.exe", "size": 43000000, "browser_download_url": "https://x/x64-setup.exe"},
-            {"name": "checksums.txt", "size": 400, "browser_download_url": "https://x/checksums.txt"}
+            {"name": "Gesso-0.3.0-arm64.dmg", "size": 49000000, "url": "https://x/manifest-arm64.dmg"},
+            {"name": "Gesso-0.3.0-x64.dmg", "size": 53000000, "url": "https://x/manifest-x64.dmg"},
+            {"name": "Gesso-0.3.0-x64-portable.zip", "size": 41000000, "url": "https://x/manifest-x64.zip"},
+            {"name": "Gesso-0.3.0-x64-setup.exe", "size": 43000000, "url": "https://x/manifest-x64-setup.exe"},
+            {"name": "checksums.txt", "size": 400, "url": "https://x/checksums.txt"}
         ]
     }"###;
 
     #[test]
-    fn parse_release_extracts_version_notes_and_asset() {
-        let r = parse_release(SAMPLE_JSON).expect("样例可解析");
-        assert_eq!(r.version, "0.2.0");
-        assert!(r.notes.contains("竖版适配"));
-        // 资产按本机平台挑选（§4.7 规则：macOS=dmg / Windows=setup.exe，arch
-        // 命中优先）——期望值按 arch_tag() 动态推导，断言在双平台 CI 都成立
-        let (want_name, want_size, want_url): (&str, u64, &str) = if cfg!(target_os = "macos") {
-            ("Gesso-0.2.0-arm64.dmg", 48000000, "https://x/arm64.dmg")
+    fn parse_manifest_extracts_version_notes_and_asset() {
+        let r = parse_manifest(SAMPLE_MANIFEST).expect("清单可解析");
+        assert_eq!(r.version, "0.3.0");
+        assert!(r.notes.zh.contains("不再查询 GitHub API"));
+        assert!(r.notes.en.contains("No GitHub API requests"));
+        if cfg!(target_os = "macos") {
+            assert!(r.asset_name.ends_with(".dmg"));
+            assert_eq!(
+                r.asset_size,
+                if cfg!(target_arch = "aarch64") {
+                    49000000
+                } else {
+                    53000000
+                }
+            );
         } else {
-            (
-                "Gesso-0.2.0-x64-setup.exe",
-                43000000,
-                "https://x/x64-setup.exe",
-            )
-        };
-        assert_eq!(r.asset_name, want_name, "arch 命中本平台安装包");
-        assert_eq!(r.asset_size, want_size);
-        assert_eq!(r.asset_url, want_url);
+            assert_eq!(r.asset_name, "Gesso-0.3.0-x64-setup.exe");
+            assert_eq!(r.asset_size, 43000000);
+        }
     }
 
     #[test]
-    fn parse_release_rejects_malformed() {
-        assert!(parse_release("not json").is_err());
+    fn release_notes_follow_app_language_with_fallback() {
+        let notes = ReleaseNotes {
+            zh: "中文".into(),
+            en: "English".into(),
+        };
+        crate::ui::strings::set_lang(gesso_core::config::Language::Zh);
+        assert_eq!(notes.localized(), "中文");
+        crate::ui::strings::set_lang(gesso_core::config::Language::En);
+        assert_eq!(notes.localized(), "English");
+        let only_zh = ReleaseNotes {
+            zh: "中文".into(),
+            en: String::new(),
+        };
+        assert_eq!(only_zh.localized(), "中文");
+        crate::ui::strings::set_lang(gesso_core::config::Language::Zh);
+    }
+
+    #[test]
+    fn parse_manifest_legacy_notes_fall_back_to_both_languages() {
+        let json = r#"{
+            "version":"0.3.0",
+            "notes":"legacy notes",
+            "assets":[
+                {"name":"Gesso-0.3.0-arm64.dmg","size":1,"url":"https://x/a.dmg"},
+                {"name":"Gesso-0.3.0-x64-setup.exe","size":1,"url":"https://x/a.exe"}
+            ]
+        }"#;
+        let r = parse_manifest(json).expect("旧版清单可解析");
+        assert_eq!(r.notes.zh, "legacy notes");
+        assert_eq!(r.notes.en, "legacy notes");
+    }
+
+    #[test]
+    fn parse_manifest_rejects_malformed() {
+        assert!(parse_manifest("not json").is_err());
         assert!(
-            parse_release(r#"{"tag_name": "v1.0.0"}"#).is_err(),
+            parse_manifest(r#"{"version":"1.0.0"}"#).is_err(),
             "缺 assets"
         );
-        let no_asset = r#"{"tag_name": "v1.0.0", "assets": [{"name": "checksums.txt", "size": 1, "browser_download_url": "https://x"}]}"#;
-        assert!(parse_release(no_asset).is_err(), "无本平台资产 → 明确报错");
+        assert!(
+            parse_manifest(r#"{"notes":"x","assets":[]}"#).is_err(),
+            "缺 version"
+        );
     }
 
     #[test]
@@ -703,7 +960,10 @@ mod tests {
         // 进入 Available：首次通知，同代数去重
         set(UpdateState::Available(ReleaseInfo {
             version: "0.2.0".into(),
-            notes: String::new(),
+            notes: ReleaseNotes {
+                zh: String::new(),
+                en: String::new(),
+            },
             asset_name: "a.dmg".into(),
             asset_url: "https://x".into(),
             asset_size: 1,
@@ -715,12 +975,74 @@ mod tests {
         set(UpdateState::Checking);
         set(UpdateState::Available(ReleaseInfo {
             version: "0.3.0".into(),
-            notes: String::new(),
+            notes: ReleaseNotes {
+                zh: String::new(),
+                en: String::new(),
+            },
             asset_name: "a.dmg".into(),
             asset_url: "https://x".into(),
             asset_size: 1,
         }));
         assert_eq!(consume_available_toast().as_deref(), Some("0.3.0"));
         set(UpdateState::Idle);
+    }
+
+    #[test]
+    fn scutil_proxy_precedence_and_gating() {
+        // 三者全开：HTTPS 优先
+        let all = "<dictionary> {\n HTTPSEnable : 1\n HTTPSProxy : 10.0.0.2\n HTTPSPort : 443\n HTTPEnable : 1\n HTTPProxy : 10.0.0.1\n HTTPPort : 7890\n SOCKSEnable : 1\n SOCKSProxy : 127.0.0.1\n SOCKSPort : 7891\n }";
+        assert_eq!(
+            parse_scutil_proxy(all).as_deref(),
+            Some("http://10.0.0.2:443")
+        );
+        // 仅 HTTP 开
+        let http_only = "HTTPEnable : 1\n HTTPProxy : 127.0.0.1\n HTTPPort : 7890\n HTTPSEnable : 0\n SOCKSEnable : 0";
+        assert_eq!(
+            parse_scutil_proxy(http_only).as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        // 仅 SOCKS 开
+        let socks_only =
+            "SOCKSEnable : 1\n SOCKSProxy : 127.0.0.1\n SOCKSPort : 7891\n HTTPEnable : 0";
+        assert_eq!(
+            parse_scutil_proxy(socks_only).as_deref(),
+            Some("socks5://127.0.0.1:7891")
+        );
+        // 全关 / 仅 PAC：直连（None）
+        assert_eq!(parse_scutil_proxy("HTTPEnable : 0\n SOCKSEnable : 0"), None);
+        assert_eq!(
+            parse_scutil_proxy(
+                "ProxyAutoConfigEnable : 1\n ProxyAutoConfigURLString : http://x/pac"
+            ),
+            None
+        );
+        // 开了但缺地址：不产半截 URI
+        assert_eq!(parse_scutil_proxy("HTTPEnable : 1\n HTTPPort : 7890"), None);
+    }
+
+    #[test]
+    fn windows_proxy_server_forms() {
+        // 单一形态：对所有协议生效
+        assert_eq!(
+            parse_windows_proxy_server("127.0.0.1:7890").as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        // 分协议形态：https > http > socks
+        let per = "http=127.0.0.1:8080;https=127.0.0.1:7891;socks=127.0.0.1:7892";
+        assert_eq!(
+            parse_windows_proxy_server(per).as_deref(),
+            Some("http://127.0.0.1:7891")
+        );
+        assert_eq!(
+            parse_windows_proxy_server("http=127.0.0.1:8080;socks=127.0.0.1:7892").as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert_eq!(
+            parse_windows_proxy_server("socks=127.0.0.1:7892").as_deref(),
+            Some("socks5://127.0.0.1:7892")
+        );
+        // 空串 / 空白
+        assert_eq!(parse_windows_proxy_server(""), None);
+        assert_eq!(parse_windows_proxy_server("   "), None);
     }
 }

@@ -1,4 +1,4 @@
-//! gesso —— M2/M3 装配：会话管理器 + 管理窗口三页签 UI（界面与交互设计 v1.0）。
+//! gesso —— 应用装配：会话管理器 + 管理窗口三页签 UI（界面与交互设计 v1.0）。
 //!
 //! release 改 GUI 子系统：不随启动弹终端黑窗（诊断已由 panic 落盘日志兜底，
 //! debug 构建保留控制台承接 stdout 日志）。
@@ -69,22 +69,26 @@ fn tray_icon_rgba() -> (Vec<u8>, u32, u32) {
     (buf, info.width, info.height)
 }
 
-/// cargo run 时让 Dock 显示真实应用图标（打包分发后由 bundle 的 Gesso.icns 接管）。
+/// macOS 菜单栏常驻配置：从 Cmd+Tab/Dock 隐去应用，但保留托盘打开普通窗口的能力；
+///窗口图标仍使用真实 Gesso.icns（打包分发后由 bundle 接管）。
 #[cfg(target_os = "macos")]
-fn apply_dock_icon() {
+fn configure_macos_app() {
     use objc2::AnyThread as _;
-    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSImage};
     use objc2_foundation::{MainThreadMarker, NSData};
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
+    // 先设置常驻策略；即使图标资源加载失败，也不能退回 Regular 而出现在 Cmd+Tab。
+    let app = NSApplication::sharedApplication(mtm);
+    let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     let data = NSData::with_bytes(include_bytes!("../assets/icons/mac/Gesso.icns"));
     let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
         return;
     };
     // SAFETY: 主线程（mtm）且 NSApplication 已由 GPUI 启动，官方约束满足
     unsafe {
-        NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
+        app.setApplicationIconImage(Some(&image));
     }
 }
 
@@ -105,7 +109,7 @@ fn spawn_thumb_job(bg: gpui_kit::gpui::BackgroundExecutor, dir: String) {
 /// shader/html 缩略图采集：入串行队列，惰性起一个主线程工作任务逐个消化。
 /// 串行是崩溃纪律：并发多 webview + 快照 completion 是崩溃放大器（2026-10-04）。
 /// 缩略图策略分派（两处调用共用）：Windows 视频走主线程采集队列（webview 抽帧，
-/// M4-W），macOS 维持后台 AVFoundation 抽帧。
+/// macOS 维持后台 AVFoundation 抽帧。
 fn dispatch_thumb(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: WallpaperKind) {
     match gesso_core::content_type(kind).thumb {
         gesso_core::ThumbStrategy::Capture => spawn_capture_job(cx, dir, kind),
@@ -137,7 +141,12 @@ fn spawn_capture_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: Wallp
                     .iter()
                     // 采集队列键 = 缩略图家目录（本地/WE = source_dir；远端 = 库内 <id>/）
                     .find(|e| encoding::thumb_home(e) == dir)
-                    .map(|e| session::SessionManager::entry_host_url(e, 60))
+                    // 采集恒按适应（Contain）全帧语义——卡片预览看全貌，不随壁纸
+                    // 填充模式走（§4.4 2026-10-12；Windows 抽帧 drawImage 读像素
+                    // 不吃 CSS，macOS 快照吃——统一钉死保证帧契约同构）
+                    .map(|e| {
+                        session::SessionManager::entry_host_url(e, 60, gesso_core::Fit::Contain)
+                    })
             });
             let written = match url {
                 Some(url) => {
@@ -182,7 +191,7 @@ fn bootstrap() -> (session::SessionManager, bool) {
             }
         }
     };
-    // 预置壁纸：视频 1 + shader 8 + html 1（M4 DoD：shader 渲染，noiseflow 含 iChannel
+    // 预置壁纸：视频 1 + shader 8 + html 1（noiseflow 含 iChannel
     // 纹理，cursor 含 iMouse 光标桥；html 演示沙箱契约与 postMessage 暂停配合）。
     // 标题即产品文案：不带「内置/样例/测试」措辞；本表是预置条目标题的唯一事实源
     //（播种时对已存在条目做标题刷新，升级改名不残留旧文案）。
@@ -317,12 +326,19 @@ fn bootstrap() -> (session::SessionManager, bool) {
     let mut sm = session::SessionManager::new(config, library);
     sm.sync_monitors();
 
-    // 桌面桥接对账：硬杀残留的接管记录按当前活跃指派清理；开关关闭则全量
-    // 恢复（desktop_bridge.rs 模块注释——所有权纪律与已知边界）
-    let active: std::collections::BTreeSet<String> =
-        sm.config().monitors.values().cloned().collect();
-    let bridge_on = sm.config().settings.desktop_bridge;
-    desktop_bridge::reconcile(&active, bridge_on);
+    // 旧版本残留清理：旧版带桌面接管的版本若硬杀退出，桌面可能还设着
+    // 桥接帧——一次性恢复原壁纸（零等待）；此后本进程不再写系统桌面。
+    // 静帧预生成：过渡窗的帧供给（后台，主线程永不解码视频）。
+    desktop_bridge::cleanup_legacy_takeovers();
+    desktop_bridge::preseed_video_frames(sm.library());
+    // 当前指派条目的静帧预解码（后台）：首次重配即有过渡帧可用
+    {
+        let assigned: std::collections::BTreeSet<String> =
+            sm.config().monitors.values().cloned().collect();
+        for e in sm.library().iter().filter(|e| assigned.contains(&e.id)) {
+            desktop_bridge::refresh_frame(e);
+        }
+    }
 
     // 开发验证钩子（仅 debug 构建）：GESSO_DEV_URL=<https 地址> 启动即导入并指派
     // 主屏，用于无头验证远端网页链路（跨域 iframe 装载/缩略图），如
@@ -369,7 +385,6 @@ fn snapshot_ui(
             gesso_core::config::Language::En => 2,
         },
         update_check: cs.update_check,
-        desktop_bridge: cs.desktop_bridge,
         ..ui::data::Settings::default()
     };
     // 宠物投影：宠物页只消费快照，不直接读取 AppState。
@@ -484,6 +499,7 @@ fn snapshot_ui(
                     _ => ui::data::PlayState::UserPaused,
                 },
                 fps: sm.fps_for(&m.id) as u32,
+                fit: ui::data::FitMode::from_core(sm.fit_for(&m.id)),
                 real_id: m.id.clone(),
             }
         })
@@ -660,7 +676,7 @@ fn install_tray_menu_handler() {
             // 当前状态经托盘图标/状态矩阵反映）
             "pause" => {
                 // fetch_xor 翻转并返回旧值（swap(true) 会永远读到同一个旧值 →
-                // 该项变成"只暂停不恢复"，M0.5 踩过同款坑）
+                // 该项变成"只暂停不恢复"，历史踩过同款坑）
                 let paused = !TRAY_PAUSED.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
                 engine::enqueue(EngineAction::PauseAll(paused));
             }
@@ -670,7 +686,7 @@ fn install_tray_menu_handler() {
             "pet-web" => engine::enqueue(EngineAction::OpenWebControl),
             "pet-toggle" => engine::enqueue(EngineAction::TogglePetVisibility),
             "main" => engine::enqueue(EngineAction::FocusMainWindow),
-            // 逃生门：全量恢复系统壁纸（重新指派壁纸会按设置再次接管）
+            // 逃生门：清全部指派并拆窗，桌面即用户自己的壁纸
             "restore-wallpaper" => engine::enqueue(EngineAction::RestoreSystemWallpaper),
             // 「检查更新…」：动作带开窗意图（托盘线程不能直接开 GPUI 窗口，
             // 主循环兑现）；检查本身在 update 模块后台线程
@@ -908,8 +924,12 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             sm.cycle_main();
         }
         engine::EngineAction::RestoreSystemWallpaper => {
-            let n = desktop_bridge::restore_all();
-            println!("[ui] 恢复系统壁纸：{n} 屏已还原");
+            // 释放语义：清空全部指派 + 拆全部壁纸窗——桌面即用户自己的壁纸
+            //（运行时不接管系统桌面，无需恢复动作；重新指派即可再上壁纸）。
+            let n = app.sm.release_all();
+            #[cfg(target_os = "windows")]
+            pin::windows::restore_desktop();
+            println!("[ui] 恢复系统壁纸：{n} 个壁纸会话已释放，桌面即系统壁纸");
         }
         engine::EngineAction::Import { path } => {
             // 选中 WE 的 project.json → 转 WE 整目录导入
@@ -963,6 +983,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
             println!("[engine] {monitor_id} fps = {fps}");
             sm.set_fps(&monitor_id, fps);
+        }
+        engine::EngineAction::SetMonitorFit { monitor_id, fit } => {
+            println!("[engine] {monitor_id} fit = {fit:?}");
+            sm.set_fit(&monitor_id, fit);
         }
         engine::EngineAction::OpenWebControl => {
             crate::web_control::open();
@@ -1102,7 +1126,8 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                     }
                 }
             }
-            app.sm.teardown_all();
+            // 退出只拆壁纸窗（运行时不接管系统桌面，无桌面恢复动作）
+            app.sm.teardown_for_quit();
             #[cfg(target_os = "windows")]
             pin::windows::restore_desktop();
             std::process::exit(0);
@@ -1251,8 +1276,25 @@ fn focus_or_reopen_main(cx: &mut gpui_kit::gpui::App) {
     }
     if !activated {
         open_main_window(cx);
+        if let Some(handle) = MAIN_WINDOW.lock().ok().and_then(|g| *g) {
+            activate_main_window(handle, cx);
+        }
         println!("[ui] 管理窗口已重建");
     }
+}
+
+fn activate_main_window(handle: gpui_kit::AnyWindowHandle, cx: &mut gpui_kit::gpui::App) {
+    let _ = handle.update(
+        cx,
+        |_: gpui_kit::gpui::AnyView, window, cx: &mut gpui_kit::gpui::App| {
+            cx.activate(true);
+            window.activate_window();
+            window.defer(cx, |window, cx| {
+                window.activate_window();
+                cx.activate(true);
+            });
+        },
+    );
 }
 
 fn apply_autostart(enable: bool) {
@@ -1349,23 +1391,18 @@ fn install_panic_logger() {
         // 让用户壁纸回来而非黑屏。任何失败静默——进程随后即死。
         #[cfg(target_os = "windows")]
         pin::windows::emergency_teardown();
-        // 桌面桥接恢复（macOS）：AppKit 只能主线程调——主线程 panic 直接
-        // 恢复；后台线程 panic 跳过，留待下次启动对账（desktop_bridge.rs）
-        #[cfg(target_os = "macos")]
-        if objc2::MainThreadMarker::new().is_some() {
-            desktop_bridge::restore_all();
-        }
+        // 运行时不接管系统桌面，无桌面恢复动作；旧版残留交下次启动清理。
     }));
 }
 
 fn main() {
     install_panic_logger();
-    // Windows 平台面（M1，技术方案 §4.1）：进程必须先于任何窗口创建声明 PerMonitorV2，
+    // Windows 平台面：进程必须先于任何窗口创建声明 PerMonitorV2，
     // 否则显示器枚举/窗口定位拿到的是虚拟化坐标，与 DPI-aware 的 explorer/WorkerW
     // 无法像素对齐。GPUI 与 wry 均不设置（实测 0.3.7 快照），此处运行时调用等效于
     // manifest 声明，必须放在 gpui_kit::application() 之前。
     // GPUI DirectX 渲染器默认走 DirectComposition 视觉树，与 WebView2 同进程共存
-    // 有合成冲突风险（ROADMAP M1 配方）——禁用之（仅影响管理窗口渲染路径）。
+    // 有合成冲突风险（实测配方）——禁用之（仅影响管理窗口渲染路径）。
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::UI::HiDpi::{
@@ -1429,7 +1466,7 @@ fn main() {
             gpui_kit::init(cx);
             ui::theme::init(cx);
             #[cfg(target_os = "macos")]
-            apply_dock_icon();
+            configure_macos_app();
 
             // 显示器拓扑监听先于会话建立：唤醒/重配事件驱动收敛（ARCHITECTURE §2），
             // 事件只翻转纪元代数，下方引擎心跳去抖消费
@@ -1535,6 +1572,24 @@ fn main() {
                             |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<u64>().ok());
                         if env_secs("GESSO_QUIT_AFTER_SECS").is_some_and(|n| elapsed >= n) {
                             engine::enqueue(engine::EngineAction::Quit);
+                        }
+                        // 模拟托盘「恢复系统壁纸」点击（release_all 全链路，
+                        // 进程存活——与 Quit 的差别正是幽灵窗/残窗问题的试金石）
+                        // 与「随机换一张」点击（无会话回退主显示器路径）。
+                        // 二者不终止进程，用旗标保证只入队一次
+                        static SIM_RESTORE_FIRED: std::sync::atomic::AtomicBool =
+                            std::sync::atomic::AtomicBool::new(false);
+                        if env_secs("GESSO_RESTORE_AFTER_SECS").is_some_and(|n| elapsed >= n)
+                            && !SIM_RESTORE_FIRED.swap(true, std::sync::atomic::Ordering::SeqCst)
+                        {
+                            engine::enqueue(engine::EngineAction::RestoreSystemWallpaper);
+                        }
+                        static SIM_CYCLE_FIRED: std::sync::atomic::AtomicBool =
+                            std::sync::atomic::AtomicBool::new(false);
+                        if env_secs("GESSO_CYCLE_AFTER_SECS").is_some_and(|n| elapsed >= n)
+                            && !SIM_CYCLE_FIRED.swap(true, std::sync::atomic::Ordering::SeqCst)
+                        {
+                            engine::enqueue(engine::EngineAction::CycleMain);
                         }
                         if env_secs("GESSO_PANIC_AFTER_SECS").is_some_and(|n| elapsed >= n) {
                             panic!("GESSO_PANIC_AFTER_SECS 模拟异常退出（壁纸播放中 panic）");
@@ -1646,8 +1701,19 @@ fn main() {
                         let mut refresh_pet = false;
                         cx.update(|cx| {
                             for a in engine_actions {
+                                // 低频路径性能归因：引擎动作全在主线程内联执行，
+                                // 慢动作即 UI 冻结（2026-10-13 双击卡顿排障定案）
+                                // ——超 80ms 必落日志
+                                let t0 = std::time::Instant::now();
                                 let out =
                                     apply_engine_action(cx.global_mut::<engine::AppState>(), a);
+                                let el = t0.elapsed();
+                                if el.as_millis() > 80 {
+                                    println!(
+                                        "[perf] 引擎动作耗时 {}ms（含建窗/桥接，详见 [session]/[bridge] 行）",
+                                        el.as_millis()
+                                    );
+                                }
                                 pending_thumbs.extend(out.pending_thumbs);
                                 if out.focus_main {
                                     focus_main = true;
@@ -1810,7 +1876,7 @@ fn main() {
                         }
                         refresh_ui = true;
                     }
-                    // M1 Windows：explorer 重启自愈——TaskbarCreated 广播置位后即刻
+                    // Windows：explorer 重启自愈——TaskbarCreated 广播置位后即刻
                     // 重钉（原 2s 轮询取走，现在每拍检查，延迟 ≤150ms）。广播意味着
                     // explorer 壳层已就绪（Progman 必在），重挂最差落到 Progman 兜底。
                     // 各会话壁纸窗口重走挂载阶梯 + 重建 webview（合成随 SetParent 失效）；
@@ -1829,7 +1895,7 @@ fn main() {
                             pin::windows::rearm_remount();
                         }
                     }
-                    // M5 数据桥（≈2s 节拍，错开半拍）：锁屏 + 全屏 + 电源态
+                    // 数据桥（≈2s 节拍，错开半拍）：锁屏 + 全屏 + 电源态
                     // → 策略解析 → 自动暂停/降帧；有状态变化才刷新 UI
                     if tick != 0 && tick % AUTOPAUSE_EVERY == AUTOPAUSE_OFFSET {
                         let changed = cx.update(|cx| {
@@ -2043,11 +2109,11 @@ fn main() {
             })
             .detach();
 
-            // M5 光标 feed：后台只出 33ms 节拍，读 AppKit 位置 + 比对 + 推送
+            // 光标 feed：后台只出 33ms 节拍，读 AppKit 位置 + 比对 + 推送
             // 全在主线程。根因教训：NSEvent.mouseLocation 从后台线程读在快速
             // 更新时是陈旧值（光团卡住、停后才闪现到终点）——AppKit 界面状态
             // 必须主线程读。poll_mouse 内部量化去重，静止不产生 evaluate。
-            // Windows（M5-W）：GetCursorPos + GetAsyncKeyState + GetLastInputInfo
+            // Windows：GetCursorPos + GetAsyncKeyState + GetLastInputInfo
             // 同语义实现（bridge/windows.rs），左下契约翻转在 poll_mouse 边界。
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             cx.spawn(async move |cx| loop {

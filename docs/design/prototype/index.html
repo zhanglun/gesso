@@ -191,7 +191,7 @@ svg{display:block}
 .screen-mini.glow,.screen-mini.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 10px 26px rgba(0,0,0,.22)}
 .screen-mini.drop-over{border-style:dashed;border-color:var(--accent)}
 .screen-mini .preview{position:absolute;inset:0}
-.screen-mini .preview canvas{position:absolute;inset:0;width:100%;height:100%}
+.screen-mini .preview canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .screen-mini .chip{
   position:absolute;top:8px;left:8px;z-index:2;display:inline-flex;align-items:center;gap:5px;
   padding:3px 9px;border-radius:999px;background:rgba(14,15,19,.55);
@@ -442,12 +442,13 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <div class="detail-strip">
           <div class="who">
             <div class="l1"><span id="ds-name">主显示器</span><span class="badge" id="ds-badge">主屏</span><span class="num" id="ds-res" style="font-size:12px;font-weight:400;color:var(--text-2)">1512×982</span></div>
-            <div class="l2">标识取自 EDID · 配置随显示器保留，重新接入自动恢复</div>
+            <div class="l2">优先使用硬件标识 · 配置随显示器保留，重新接入自动恢复</div>
           </div>
           <div class="st num" id="ds-st" style="margin-left:4px"></div>
           <div class="acts">
             <button class="btn secondary" data-assign="0">更换</button>
             <button class="btn secondary" id="mtg-0" data-toggle="0">暂停</button>
+            <select class="sel fit" data-fit="0" title="填充：裁切铺满（默认） · 适应：完整显示留边 · 拉伸：无视比例铺满"><option>填充</option><option>适应</option><option>拉伸</option></select>
             <select class="sel num fps" data-fps="0"><option>60 fps</option><option>30 fps</option><option>15 fps</option><option>5 fps</option></select>
           </div>
         </div>
@@ -463,7 +464,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           <div class="set-row"><div><div class="label">全屏应用时</div><div class="desc">前台应用进入全屏后自动暂停对应显示器</div></div><select class="sel"><option>暂停</option><option>降帧至 5 fps</option><option>忽略</option></select></div>
           <div class="set-row"><div><div class="label">使用电池时</div></div><select class="sel"><option>暂停</option><option>降帧至 5 fps</option><option>忽略</option></select></div>
           <div class="set-row"><div><div class="label">空闲时自动降帧</div><div class="desc">5 分钟无输入后降至 5 fps</div></div><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label></div>
-          <div class="set-row"><div><div class="label">桌面桥接</div><div class="desc">重配过渡用壁纸静帧接管系统桌面，关闭即恢复</div></div><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label></div>
+          <!-- 2026-10-13 移除「桌面桥接」开关：过渡无缝改由自家过渡窗承担，不再接管系统桌面，无需开关 -->
         </div>
         <div class="set-group">
           <h3>启动</h3>
@@ -522,7 +523,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <div class="sep"></div>
     <div class="mi" role="menuitem" id="tm-auto">开机自启 <span style="margin-left:auto;color:var(--accent)">✓</span></div>
     <div class="sep"></div>
-    <div class="mi" role="menuitem" id="tm-restore">恢复系统壁纸</div>
+    <div class="mi" role="menuitem" id="tm-restore" title="清空显示器指派并拆除 Gesso 壁纸窗口；运行时不修改系统桌面">恢复系统壁纸</div>
     <div class="sep"></div>
     <div class="mi" role="menuitem" id="tm-quit" style="color:var(--danger)">退出 Gesso</div>
   </div>
@@ -537,7 +538,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 <script>
 /* ================== 数据（演示素材，规格 §7 诚实标注） ================== */
-const MONOS=[{name:'主显示器',short:'主屏',paused:false,pausedBy:null,res:'1512×982',fps:60},{name:'副显示器',short:'副屏',paused:false,pausedBy:'full',res:'1920×1080',fps:30}];
+const MONOS=[{name:'主显示器',short:'主屏',paused:false,pausedBy:null,res:'1512×982',fps:60,fit:'填充'},{name:'副显示器',short:'副屏',paused:false,pausedBy:'full',res:'1920×1080',fps:30,fit:'填充'}];
 MONOS[1].paused=true;
 const LIB=[
   {id:'nebula',   name:'Nebula Drift',  type:'视频',  we:false, meta:'4K · 12s',   assign:0, kind:'nebula',  desc:'缓慢漂移的星云（演示视频）'},
@@ -753,13 +754,18 @@ function renderDetail(){
   const st=document.getElementById('ds-st');
   const tg=document.querySelector('.detail-strip [data-toggle]');
   const fps=document.querySelector('.detail-strip .fps');
+  const fit=document.querySelector('.detail-strip .fit');
   fps.value=m.fps+' fps';
   if(!w){
     st.className='st';st.innerHTML='<span style="color:var(--text-2)">未指派</span>';
-    tg.style.display='none';fps.style.display='none';
+    tg.style.display='none';fps.style.display='none';fit.style.display='none';
     return;
   }
-  tg.style.display='';fps.style.display='';
+  tg.style.display='';fps.style.display='';fit.style.display='';
+  /* 填充下拉（§4.4 2026-10-12）：视频/图片/动图可调；shader/网页由内容作者控制 → 置灰 */
+  fit.value=m.fit||'填充';
+  fit.disabled=['Shader','网页'].includes(w.type);
+  fit.title=fit.disabled?'该类型由内容自身决定填充':'填充：裁切铺满（默认） · 适应：完整显示留边 · 拉伸：无视比例铺满';
   const run=m.paused;
   const ic=run?(m.pausedBy==='full'?I.full:m.pausedBy==='batt'?I.batt:I.pause):I.play;
   const txt=run?(m.pausedBy==='full'?'全屏应用中':m.pausedBy==='batt'?'电池省电':'已暂停'):'播放中';
@@ -777,6 +783,13 @@ document.querySelector('.detail-strip [data-toggle]').onclick=()=>{
 };
 document.querySelector('.detail-strip .fps').onchange=e=>{
   MONOS[selectedMono].fps=parseInt(e.target.value,10)||60;renderMonitors();
+};
+document.querySelector('.detail-strip .fit').onchange=e=>{
+  MONOS[selectedMono].fit=e.target.value;
+  /* 预览跟随填充模式（§4.4 2026-10-12 v1.1：预览 = 实际效果，即时联动） */
+  const cv=document.querySelector('#mt-'+selectedMono+' canvas');
+  if(cv){cv.style.objectFit={'填充':'cover','适应':'contain','拉伸':'fill'}[e.target.value]||'cover';}
+  renderMonitors();
 };
 document.querySelector('.detail-strip [data-assign]').onclick=()=>{switchView('library');toast('在壁纸库双击即设为主显示器');};
 document.getElementById('btn-redetect').onclick=()=>{document.getElementById('new-mono').classList.add('visible');toast('已重新检测显示器');};
@@ -871,7 +884,6 @@ function openCtx(e,w){
     mk('设为副显示器壁纸',I.play,()=>assign(w.id,1));
     ctx.insertAdjacentHTML('beforeend','<div class="sep"></div>');
     mk('打开所在目录',I.folder,()=>toast('已打开所在目录（演示）'));
-    mk('查看详情',I.info,()=>toast(`${w.name} · ${w.type} · ${w.meta} — ${w.desc}`));
     ctx.insertAdjacentHTML('beforeend','<div class="sep"></div>');
     mk('从库中移除',I.trash,()=>toast(`已移除「${w.name}」（不删除文件）`),'danger');
   }

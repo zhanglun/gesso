@@ -1,4 +1,4 @@
-//! 会话管理器（M3）：唯一编排者。
+//! 会话管理器：唯一编排者。
 //!
 //! 职责：读配置 → 枚举显示器 → 每个已配置显示器一个壁纸窗口会话；
 //! 状态机转移全部经 gesso_core::session::transfer（单一真源）；
@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use gesso_core::{
-    transfer, AppConfig, ContentSpec, LibraryEntry, PausePolicy, SessionEvent, SessionState,
+    transfer, AppConfig, ContentSpec, Fit, LibraryEntry, PausePolicy, SessionEvent, SessionState,
     WallpaperKind,
 };
 
@@ -34,8 +34,7 @@ pub enum ImportCheck {
     Err(ImportError),
 }
 
-/// 自动暂停的原因（同一 Autopause 状态的 UI 投影区分；技术方案 §418 的
-/// Paused(fullscreen)/Paused(battery)）。
+/// 自动暂停的原因，用于在同一 Autopause 状态下区分 UI 投影。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AutopauseReason {
     Fullscreen,
@@ -51,12 +50,11 @@ pub enum SuspendEffect {
     None,
     /// 自动暂停（经状态机 AutoPauseTrigger/Clear）。
     Pause(AutopauseReason),
-    /// 降帧到 5 fps（时钟类壁纸需求，技术方案 §423；引擎经 setFps 透传，
-    /// shader 实时生效、html 建议值、video 无帧率杠杆维持播放）。
+    /// 降帧到 5 fps；shader 实时生效，HTML 只把它作为建议值，视频没有帧率杠杆。
     Downscale,
 }
 
-/// M5 数据桥策略解析：锁屏 > 全屏 > 电池。锁屏时屏幕整体不可见，无条件暂停
+/// 数据桥策略解析：锁屏 > 全屏 > 电池。锁屏时屏幕整体不可见，无条件暂停
 /// （降帧/忽略对锁屏无意义），所以锁屏不走用户策略，直接 Pause。
 pub fn suspend_effect(
     locked: bool,
@@ -101,12 +99,12 @@ pub struct Session {
     /// 当前生效的自动暂停原因（None = 非自动暂停态；进 PausedUser 也不清它——
     /// 状态机里用户暂停压住自动暂停，退出全屏后仍由 AutoPauseClear 恢复）。
     pub autopause_reason: Option<AutopauseReason>,
-    /// M5 降帧生效中（恢复时按会话配置回设 fps）。
+    /// 降帧生效中（恢复时按会话配置回设 fps）。
     pub downscaled: bool,
     /// 光标 feed：本会话上次推送的量化状态（present,x_q,y_q,bits）。
     /// None = 尚未推送过；present=false 表示光标已离开本屏。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    // 平台面：macOS 光标 feed（M5）读写
+    // 平台面：macOS 光标 feed 读写
     pub mouse_last: Option<(bool, u16, u16, u8)>,
     /// 鼠标静止空闲降帧生效中（与全屏降帧互斥，恢复时回设 fps）。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -200,42 +198,64 @@ impl SessionManager {
         }
     }
 
-    /// 完整退场（托盘「退出 Gesso」，EngineAction::Quit）：清空全部会话，各屏
-    /// 壁纸窗口随之 Drop → DestroyWindow。必须在引擎轮询线程调用（同创建约束）。
-    /// 配置已随每次改动落盘，退场无需再保存。
-    pub fn teardown_all(&mut self) {
-        let n = self.sessions.len();
-        self.sessions.clear();
-        // 桌面桥接全量恢复（先于进程退出；离线屏的边界见 desktop_bridge.rs）
-        let restored = crate::desktop_bridge::restore_all();
-        println!("[session] 退出拆除：{n} 个壁纸会话已销毁，系统壁纸恢复 {restored} 项接管");
+    /// 退出路径（托盘「退出 Gesso」）：拆窗即退（运行时不接管系统桌面，
+    /// 无恢复动作——旧版本残留的桌面接管由启动清理负责）。返回拆除会话数。
+    pub fn teardown_for_quit(&mut self) -> usize {
+        self.hide_and_clear_sessions()
     }
 
-    /// explorer 重启自愈（Windows M1）：TaskbarCreated 后由引擎轮询触发。
+    /// 释放路径（托盘「恢复系统壁纸」）：清空全部指派并拆窗，桌面即用户
+    /// 自己的壁纸（从未被接管）。返回拆除会话数。
+    pub fn release_all(&mut self) -> usize {
+        let had = !self.config.monitors.is_empty() || !self.sessions.is_empty();
+        self.config.monitors.clear();
+        if had {
+            let _ = self.save_config();
+        }
+        self.hide_and_clear_sessions()
+    }
+
+    /// 显式 orderOut 后清空全部会话：Drop 前不藏窗会留幽灵黑底残窗
+    /// （AppKit 延迟 dealloc，进程存活路径可见，与 assign 换窗纪律同源）。
+    fn hide_and_clear_sessions(&mut self) -> usize {
+        let n = self.sessions.len();
+        for s in self.sessions.values_mut() {
+            if let Some(w) = s.window.as_mut() {
+                w.set_visible(false);
+            }
+        }
+        self.sessions.clear();
+        crate::desktop_bridge::uncover_all();
+        println!("[session] 会话拆除：{n} 个壁纸会话已销毁");
+        n
+    }
+
+    /// explorer 重启自愈（Windows）：TaskbarCreated 后由引擎轮询触发。
     /// explorer 死亡会连带销毁挂在其 WorkerW 下的壁纸窗口（跨进程父窗口死亡），
     /// 所以这里**整窗重建**（pin::create + load），不是对旧句柄重挂。
     /// 返回 false = 有窗口未落位（explorer 未就绪），调用方应置位重试。
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))] // 仅 Windows 重挂载路径
     pub fn remount_all(&mut self) -> bool {
         // 先提取重建计划（避免 sessions/library 交叉借用），再逐个整窗重建
-        let plans: Vec<(String, MonitorInfo, LibraryEntry, u8)> = self
+        let plans: Vec<(String, MonitorInfo, LibraryEntry, u8, Fit)> = self
             .sessions
             .iter()
             .filter_map(|(mid, s)| {
                 let entry = self.library.iter().find(|e| e.id == s.entry_id).cloned()?;
                 let fps = self.fps_for(mid);
-                Some((mid.clone(), s.monitor.clone(), entry, fps))
+                let fit = self.fit_for(mid);
+                Some((mid.clone(), s.monitor.clone(), entry, fps, fit))
             })
             .collect();
         let mut all_ok = true;
-        for (mid, monitor, entry, fps) in plans {
+        for (mid, monitor, entry, fps, fit) in plans {
             let Some(s) = self.sessions.get_mut(&mid) else {
                 continue;
             };
             s.window = None; // 旧窗口多半已被 explorer 连带销毁；Drop 容忍 DestroyWindow 失败
-            match Self::build_window_only(&monitor, &entry) {
+            match Self::build_window_only(&monitor, &entry, fit) {
                 Ok(mut w) => {
-                    w.load(&Self::entry_host_url(&entry, fps));
+                    w.load(&Self::entry_host_url(&entry, fps, fit));
                     all_ok &= w.mount_ok();
                     s.window = Some(w);
                     s.applied_frame = Some(monitor.frame);
@@ -317,6 +337,15 @@ impl SessionManager {
                     .find(|m| m.id == s.monitor.id)
                     .is_some_and(|m| Some(m.frame) != s.applied_frame);
             if gone || stale_geom {
+                // 先盖后熄：几何过时的屏先上过渡静帧窗（无闪现），屏消失的
+                // 反而要销毁它的过渡窗（残窗会被 WindowServer 收容到别的屏）
+                if stale_geom {
+                    if let Some(m) = monitors.iter().find(|m| m.id == s.monitor.id) {
+                        crate::desktop_bridge::cover(&s.monitor.id, m.frame, &s.entry_id);
+                    }
+                } else {
+                    crate::desktop_bridge::uncover(&s.monitor.id);
+                }
                 if let Some(w) = s.window.as_mut() {
                     w.set_visible(false);
                 }
@@ -361,10 +390,9 @@ impl SessionManager {
             self.last_enum_sig = Some(sig);
         }
 
-        // v2 稳定 ID：macOS 用 EDID 身份三元组（vendor/model/serial，跨合盖/重连/重启
-        // 不变）；Windows 仍用设备名。全失配迁移保留作兜底：虚拟屏无 EDID 回落 cg-id，
-        // 重编后仍可能失配——此时把映射迁到当前主屏，避免静默丢壁纸（只保留第一条，
-        // 多屏指派需用户重设；升级到全平台 EDID 后此路径只剩兜底意义）。
+        // 显示器身份优先使用平台硬件标识：macOS 为 EDID vendor/model/serial，
+        // Windows 为 monitor PnP ID；没有硬件身份时回落平台显示器编号。
+        // 全失配迁移保留作兜底：虚拟屏或系统重编 ID 时把既有指派迁到当前主屏。
         let known: std::collections::BTreeSet<String> =
             monitors.iter().map(|m| m.id.clone()).collect();
         if !self.config.monitors.is_empty()
@@ -412,10 +440,9 @@ impl SessionManager {
         let now: std::collections::BTreeSet<String> =
             monitors.iter().map(|m| m.id.clone()).collect();
 
-        // 唤醒/重连后系统重编显示器 ID（macOS 26 无 EDID 符号回落 cg-id；
-        // 同型号双屏消歧 id 也带 cgid）：ID 失配 ≠ 屏幕没了。按几何一致把
-        // 会话+配置+帧率整体平移到新 ID——不拆窗重建（唤醒期的拆建正是
-        // 幽灵窗/黑屏的来源）。全失配迁移兜底保留（虚拟屏等无 EDID 场景）。
+        // 唤醒/重连后系统可能重编显示器 ID。ID 失配不等于屏幕消失：按几何一致把
+        // 会话、配置和帧率整体平移到新 ID，避免唤醒期拆建造成幽灵窗或黑屏；
+        // 全失配迁移覆盖虚拟屏等无硬件身份场景。
         let stale: Vec<(String, (f64, f64, f64, f64))> = self
             .sessions
             .iter()
@@ -567,18 +594,16 @@ impl SessionManager {
             };
             let title = entry.title.clone();
             let fps = self.fps_for(&m.id);
-            match Self::build_session(m.clone(), entry.clone(), fps) {
+            let fit = self.fit_for(&m.id);
+            match Self::build_session(m.clone(), entry.clone(), fps, fit) {
                 Ok(s) => {
                     println!(
                         "[session] {} ← {}（{}，frame=({:.0},{:.0},{:.0}×{:.0})）",
                         m.id, s.entry_id, title, m.frame.0, m.frame.1, m.frame.2, m.frame.3
                     );
                     self.sessions.insert(m.id.clone(), s);
-                    // 桌面桥接接管：补建路径也要接管（开机/重连的会话不经
-                    // assign——漏了这里桥接要等用户手动换壁纸才生效）
-                    if self.config.settings.desktop_bridge {
-                        crate::desktop_bridge::acquire(&entry, &m.id);
-                    }
+                    // 过渡静帧补产+解码（后台）
+                    crate::desktop_bridge::refresh_frame(&entry);
                 }
                 Err(e) => println!("[session] {} 创建失败：{e}", m.id),
             }
@@ -594,6 +619,8 @@ impl SessionManager {
                         w.set_visible(true);
                     }
                     s.visible = true;
+                    // 真窗已点亮，过渡静帧使命完成（在其背后撤除，无闪现）
+                    crate::desktop_bridge::uncover(&s.monitor.id);
                 }
             }
         }
@@ -602,7 +629,7 @@ impl SessionManager {
         settling && (pending || self.sessions.values().any(|s| !s.visible))
     }
 
-    /// 条目自包含：把宿主页拷进条目目录（贴 WE 项目模型；M3 起随条目分发）
+    /// 条目自包含；宿主页不拷入条目目录：
     /// 宿主页 URL：走 gesso:// 协议，宿主页为 assets 中的单一共享副本，
     /// 不再拷入条目目录（避免宿主页与用户资源共用 index.* 命名空间）。
     fn ensure_entry_host(_entry: &LibraryEntry) -> String {
@@ -610,7 +637,7 @@ impl SessionManager {
     }
 
     /// ContentSpec 构建（assign / set_fps / build_session 共用同一套字段映射）。
-    pub(crate) fn content_spec(entry: &LibraryEntry, fps: u8) -> ContentSpec {
+    pub(crate) fn content_spec(entry: &LibraryEntry, fps: u8, fit: Fit) -> ContentSpec {
         // 远端网页条目：source 就是 https URL 本身（宿主页 iframe 直装）；
         // 本地/WE 条目走 entry_main_source → gesso:// 资源 URL
         let main_source = match &entry.source_url {
@@ -618,7 +645,7 @@ impl SessionManager {
                 return ContentSpec {
                     kind: entry.kind,
                     source: url.clone(),
-                    fit: gesso_core::Fit::Cover,
+                    fit,
                     fps_cap: fps,
                     audio: gesso_core::AudioPolicy::Muted,
                     meta: gesso_core::SpecMeta {
@@ -638,7 +665,7 @@ impl SessionManager {
             } else {
                 crate::protocol::entry_url(entry, &main_source)
             },
-            fit: gesso_core::Fit::Cover,
+            fit,
             fps_cap: fps,
             audio: gesso_core::AudioPolicy::Muted,
             meta: gesso_core::SpecMeta {
@@ -649,10 +676,9 @@ impl SessionManager {
     }
 
     /// 宿主页 URL：条目自包含 host 拷贝 + spec。
-    /// shader 额外携带 code=（base64url 源码）：file:// 页面里 fetch/XHR 被
-    /// WKWebView 拦截，查询参数不受限，源码随 URL 直达宿主页。
-    pub(crate) fn entry_host_url(entry: &LibraryEntry, fps: u8) -> String {
-        let spec = Self::content_spec(entry, fps);
+    /// shader 额外携带 code=（base64url 源码），避免把源码再拆成独立资源请求。
+    pub(crate) fn entry_host_url(entry: &LibraryEntry, fps: u8, fit: Fit) -> String {
+        let spec = Self::content_spec(entry, fps, fit);
         let mut url = format!(
             "{}?spec={}",
             Self::ensure_entry_host(entry),
@@ -679,13 +705,24 @@ impl SessionManager {
             .unwrap_or(self.config.settings.fps_cap_default)
     }
 
+    /// 会话填充模式 = 显示器覆盖值 → 默认 Cover（§4.4 填充下拉，2026-10-12；
+    /// UI 快照与窗口构建共用同一解析）
+    pub(crate) fn fit_for(&self, monitor_id: &str) -> Fit {
+        self.config
+            .monitor_fit
+            .get(monitor_id)
+            .copied()
+            .unwrap_or(Fit::Cover)
+    }
+
     fn build_session(
         monitor: MonitorInfo,
         entry: LibraryEntry,
         fps: u8,
+        fit: Fit,
     ) -> gesso_core::Result<Session> {
-        let mut window = Self::build_window_only(&monitor, &entry)?;
-        let url = Self::entry_host_url(&entry, fps);
+        let mut window = Self::build_window_only(&monitor, &entry, fit)?;
+        let url = Self::entry_host_url(&entry, fps, fit);
         window.load(&url);
         // 原生视频窗忽略宿主页 URL（内容创建时定死，与 set_fps 跳过同款按 kind 判）
         if entry.kind != gesso_core::WallpaperKind::Video {
@@ -748,15 +785,37 @@ impl SessionManager {
 
     /// 主显示器循环切换到下一个库条目（托盘「换壁纸」）
     pub fn cycle_main(&mut self) {
-        let Some(main_id) = self.sessions.keys().next().cloned() else {
+        if self.library.is_empty() {
+            return;
+        }
+        // 无会话也随机：「恢复系统壁纸」会释放全部会话，之后随机换一张取
+        // 不到会话就静默空转（2026-10-13 反馈）——回退到主显示器重新指派
+        let main_id = self.sessions.keys().next().cloned().or_else(|| {
+            self.monitors()
+                .iter()
+                .find(|m| m.is_main)
+                .map(|m| m.id.clone())
+        });
+        let Some(main_id) = main_id else {
             return;
         };
         let cur = self.config.monitors.get(&main_id).cloned();
-        let idx = cur
-            .and_then(|id| self.library.iter().position(|e| e.id == id))
-            .map(|i| (i + 1) % self.library.len())
-            .unwrap_or(0);
-        let next_entry = self.library[idx].id.clone();
+        let cur_idx = cur.and_then(|id| self.library.iter().position(|e| e.id == id));
+        // 真随机（托盘文案承诺「随机」，此前实为顺序循环）：排除当前条目，
+        // 随机源用 std RandomState（每次实例化随机播种，无第三方依赖）
+        let next_idx = match (cur_idx, self.library.len()) {
+            (_, 1) => 0,
+            (Some(i), n) => {
+                let r = rand_below(n - 1);
+                if r >= i {
+                    r + 1
+                } else {
+                    r
+                }
+            }
+            (None, n) => rand_below(n),
+        };
+        let next_entry = self.library[next_idx].id.clone();
         self.assign(&main_id, &next_entry);
     }
 
@@ -765,6 +824,7 @@ impl SessionManager {
         // 先在不可变阶段提取全部所需数据，再进入可变操作
         let entry = self.library.iter().find(|e| e.id == entry_id).cloned();
         let fps = self.fps_for(monitor_id);
+        let fit = self.fit_for(monitor_id);
         self.config
             .monitors
             .insert(monitor_id.into(), entry_id.into());
@@ -776,11 +836,20 @@ impl SessionManager {
                 s.entry_id = entry_id.into();
                 // 先建新窗再熄旧窗：构建失败保留旧壁纸（不变黑屏）；换窗前
                 // 显式 orderOut——AppKit 延迟 dealloc 的幽灵窗隐患与拆除同源
-                if let Ok(mut w) = Self::build_window_only(&s.monitor, &entry) {
+                if let Ok(mut w) = Self::build_window_only(&s.monitor, &entry, fit) {
                     if let Some(old) = s.window.as_mut() {
                         old.set_visible(false);
                     }
-                    w.load(&Self::entry_host_url(&entry, fps));
+                    let t_load = std::time::Instant::now();
+                    w.load(&Self::entry_host_url(&entry, fps, fit));
+                    let el_load = t_load.elapsed();
+                    if el_load.as_millis() > 80 {
+                        println!(
+                            "[perf] 建窗+装载 {}ms（{}）",
+                            el_load.as_millis(),
+                            entry.title
+                        );
+                    }
                     s.window = Some(w);
                     s.applied_frame = Some(s.monitor.frame);
                     s.state = transfer(s.state, SessionEvent::Loaded);
@@ -792,10 +861,10 @@ impl SessionManager {
                         w.set_visible(true);
                     }
                     s.visible = true;
-                    // 桌面桥接接管（设置开关；静态帧兜底过渡期，desktop_bridge.rs）
-                    if self.config.settings.desktop_bridge {
-                        crate::desktop_bridge::acquire(&entry, &s.monitor.id);
-                    }
+                    // 真窗已点亮，撤除可能存在的过渡静帧（重配后指派场景）
+                    crate::desktop_bridge::uncover(&s.monitor.id);
+                    // 过渡静帧补产+解码（后台）
+                    crate::desktop_bridge::refresh_frame(&entry);
                 }
             }
         } else {
@@ -806,32 +875,14 @@ impl SessionManager {
     fn build_window_only(
         monitor: &MonitorInfo,
         entry: &LibraryEntry,
+        fit: Fit,
     ) -> gesso_core::Result<Box<dyn WallpaperWindow>> {
-        pin::create_wallpaper_window(monitor, entry)
+        pin::create_wallpaper_window(monitor, entry, fit)
     }
 
     /// 设置更新（设置页全部即时生效：写内存 + 落盘，§4.5）
     pub fn update_settings(&mut self, settings: gesso_core::Settings) {
         self.config.settings = settings;
-        // 桌面桥接开关即时生效：关闭 = 全量恢复；开启 = 对现有会话补接管
-        if self.config.settings.desktop_bridge {
-            let owned: Vec<(String, LibraryEntry)> = self
-                .sessions
-                .values()
-                .filter_map(|s| {
-                    self.library
-                        .iter()
-                        .find(|e| e.id == s.entry_id)
-                        .cloned()
-                        .map(|e| (s.monitor.id.clone(), e))
-                })
-                .collect();
-            for (monitor_id, entry) in owned {
-                crate::desktop_bridge::acquire(&entry, &monitor_id);
-            }
-        } else {
-            crate::desktop_bridge::restore_all();
-        }
         let _ = self.save_config();
     }
 
@@ -853,7 +904,7 @@ impl SessionManager {
             let _ = self.save_config();
             return;
         }
-        let url = Self::entry_host_url(&entry, fps);
+        let url = Self::entry_host_url(&entry, fps, self.fit_for(monitor_id));
         // 落配置
         self.config.monitor_fps.insert(monitor_id.into(), fps);
         let _ = self.save_config();
@@ -864,6 +915,46 @@ impl SessionManager {
             }
         }
         println!("[session] {monitor_id} 帧率上限 = {fps} fps（热重载）");
+    }
+
+    /// 单显示器填充模式（§4.4 填充下拉，2026-10-12）：写配置 + 按类型即时生效——
+    /// 视频 = 原生窗活切换（macOS gravity / Windows 渲染线程原子量，不重建窗）；
+    /// 图片 = 热重载宿主页（object-fit 随 spec 生效，同 set_fps 路径）；
+    /// shader/html 由内容作者控制画布语义，fit 不适用（UI 置灰），只落配置。
+    pub fn set_fit(&mut self, monitor_id: &str, fit: Fit) {
+        self.config.monitor_fit.insert(monitor_id.into(), fit);
+        let _ = self.save_config();
+        let Some(entry_id) = self.config.monitors.get(monitor_id) else {
+            return;
+        };
+        let Some(entry) = self.library.iter().find(|e| e.id == *entry_id).cloned() else {
+            return;
+        };
+        // 图片的热重载 URL 先于窗口可变借用构建（fps_for 需要不可变借 self）
+        let reload_url = match entry.kind {
+            WallpaperKind::Image => {
+                Some(Self::entry_host_url(&entry, self.fps_for(monitor_id), fit))
+            }
+            _ => None,
+        };
+        let window = self
+            .sessions
+            .get_mut(monitor_id)
+            .and_then(|s| s.window.as_mut());
+        match entry.kind {
+            WallpaperKind::Video => {
+                if let Some(w) = window {
+                    w.set_fit(fit);
+                }
+            }
+            WallpaperKind::Image => {
+                if let (Some(w), Some(url)) = (window, reload_url) {
+                    w.load(&url);
+                }
+            }
+            _ => {}
+        }
+        println!("[session] {monitor_id} 填充模式 = {fit:?}");
     }
 
     /// 从库移除条目：清单 + 显示器映射 + 会话一并拆除。目录清理（§7 移除语义,
@@ -883,10 +974,16 @@ impl SessionManager {
             .collect();
         for m in &affected {
             self.config.monitors.remove(m);
-            self.sessions.remove(m);
         }
-        // 桥接释放 + 桥接图清理（显示该条目桥接图的屏恢复原壁纸）
-        crate::desktop_bridge::release_entry(entry_id);
+        for m in &affected {
+            // Drop 前显式 orderOut（幽灵窗纪律，同 teardown_all）
+            crate::desktop_bridge::uncover(m);
+            if let Some(mut s) = self.sessions.remove(m) {
+                if let Some(w) = s.window.as_mut() {
+                    w.set_visible(false);
+                }
+            }
+        }
         crate::desktop_bridge::discard_file(entry_id);
         let _ = self.save_config();
         let p = crate::protocol::library_dir().join("library.json");
@@ -1020,7 +1117,7 @@ impl SessionManager {
         Ok(entry)
     }
 
-    /// M6：导入一个 WE 工坊条目（video/web；scene/application 已在 UI 过滤）。
+    /// 导入一个 WE 工坊条目（video/web；scene/application 已在 UI 过滤）。
     ///
     /// 零拷贝：source_dir 直指 Steam 工坊目录（只读，绝不改原文件）；video
     /// 走回环 HTTP / gesso://steam 流式 Range，web 的 shim 在协议层内存注入。
@@ -1090,7 +1187,7 @@ impl SessionManager {
         }
     }
 
-    /// M5 数据桥：把一次桥采样落成会话状态（全屏/电池自动暂停 + 降帧）。
+    /// 数据桥：把一次桥采样落成会话状态（全屏/电池自动暂停 + 降帧）。
     /// 返回是否有状态变化（调用方据此刷新 UI）。用户暂停（PausedUser）压住
     /// 自动暂停——状态机里 AutoPauseTrigger 对 PausedUser 是 no-op，这里同步跳过。
     pub fn apply_autopause(
@@ -1176,7 +1273,7 @@ impl SessionManager {
         changed
     }
 
-    /// M5 时间脉冲：Rust 每秒驱动一次宿主页时钟（时钟类壁纸 DoD——
+    /// 时间脉冲：Rust 每秒驱动一次宿主页时钟（时钟类壁纸 DoD——
     /// 挂钟时间由引擎事件推进，壁纸不必自起高频轮询）。
     pub fn broadcast_time_tick(&mut self) {
         static TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1215,7 +1312,7 @@ impl SessionManager {
         }
     }
 
-    /// M5 光标 feed：把全局光标位置路由到它所在显示器的会话。
+    /// 光标 feed：把全局光标位置路由到它所在显示器的会话。
     ///
     /// 设计（性能纪律）：① 归一化到 [0,1] 后量化 u16 再比较，亚像素抖动不
     /// 触发推送；② 状态没变零 IPC，鼠标静止时只做空闲判断；③ 离开某屏推送
@@ -1274,7 +1371,7 @@ impl SessionManager {
             // 归一化并量化。宿主页契约 = 左下原点（fragCoord/iMouse）：
             // macOS 桥交付的 m.y 已是左下全局（AppKit），ny 即左下占比；
             // Windows 桥/帧同为顶左物理像素，在此契约边界一次翻转为左下
-            // （勿在桥内预翻再此处翻——「勿翻两次」，工程笔记 M5）。
+            // （勿在桥内预翻再此处翻——「勿翻两次」）。
             let (mx, my, mw, mh) = s.monitor.frame;
             let nx = ((m.x - mx) / mw).clamp(0.0, 1.0);
             let ny = ((m.y - my) / mh).clamp(0.0, 1.0);
@@ -1341,6 +1438,14 @@ impl SessionManager {
             })
             .collect()
     }
+}
+
+/// [0, n) 内的伪随机数：RandomState 每次实例化随机播种（std 无依赖方案，
+/// 壁纸洗牌够用，非密码学场景）。
+fn rand_below(n: usize) -> usize {
+    use std::hash::BuildHasher;
+    let state = std::collections::hash_map::RandomState::new();
+    (state.hash_one(std::time::Instant::now()) as usize) % n
 }
 
 /// 视频诊断开关：GESSO_VIDEO_DIAG=1 时每 5s 打印宿主页帧率探针。
@@ -1454,7 +1559,7 @@ mod tests {
             suspend_effect(false, false, false, P::Pause, P::Pause),
             SuspendEffect::None
         );
-        // 降帧策略（时钟类壁纸，技术方案 §423）
+        // 降帧策略（时钟类壁纸）
         assert_eq!(
             suspend_effect(false, true, false, P::Downscale, P::Pause),
             SuspendEffect::Downscale

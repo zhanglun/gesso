@@ -1,15 +1,16 @@
-//! macOS 贴壁实现（M1.5 spike 产品化）。
+//! macOS 贴壁实现（可行性 spike 产品化）。
 //!
-//! 关键参数定稿（SPIKE-REPORT M1.5）：
+//! 关键参数定稿（见 docs/archive/SPIKE-REPORT.md）：
 //! - level = -2147483604（图标层下缘之下一档；勿用桌面图同级，排序不可控）
 //! - Borderless + CanJoinAllSpaces|Stationary|FullScreenAuxiliary|IgnoresCycle
-//! - ignoresMouseEvents + 透明底（webview 隐藏 = 露系统壁纸）
+//! - ignoresMouseEvents + 不透明黑底（回退系统桌面 = 隐藏整窗，非藏 webview）
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSColor, NSScreen, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSColor, NSImage, NSImageView, NSScreen, NSView, NSWindow, NSWindowCollectionBehavior,
+    NSWindowStyleMask,
 };
 use objc2_foundation::MainThreadMarker;
 use raw_window_handle::{AppKitWindowHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
@@ -299,14 +300,29 @@ impl WallpaperWindow for MacWallpaperWindow {
 /// 原生视频壁纸窗：AVPlayerLayer 直挂 contentView，不经 webview。
 /// 原因（2026-10-10 实测）：webview 的远端层树对视频上屏节奏不均——60fps
 /// 片 rVFC 实测 53~56/s 波动（页面节拍却稳 60Hz），肉眼卡顿；原生 AVPlayer
-/// 管线有显示锁相，且直接 file:// 读盘，媒体回环 HTTP/gesso:// 均不参与。
+/// 管线有显示锁相，视频 URL 优先使用回环 HTTP，服务不可用时才回落本地文件。
 pub struct MacVideoWindow {
     _window: Retained<NSWindow>,
     _looper: Retained<objc2_av_foundation::AVPlayerLooper>,
     player: Retained<objc2_av_foundation::AVQueuePlayer>,
+    layer: Retained<objc2_av_foundation::AVPlayerLayer>,
 }
 
-pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Result<MacVideoWindow> {
+/// 填充模式 → AVLayerVideoGravity（§4.4 填充下拉，2026-10-12）。
+/// Fill = 无视比例铺满（变形）；Cover = 等比裁切铺满；Contain = 信箱完整显示。
+pub fn video_gravity(fit: gesso_core::Fit) -> &'static str {
+    match fit {
+        gesso_core::Fit::Cover => "AVLayerVideoGravityResizeAspectFill",
+        gesso_core::Fit::Contain => "AVLayerVideoGravityResizeAspect",
+        gesso_core::Fit::Fill => "AVLayerVideoGravityResize",
+    }
+}
+
+pub fn create_video_window(
+    monitor: &MonitorInfo,
+    url: &str,
+    fit: gesso_core::Fit,
+) -> gesso_core::Result<MacVideoWindow> {
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
     let window = make_pin_window(mtm);
@@ -315,27 +331,24 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Resu
 
     let content = window.contentView().expect("contentView 缺失");
     // SAFETY: 主线程；AVFoundation 家族方法按文档语义调用
-    let (player, looper) = unsafe {
+    let (player, looper, layer) = unsafe {
         use objc2_av_foundation::{AVPlayerItem, AVPlayerLayer, AVPlayerLooper, AVQueuePlayer};
         use objc2_foundation::{NSArray, NSString};
         let player = AVQueuePlayer::queuePlayerWithItems(&NSArray::new(), mtm);
         let layer = AVPlayerLayer::playerLayerWithPlayer(Some(&player));
-        // 适配（contain）语义：与宿主页 object-fit:contain 一致。比例吻合的素材
-        // 两种模式渲染相同（满屏）；不吻合的信箱显示——壁纸窗纯黑底，黑边隐形，
-        // 竖版/超宽素材不再被裁切成中间切片
-        layer.setVideoGravity(&objc2_foundation::NSString::from_str(
-            "AVLayerVideoGravityResizeAspect",
-        ));
+        // 适配语义 = 填充下拉（§4.4，默认 Cover 裁切铺满；2026-10-12 前恒为
+        // contain——比例吻合的素材各模式渲染相同，不吻合时按用户选择裁切/信箱/变形）
+        layer.setVideoGravity(&objc2_foundation::NSString::from_str(video_gravity(fit)));
         content.setWantsLayer(true);
         content.setLayer(Some(&layer));
-        // 媒体 URL：http:// 回环（内存直供）或 file:// 回落，均为完整 URL 形态
+        // 媒体 URL：优先使用 http:// 回环内存直供，失败时回落本地文件。
         let nsurl = objc2_foundation::NSURL::URLWithString(&NSString::from_str(url))
             .ok_or_else(|| GessoError::UnsupportedPlatform(format!("媒体 URL 非法：{url}")))?;
         let item = AVPlayerItem::playerItemWithURL(&nsurl, mtm);
         let looper = AVPlayerLooper::playerLooperWithPlayer_templateItem(&player, &item);
-        player.setMuted(true); // AudioPolicy::Muted（技术方案 §5.1）
+        player.setMuted(true); // AudioPolicy::Muted
         player.play();
-        (player, looper)
+        (player, looper, layer)
     };
     // 与 webview 窗同一纪律：创建保持隐藏，几何落位由会话收敛器统一复显
     //（AVPlayer 在不可见窗口中照常解码，点亮即有画面）
@@ -344,6 +357,7 @@ pub fn create_video_window(monitor: &MonitorInfo, url: &str) -> gesso_core::Resu
         _window: window,
         _looper: looper,
         player,
+        layer,
     })
 }
 
@@ -360,6 +374,14 @@ impl WallpaperWindow for MacVideoWindow {
             } else {
                 self.player.play();
             }
+        }
+    }
+
+    fn set_fit(&mut self, fit: gesso_core::Fit) {
+        // SAFETY: 主线程（会话层在主循环调用）；gravity 切换即时生效不重建窗
+        unsafe {
+            self.layer
+                .setVideoGravity(&objc2_foundation::NSString::from_str(video_gravity(fit)));
         }
     }
 
@@ -415,14 +437,10 @@ fn video_pin_frame((x, y, w, h): (f64, f64, f64, f64)) -> objc2_foundation::NSRe
     )
 }
 
-// CGDisplay 身份三元组（EDID 的 vendor/product/serial）。合盖/重连/唤醒会重编
-// CGDirectDisplayID（v1 用它当 ID 的已知缺陷，见 session.rs），但硬件身份不变——
-// 它就是跨重配的稳定 ID 来源。
-//
-// 可用性（2026-10-09 实测）：macOS 26 把这三个符号从 CoreGraphics 的 SDK 接口
-// **和运行时 dylib** 里都删除了（dlsym 探测 MISSING）——26+ 上 identity_fns()
-// 返回 None，自动回落 cg-id（v1 行为）。macOS 13–15 运行时符号仍在，dlsym 有效；
-// 26+ 的完整 EDID 身份需走 IOKit IODisplayConnect（后续工作，MonitorControl 同路）。
+// CGDisplay 身份三元组（EDID 的 vendor/product/serial）。合盖、重连和唤醒可能重编
+// CGDirectDisplayID，但硬件身份通常不变——用三元组做稳定 key；同型号双屏
+// serial=0 会碰撞，后面追加 CG ID 消歧。没有可用身份时回落 CG ID。
+// macOS 26+ 可能没有这三个 CoreGraphics 符号，因此 identity_fns() 会回落。
 type CgIdentityFn = unsafe extern "C" fn(u32) -> u32;
 
 fn identity_fns() -> Option<[CgIdentityFn; 3]> {
@@ -547,6 +565,87 @@ pub fn screens() -> Vec<(MonitorInfo, Retained<NSScreen>)> {
 /// 枚举显示器（稳定 ID = EDID 身份三元组；无身份回落 CGDirectDisplayID）。
 pub fn enumerate_monitors() -> Vec<MonitorInfo> {
     screens().into_iter().map(|(m, _)| m).collect()
+}
+
+// —— 过渡窗（桌面桥接新路线：重配/建窗间隙的静帧遮盖）——
+
+/// 纯 AppKit 静帧窗：同 PIN_LEVEL，建窗即显示。晚于它创建/复显的真壁纸
+/// 窗自然盖在其上，点亮后即可销毁过渡窗（Drop 先 orderOut，幽灵窗纪律）。
+/// 毫秒级建窗，不碰系统桌面/壁纸代理。
+pub struct MacCoverWindow {
+    window: Retained<NSWindow>,
+    _image_view: Retained<NSImageView>,
+}
+
+impl Drop for MacCoverWindow {
+    fn drop(&mut self) {
+        self.window.orderOut(None);
+    }
+}
+
+/// RGBA 像素 → NSImage（主线程；位图包装是内存拷贝级，毫秒）。
+/// SAFETY: objc2 声明的安全方法，按文档语义调用；bitmapData 写入不超过
+/// 分配尺寸（w×h×4，由 rep 初始化参数保证）。
+pub fn nsimage_from_rgba(
+    rgba: &[u8],
+    w: usize,
+    h: usize,
+    mtm: MainThreadMarker,
+) -> Retained<NSImage> {
+    use objc2_app_kit::{NSBitmapImageRep, NSDeviceRGBColorSpace, NSImageScaling};
+    use objc2_foundation::{NSRect, NSSize};
+
+    unsafe {
+        let rep = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+            mtm.alloc(),
+            std::ptr::null_mut(),
+            w as isize,
+            h as isize,
+            8,
+            4,
+            true,
+            false,
+            NSDeviceRGBColorSpace,
+            (w * 4) as isize,
+            32,
+        )
+        .expect("位图初始化");
+        std::ptr::copy_nonoverlapping(rgba.as_ptr(), rep.bitmapData(), rgba.len());
+        let img = NSImage::initWithSize(mtm.alloc(), NSSize::new(w as f64, h as f64));
+        img.addRepresentation(&rep);
+        let _ = NSImageScaling::ScaleProportionallyUpOrDown; // 供 cover 窗用
+        let _ = NSRect::ZERO;
+        img
+    }
+}
+
+/// 创建并立即显示过渡窗（主线程）。frame 为显示器坐标系全屏帧。
+pub fn create_cover_window(
+    frame: MonitorFrame,
+    image: Retained<NSImage>,
+) -> Result<MacCoverWindow> {
+    use objc2_app_kit::{NSImageScaling, NSImageView};
+    use objc2_foundation::NSRect;
+
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| GessoError::UnsupportedPlatform("非主线程".into()))?;
+    let window = make_pin_window(mtm);
+    let (x, y, w, h) = frame;
+    let rect = NSRect::new(
+        objc2_foundation::NSPoint::new(x, y),
+        objc2_foundation::NSSize::new(w, h),
+    );
+    window.setFrame_display(rect, true);
+    let view = NSImageView::initWithFrame(mtm.alloc(), rect);
+    view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
+    view.setImage(Some(&image));
+    let content = window.contentView().expect("contentView 缺失");
+    content.addSubview(&view);
+    window.orderFrontRegardless();
+    Ok(MacCoverWindow {
+        window,
+        _image_view: view,
+    })
 }
 
 #[cfg(test)]

@@ -59,12 +59,14 @@ windows = { version = "0.62", features = [
   "Win32_UI_Input_KeyboardAndMouse", # 光标 feed：GetAsyncKeyState/GetLastInputInfo（M5-W）
   "Win32_System_Power",             # 电池：GetSystemPowerStatus（M5-W）
   "Win32_System_RemoteDesktop",     # 锁屏：WTSQuerySessionInformationW（M5-W）
+  "Win32_System_Registry",            # 系统代理：Internet Settings 注册表（update.rs）
   "Win32_Graphics_Dwm",             # 全屏检测排除 cloak 幽灵窗口（M5-W）
   "Win32_UI_Accessibility",         # WinEventHook（全屏检测，M5 Windows 接入）
   "Win32_System_Com",               # CoInitializeEx（MF 套间，win15/win-video）
   "Win32_Media_MediaFoundation",    # MF SourceReader（原生视频解码，B 方案）
   "Win32_Graphics_Direct3D",        # D3D_DRIVER_TYPE（原生视频上屏）
   "Win32_Graphics_Direct3D11",      # D3D11 设备/纹理（原生视频上屏）
+  "Win32_Graphics_Direct3D_Fxc",    # D3DCompile（视频填充模式 quad 着色器，§4.4）
   "Win32_Graphics_Dxgi",            # DXGI swapchain（原生视频上屏）
   "Win32_System_Performance",       # QPC 节拍（原生视频 PTS 对齐）
 ] }
@@ -75,7 +77,7 @@ objc2 = "0.6"
 # thumb.rs write_png：CGImage → PNG 落盘（Apple 专属，Windows 构建必须门控）
 objc2-core-graphics = "0.3"
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSWindow", "NSView", "NSWorkspace", "NSRunningApplication", "NSScreen", "NSColor", "NSResponder", "NSEvent", "NSMenu", "NSMenuItem", "NSCell", "NSTrackingArea", "libc"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSImageView", "NSBitmapImageRep", "NSGraphics", "NSWindow", "NSView", "NSWorkspace", "NSRunningApplication", "NSScreen", "NSColor", "NSResponder", "NSEvent", "NSMenu", "NSMenuItem", "NSCell", "NSTrackingArea", "libc"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSDictionary", "NSString", "NSURL"] }
 # 缩略图抽帧（thumb.rs）+ 原生视频壁纸窗（pin/macos.rs）：AVFoundation 走 objc2 生成绑定——所有权（init/copy 家族 →
 # Retained<T>、autorelease 语义）由类型承载，杜绝 v1 裸 msg_send 的人肉引用计数。

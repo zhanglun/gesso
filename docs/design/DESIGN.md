@@ -34,7 +34,7 @@ GPUI 落地：两套 `Theme` Entity + 系统主题监听（Win 注册表 / mac `
 
 ## 组件（12 件，六态齐全；基础控件用 gpui-kit，业务件自绘）
 
-**来源分层**（2026-10 采用 gpui-kit 0.7，Apache-2.0）：Button/Input/Form/Menu/Tab/List/Dropdown/Switch/Popover 等**基础控件用 kit**（含 Lucide 图标 = 本设计的线性 1.5px 图标规格）；**业务组件自绘**——库卡片、屏卡片、空状态、角标（信息密度和状态语义是我们的；托盘快速面板已随 2026-10-03 撤销）。主题：DESIGN token 映射到 kit 语义主题（M0.5 ④ 验证），亮暗随系统。
+**来源分层**（2026-10 采用 gpui-kit 0.7，Apache-2.0）：Button/Input/Form/Menu/Tab/List/Dropdown/Switch/Popover 等**基础控件用 kit**（含 Lucide 图标 = 本设计的线性 1.5px 图标规格）；**业务组件自绘**——库卡片、屏卡片、空状态、角标（信息密度和状态语义是我们的；托盘快速面板已随 2026-10-03 撤销）。主题：DESIGN token 映射到 kit 语义主题（spike 验证），亮暗随系统。
 
 按钮×3（主/次/文字，高按档位 Small 24 / Medium 32，圆角 6）· 开关（36×20）· 下拉 · 输入 · 页签 · 右键菜单（elevated + 阴影 + 分隔线，破坏项红字置底）· Toast（底部居中，2.6s）· 库卡片（16:9 预览 + 56px 信息条 + 3px 语义指示条）· 显示器小像（沙盘，2026-10-04 改版：屏内控件移出，画布主体）· 角标（10px 胶囊）· 空状态（区分"无结果"与"库为空"）。
 
@@ -80,4 +80,4 @@ hover / focus(2px accent 环，永远可见) / active / disabled / selected / lo
 
 **托盘字形**（`src/tray-*.svg`，24 网格，「屏中有浪」）：圆角屏描边 `16.6×14.6 r4 stroke2.2` + 内腔底部实浪（clip 内腔）。读作「显示器 + 活的桌面」。**禁止双/错位矩形** —— macOS 菜单栏「屏幕镜像」系统字形即双圆角矩形，一稿踩过，永不回头。macOS 黑字形 + `with_icon_templated`（菜单栏亮暗自适应），内嵌 44px@2x（tray-icon 约束 22pt，Retina 清晰）。**Windows 不用字形**：直接内嵌彩色 compact 应用图标 `tray-app-32.png`（32px，与任务栏/exe 图标同稿）——2026-10-06 用户决策：描边字形缩到托盘 16px 只剩轮廓线读不出，白/单色字形又受任务栏亮暗牵制；原「彩色图标 16px 下日出成噪点」的顾虑让位于可读性，单色 template 机制自此**仅 macOS**。**禁止**：macOS template 字形上色 / 加投影 / 带底板；托盘用双/错位矩形。
 
-**再生成**：`cd crates/app/assets/icons/tools && npm i && node build.mjs`（sharp + iconutil）。改图形先改本节与源，再跑管线，产出随仓库提交；运行时只 `include_bytes!` 产出文件（`main.rs::tray_icon_rgba` / `apply_dock_icon`）。预览契约：`06-品牌图标.brand.html`（真机场景亮暗双主题）。
+**再生成**：`cd crates/app/assets/icons/tools && npm i && node build.mjs`（sharp + iconutil）。改图形先改本节与源，再跑管线，产出随仓库提交；运行时只 `include_bytes!` 产出文件（`main.rs::tray_icon_rgba` / `configure_macos_app` 设置应用图标）。预览契约：`06-品牌图标.brand.html`（真机场景亮暗双主题）。

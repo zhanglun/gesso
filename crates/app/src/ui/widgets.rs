@@ -55,7 +55,7 @@ pub fn kind_icon(kind: Kind) -> IconName {
 ///
 /// - `thumbs` 非空：`img()` 加载 `thumbs[frame]`（video = 抽帧序列，悬停时
 ///   由调用方推进 frame 实现轮播；gif = 素材本身，GPUI 自动多帧播放）
-/// - 空：渐变占位 + 类型图标（shader/html 的 M4 前形态 / 加载失败兜底）
+/// - 空：渐变占位 + 类型图标（缩略图未就绪 / 加载失败兜底）
 /// - `broken`：灰底问号（素材失效永不白屏）
 pub fn preview(
     art: Art,

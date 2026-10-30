@@ -64,9 +64,22 @@ struct MiniGeom {
 pub struct MonitorsView {
     /// 每块屏一个帧率下拉（§4.4：FPS 下拉 60/30/15/5）。
     fps_selects: Vec<Entity<SelectState<SearchableVec<String>>>>,
+    /// 每块屏一个填充下拉（§4.4 填充下拉 2026-10-12：填充/适应/拉伸）。
+    fit_selects: Vec<Entity<SelectState<SearchableVec<String>>>>,
     /// 详情条展示的屏；None = 跟随主屏。
     selected: Option<usize>,
+    /// 小像自身悬停（视图本地，按屏索引）。不进 GessoState——悬停小像曾把
+    /// 壁纸 ID 写进 g.hovered（库卡悬停的跨页指认字段），同壁纸指派多屏时
+    /// hover 一块、全部同壁纸小像一起描边，且点击换选后旧屏描边不退（v1.1 反馈）。
+    mini_hover: Option<usize>,
 }
+
+/// 填充下拉选项（顺序 = FitMode 投影序；label 唯一出处 = strings）。
+const FIT_MODES: [super::data::FitMode; 3] = [
+    super::data::FitMode::Cover,
+    super::data::FitMode::Contain,
+    super::data::FitMode::Fill,
+];
 
 impl MonitorsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -115,9 +128,48 @@ impl MonitorsView {
                 entity
             })
             .collect();
+        let fit_selects = monitors_snapshot
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let items = SearchableVec::new(FIT_MODES.map(|f| f.label().to_string()).to_vec());
+                let selected = FIT_MODES.iter().position(|f| *f == m.fit).unwrap_or(0);
+                let entity = cx
+                    .new(|cx| SelectState::new(items, Some(IndexPath::new(selected)), window, cx));
+                // 真 UI 控件（§4.4 填充下拉）：确认即入队引擎动作——视频活切换
+                // （原生窗 set_fit）、图片热重载宿主页；只改本地投影会漂移（同
+                // SetMonitorFps 的教训）
+                let real_id = m.real_id.clone();
+                cx.subscribe(
+                    &entity,
+                    move |_, _, event: &SelectEvent<SearchableVec<String>>, cx| {
+                        if let SelectEvent::Confirm(Some(v)) = event {
+                            if let Some(fit) = FIT_MODES.iter().find(|f| f.label() == v).copied() {
+                                cx.update_global::<GessoState, _>(|g, _| {
+                                    if let Some(m) = g.monitors.get_mut(i) {
+                                        m.fit = fit;
+                                    }
+                                });
+                                crate::engine::enqueue(
+                                    crate::engine::EngineAction::SetMonitorFit {
+                                        monitor_id: real_id.clone(),
+                                        fit: fit.to_core(),
+                                    },
+                                );
+                                cx.notify();
+                            }
+                        }
+                    },
+                )
+                .detach();
+                entity
+            })
+            .collect();
         MonitorsView {
             fps_selects,
+            fit_selects,
             selected: None,
+            mini_hover: None,
         }
     }
 
@@ -156,6 +208,7 @@ impl MonitorsView {
         let redetect = Button::new("btn-redetect")
             .label(BTN_REDETECT())
             .secondary()
+            .with_size(KitSize::Small) // 画布角落的次级动作，Small 与详情条控件同档（v1.1 反馈：Medium 头重脚轻）
             .icon(Icon::new(IconName::RefreshCw))
             .on_click(|_, window, cx| {
                 // 重新检测：走引擎动作队列（sync_monitors 幂等；API.md §1/§4）
@@ -180,10 +233,13 @@ impl MonitorsView {
             .into_any_element()
     }
 
-    /// 屏幕小像内的壁纸面层（contain 适配：竖版/超宽完整可见、与真实桌面一致；
-    /// 失效=灰底问号；加载中=渐变+指示）。
+    /// 屏幕小像内的壁纸面层：**跟随该屏填充模式**（与实际壁纸渲染同语义，
+    /// 切换经快照回灌即时联动——v1.1 反馈：此前恒 Contain，缩略图比例 ≠ 屏比例
+    /// 时上下/左右留白，和真实桌面效果脱节）。失效=灰底问号；加载中=渐变+指示。
+    /// shader/html 画布语义由内容作者控制，预览恒 Contain 看全貌。
     fn screen_surface(
         item: Option<&super::data::LibraryItem>,
+        fit: super::data::FitMode,
         ratio: f32,
         cx: &Context<Self>,
     ) -> AnyElement {
@@ -209,11 +265,21 @@ impl MonitorsView {
                 let source = gpui_kit::gpui::ImageSource::Resource(gpui_kit::gpui::Resource::Path(
                     std::path::PathBuf::from(path).into(),
                 ));
+                // 填充模式 → object-fit（与消费端同构：视频原生窗 / 图片 host 页）。
+                // shader/html 不适用填充，恒 Contain
+                let object_fit = match (item.kind, fit) {
+                    (super::data::Kind::Shader, _) | (super::data::Kind::Web, _) => {
+                        ObjectFit::Contain
+                    }
+                    (_, super::data::FitMode::Cover) => ObjectFit::Cover,
+                    (_, super::data::FitMode::Contain) => ObjectFit::Contain,
+                    (_, super::data::FitMode::Fill) => ObjectFit::Fill,
+                };
                 return gpui_kit::gpui::img(source)
                     .size_full()
                     // 与容器同比例，压制固有宽高比（否则竖图会被撑高裁切）
                     .aspect_ratio(ratio)
-                    .object_fit(ObjectFit::Contain)
+                    .object_fit(object_fit)
                     .rounded(px(MINI_INNER_R))
                     .into_any_element();
             }
@@ -351,8 +417,14 @@ impl MonitorsView {
             .and_then(|wid| state(cx).library.iter().find(|it| &it.id == wid))
             .cloned();
         let assigned = item.is_some();
-        // 描边只在显式点选时出现——默认跟随主屏不描边（持续蓝框 = 视觉噪音）
+        // 描边只在显式点选时出现——默认跟随主屏不描边（持续蓝框 = 视觉噪音）。
+        // 描边语义只有两个：glow（库卡悬停 → 对应小像，按壁纸 ID 跨页指认）与
+        // 选中；小像自身 hover = 仅投影抬升（原型 .screen-mini:hover 契约），
+        // 状态源是本视图的 mini_hover（按屏索引）——此前小像 hover 把壁纸 ID
+        // 写进 g.hovered（glow 的字段），同壁纸指派多屏时 hover 一块全部点亮、
+        // 点击换选后旧屏描边不退（v1.1 反馈）
         let is_selected = self.selected == Some(i);
+        let is_hovered = self.mini_hover == Some(i);
 
         // 状态胶囊（§5 状态矩阵投影；与托盘角标一致）
         let (st_icon, st_label, dimmed) = match (&item, m.state) {
@@ -365,7 +437,6 @@ impl MonitorsView {
 
         // 拖放底色（拖拽库卡片到屏上放手 = 指派）
         let (dz_accent, dz_accent_soft) = (t.accent, t.accent_soft);
-        let wallpaper = m.wallpaper.clone();
 
         div()
             .id(SharedString::from(format!("screen-{i}")))
@@ -383,7 +454,7 @@ impl MonitorsView {
                 t.hairline2
             })
             .when(assigned, |d| d.shadow_md())
-            .when(glow, |d| d.shadow_lg())
+            .when(glow || is_hovered, |d| d.shadow_lg())
             .when(!assigned, |d| d.border_dashed().bg(t.panel).shadow_none())
             .drag_over::<CardDrag>(move |s, _, _, _| {
                 s.border_color(dz_accent).border_dashed().bg(dz_accent_soft)
@@ -392,18 +463,15 @@ impl MonitorsView {
                 super::library_view::assign_from_drop(&drag.item_id, i, window, cx);
             })
             .on_hover({
-                // 悬停小像 → 描边库页对应卡片（in-window 版 signature #1）
-                let wallpaper = wallpaper.clone();
-                cx.listener(move |_, hovering: &bool, window, cx| {
-                    update(window, cx, |g| {
-                        g.hovered = if *hovering {
-                            wallpaper.clone()
-                        } else if g.hovered == wallpaper {
-                            None
-                        } else {
-                            g.hovered.clone()
-                        };
-                    });
+                // 悬停小像 = 仅投影抬升（视图本地态；描边语义见上）。不写
+                // g.hovered——那是库卡悬停的跨页指认字段，小像写入会串扰描边、
+                // 切库页时残留卡片悬停态
+                cx.listener(move |this, hovering: &bool, _, cx| {
+                    let next = if *hovering { Some(i) } else { None };
+                    if this.mini_hover != next {
+                        this.mini_hover = next;
+                        cx.notify();
+                    }
                 })
             })
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -425,7 +493,7 @@ impl MonitorsView {
                     .inset_0()
                     .rounded(px(MINI_INNER_R))
                     .overflow_hidden()
-                    .child(Self::screen_surface(item.as_ref(), geom.ratio, cx)),
+                    .child(Self::screen_surface(item.as_ref(), m.fit, geom.ratio, cx)),
             )
             .when(assigned, |d| {
                 d.child(Self::status_chip(st_icon, st_label, dimmed))
@@ -655,9 +723,25 @@ impl MonitorsView {
         // 更换：跳库页并带上当前壁纸作为上下文
         let change_ctx = m.wallpaper.clone();
         let toggle_real_id = m.real_id.clone();
+        // 填充下拉（§4.4 2026-10-12）：仅视频/图片类可调；shader/网页画布语义
+        // 由内容作者控制 → 置灰（配置仍保留，切换指派后语义恢复）
+        let fit_select = self.fit_selects.get(sel).map(|s| {
+            let authored = item.as_ref().is_some_and(|it| {
+                matches!(it.kind, super::data::Kind::Shader | super::data::Kind::Web)
+            });
+            div().w(px(112.)).child(
+                // 详情条控件统一 Small（§1.2 工艺基准；Medium 32px 在 12px 状态行旁头重脚轻）。
+                // 宽度按最长文案预留（EN "Stretch" ≈46px + 输入框左右 8px×2 + chevron
+                // 14px + justify_between 余量），不足即截断省略号（v1.1 反馈）
+                Select::new(s)
+                    .with_size(KitSize::Small)
+                    .appearance(true)
+                    .disabled(authored),
+            )
+        });
         let fps_select = self.fps_selects.get(sel).map(|s| {
-            div().w(px(96.)).child(
-                // 详情条控件统一 Small（§1.2 工艺基准；Medium 32px 在 12px 状态行旁头重脚轻）
+            div().w(px(108.)).child(
+                // 同 fit 下拉：108px 容 "60 fps"（Small 档固定开销 ≈60px，96px 曾出省略号）
                 Select::new(s).with_size(KitSize::Small).appearance(true),
             )
         });
@@ -666,7 +750,7 @@ impl MonitorsView {
             .flex_none()
             .h(px(STRIP_H))
             .px(px(16.))
-            .gap(px(14.))
+            .gap(px(10.)) // v1.1 反馈「底部太挤」：14→10，给控件区让 rhythm
             .items_center()
             .rounded(px(12.))
             .border_1()
@@ -767,6 +851,7 @@ impl MonitorsView {
                                     }
                                 }),
                         )
+                        .children(fit_select)
                         .children(fps_select)
                 }
             })

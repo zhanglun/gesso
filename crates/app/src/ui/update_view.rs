@@ -7,13 +7,15 @@
 
 use std::sync::Mutex;
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::progress::{Progress, ProgressCircle};
-use gpui_kit::component::{h_flex, v_flex, Sizable as _, Size};
+use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _, Size};
 use gpui_kit::gpui::{
-    div, px, size, AnyElement, App, AppContext as _, Bounds, Context, FocusHandle, Focusable,
-    FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    div, px, size, AnyElement, App, AppContext as _, Bounds, ClipboardItem, Context, FocusHandle,
+    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, TitlebarOptions, Window, WindowBounds,
+    WindowOptions,
 };
 use gpui_kit::AnyWindowHandle;
 
@@ -27,6 +29,8 @@ static UPDATE_WINDOW: Mutex<Option<AnyWindowHandle>> = Mutex::new(None);
 
 pub struct UpdateModal {
     focus: FocusHandle,
+    /// 「复制错误详情」点击后的短暂反馈态（1.6s 自动退回，同设置页重置确认的模式）
+    copied: bool,
 }
 
 impl Focusable for UpdateModal {
@@ -39,12 +43,7 @@ impl Focusable for UpdateModal {
 pub fn open(cx: &mut App) {
     let existing = UPDATE_WINDOW.lock().ok().and_then(|g| *g);
     if let Some(h) = existing {
-        let activated = h
-            .update(cx, |_: gpui_kit::gpui::AnyView, window, cx: &mut App| {
-                cx.activate(true);
-                window.activate_window();
-            })
-            .is_ok();
+        let activated = activate_update_window(h, cx);
         if activated {
             return;
         }
@@ -52,7 +51,7 @@ pub fn open(cx: &mut App) {
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
             None,
-            size(px(480.), px(320.)),
+            size(px(460.), px(280.)),
             cx,
         ))),
         titlebar: Some(TitlebarOptions {
@@ -70,16 +69,38 @@ pub fn open(cx: &mut App) {
             let _ = window;
             UpdateModal {
                 focus: cx.focus_handle(),
+                copied: false,
             }
         })
     }) {
         if let Ok(mut g) = UPDATE_WINDOW.lock() {
             *g = Some(handle);
         }
+        // 新建窗口也要在同一次托盘点击中激活；否则第一次只完成建窗，第二次才上屏。
+        activate_update_window(handle, cx);
     }
 }
 
+fn activate_update_window(handle: gpui_kit::AnyWindowHandle, cx: &mut App) -> bool {
+    handle
+        .update(cx, |_: gpui_kit::gpui::AnyView, window, cx: &mut App| {
+            cx.activate(true);
+            window.activate_window();
+            window.defer(cx, |window, cx| {
+                window.activate_window();
+                cx.activate(true);
+            });
+        })
+        .is_ok()
+}
+
 fn close(window: &mut Window) {
+    // 失败态随窗口关闭重置（重开从「检查更新」干净起步，不停留在旧错误）。
+    // 同时丢弃句柄，避免托盘下次激活命中已移除的窗口。
+    crate::update::reset_failure();
+    if let Ok(mut handle) = UPDATE_WINDOW.lock() {
+        *handle = None;
+    }
     window.remove_window();
 }
 
@@ -259,19 +280,80 @@ impl Render for UpdateModal {
                 );
             }
             UpdatePhase::Failed => {
+                // 错误信息是一个可操作的反馈单元：用浅红面板把原因、出路和复制动作
+                // 绑在一起，避免「复制错误详情」看起来像一行普通说明文字。
+                let err_detail = u.error.clone();
+                let copied = self.copied;
                 body.push(
-                    div()
-                        .text_size(px(13.5))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(t.danger)
-                        .child(UPD_FAILED_TITLE())
-                        .into_any_element(),
-                );
-                body.push(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(t.danger)
-                        .child(update_failed_detail(&u.error))
+                    v_flex()
+                        .gap_2()
+                        .p_3()
+                        .rounded(px(8.))
+                        .bg(t.danger_soft)
+                        .border_1()
+                        .border_color(t.danger.opacity(0.24))
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(Icon::new(IconName::TriangleAlert).size_4())
+                                .child(
+                                    div()
+                                        .text_size(px(13.5))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(t.danger)
+                                        .child(UPD_FAILED_TITLE()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(t.danger)
+                                .child(update_failed_detail(&u.error)),
+                        )
+                        .child(
+                            h_flex()
+                                .id("upd-copy-err")
+                                .gap_1()
+                                .items_center()
+                                .text_size(px(12.))
+                                .text_color(t.text2)
+                                .cursor_pointer()
+                                .hover(|s| s.text_color(t.accent))
+                                .child(
+                                    Icon::new(if copied {
+                                        IconName::Check
+                                    } else {
+                                        IconName::Copy
+                                    })
+                                    .size_3(),
+                                )
+                                .child(if copied {
+                                    UPD_COPIED()
+                                } else {
+                                    UPD_COPY_ERROR()
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(format!(
+                                        "Gesso {} · {}\n{}",
+                                        env!("CARGO_PKG_VERSION"),
+                                        UPDATE_TITLE(),
+                                        err_detail
+                                    )));
+                                    this.copied = true;
+                                    cx.notify();
+                                    cx.spawn(async move |this, cx| {
+                                        cx.background_executor()
+                                            .timer(std::time::Duration::from_millis(1600))
+                                            .await;
+                                        let _ = this.update(cx, |this, cx| {
+                                            this.copied = false;
+                                            cx.notify();
+                                        });
+                                    })
+                                    .detach();
+                                })),
+                        )
                         .into_any_element(),
                 );
                 footer.push(
