@@ -853,7 +853,7 @@ fn persist_pet_adoption(
 
 /// 执行一条引擎动作：只改引擎状态 + 返回需延后的副作用。
 /// （窗口生命周期/cx 相关操作不在此处理。）
-/// 解析演练步 "secs:op"（op 见 web-drill.py 文件头）。仅 debug 钩子使用；
+/// 解析演练步 "secs:op"（动作清单见技术方案 §9.3）。仅 debug 钩子使用；
 /// 动作映射与真实入口一致：领养小窗按钮走 PetAdoption 事件，设置页「确认重置」
 /// 直接入队 ResetPetData（pet_view.rs 的二段式 armed 是 UI 本地状态）。
 #[cfg(debug_assertions)]

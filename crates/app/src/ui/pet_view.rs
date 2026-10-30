@@ -69,7 +69,7 @@ impl PetView {
                     .text_color(t.text1)
                     .child(PET_TITLE()),
             )
-            .child(PET_SAVED_DESC())
+            .child(PET_MANAGE_HINT())
             .child(self.manage_button())
             .into_any_element()
     }
@@ -89,9 +89,9 @@ impl Render for PetView {
                     .text_size(px(13.))
                     .text_color(tokens(cx).text2)
                     .child(if pet.visible {
-                        TRAY_PET_HIDE().to_string()
+                        PET_VISIBLE_STATE().to_string()
                     } else {
-                        TRAY_PET_SHOW().to_string()
+                        PET_HIDDEN_STATE().to_string()
                     })
                     .into_any_element(),
                 cx,
