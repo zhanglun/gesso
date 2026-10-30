@@ -36,6 +36,7 @@ GESSO_LOCK=dev ./target/debug/gesso      # 开发期多实例并存（用完记�
 GESSO_UPDATE_MODAL=1 GESSO_LOCK=dev ./target/debug/gesso   # 启动即「检查更新+开小窗」；加 GESSO_UPDATE_AUTO_DL=1 连「发现→下载」一并自动确认（仅 debug）
 GESSO_PET_NOTICE=new GESSO_LOCK=dev ./target/debug/gesso   # 启动 ~3s 注入一次宠物模拟通知（气泡链路无头验证，仅 debug）；窗口层行为回归见 tools/pet-verify/regress.ps1
 GESSO_PET_ADOPT=1  GESSO_LOCK=dev ./target/debug/gesso   # 启动即等价托盘「开始领养」（领养小窗链路无头验证，仅 debug）
+python3 tools/pet-verify/web-drill.py   # GPUI↔Web 双入口并发演练（自启动沙箱实例；钩子 GESSO_PET_GPUI_DRILL="秒:动作,…" 仅 debug，用法见文件头；改 web/ 后先 cargo build）
 ```
 
 ## 仓库地图

@@ -113,8 +113,9 @@ AVFoundation（含其 objc2 崩溃面）。
 - ✅ 领养五动作 / 显隐 / 尺寸 / 活跃度 / 两阶段重置（reset.confirm 服务端硬性守卫 reset_not_pending）
 - ✅ 实验室：idle/sleep/blink 受控预览 + 自动播放节奏 + 深色/浅色/棋盘格背景
 - ✅ E2E 脚本 `tools/pet-verify/web-e2e.py`（沙箱 HOME 跑，20 项断言）；debug 钩子 GESSO_PET_WEB=1 / GESSO_PET_WEB_ECHO=1 / GESSO_PET_WEB_NO_OPEN=1
-- ⚠️ 验收踩坑：前端产物编译期内嵌——改 web/ 后必须重新 cargo build；Chrome preconnect 空连接超时必须静默关闭（已修）
-- ⬜ 待人工：GPUI↔Web 双入口实机并发演练（机制同已验证的 409 恢复路径）；日常使用体感反馈
+- ✅ GPUI↔Web 双入口并发演练自动化（2026-10-30）：debug 钩子 `GESSO_PET_GPUI_DRILL="秒:动作,…"` 按秒注入 GPUI 侧 EngineAction（与领养小窗/设置页同一通道）+ `tools/pet-verify/web-drill.py`（自启动沙箱实例，24 项断言：确定性 409→刷新恢复、双入口交叉修改收敛、revision 单调、退出后端口关闭/存档一致）
+- ⚠️ 验收踩坑：前端产物编译期内嵌——改 web/ 后必须重新 cargo build；Chrome preconnect 空连接超时必须静默关闭（已修）；代理环境变量会拦 127.0.0.1 回环流量（e2e/drill 脚本已内置 ProxyHandler({})）
+- ⬜ 待人工：双入口并发下领养小窗/设置页的窗口观感与体感（状态机层已自动化覆盖）；日常使用体感反馈
 - ⬜ 未做（刻意）：局域网/远程访问、request body 摘要、预览 PNG 缓存（渲染极廉价）、WebSocket/SSE
 
 - WE 零拷贝直引：video/web 不拷入库、不修改原文件。用户主动导入 `project.json` 后，经 `gesso://steam/<entry-id>/<rel>` 只读访问该条目的 source_dir（以库清单里的不可猜 entry id 为凭据，不扫描磁盘）。

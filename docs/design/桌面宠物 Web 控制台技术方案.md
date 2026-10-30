@@ -210,3 +210,19 @@ GET /api/operations/{operation_id} → {status: pending|applied|unknown}
 - 退出后端口关闭、session 失效；重启后领养持久化。
 
 验收中发现并修复：**浏览器 preconnect 竞态**——Chrome 在发请求前预热 TCP 连接，空闲连接撞上服务器 2s 读超时会收到 400，且被同连接上的后续真实请求读到并渲染为文档。修复：未收到任何字节的连接超时后静默关闭，不回错误响应。另增 debug 钩子 `GESSO_PET_WEB_ECHO=1`（回显引导 URL）与 `GESSO_PET_WEB_NO_OPEN=1`（跳过系统浏览器，避免真实浏览器抢先消费一次性 code）。
+
+### 9.3 双入口并发演练自动化（2026-10-30）
+
+GPUI↔Web 双入口并发不再依赖人工点窗口：debug 钩子 `GESSO_PET_GPUI_DRILL="秒:动作,…"`（仅 debug 构建，main.rs `parse_drill_step`）在主循环节拍里按秒向引擎队列注入 GPUI 侧动作——与领养小窗按钮 / 设置页「确认重置」**同一 EngineAction 通道**（二段式 armed 是 UI 本地状态，注入即确认段），配合 `tools/pet-verify/web-drill.py`（自启动沙箱实例，无需人工传 URL）：
+
+```text
+动作：open / start / reroll / select:N / back / close / confirm /
+      reset_request / reset_cancel / reset_confirm
+示例调度：2:open,3:start,10:reroll,12:select:1,14:confirm,18:reset_confirm
+```
+
+演练断言（不变量而非具体交错，实测 24 项 × 2 轮全绿）：GPUI 3–10s 静默窗内 Web 确定性 409（自选后旧 revision 必过期）→ 刷新恢复；GPUI reroll/select 与 Web 覆盖选择交叉修改同一领养会话后状态收敛；GPUI confirm → adopted 且宠物即最后确认候选；Web reset.request → GPUI reset_confirm 清除 → not_adopted、非待确认态 confirm 拒绝（reset_not_pending）；adoption_revision 全程单调；退出后端口关闭、存档无领养残留。
+
+状态机对无效事件天然 no-op（`adoption_transition` 的兜底分支），因此双入口同时 `start` / 乱序 select 等交错无需逐一定时校准。剩余人工项：并发下领养小窗/设置页的窗口观感与日常体感。
+
+顺手修复：`web-e2e.py` / `web-drill.py` 的 urllib opener 显式 `ProxyHandler({})`——代理环境变量（http_proxy 等）会拦截 127.0.0.1 回环流量，POST 被间歇 502 且 e2e 的 op() 不检查失败，导致回归假阴性。
