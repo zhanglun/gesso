@@ -46,7 +46,10 @@ def req(method, path, body=None, session=None, origin=True, retries=2):
             **({"Origin": BASE} if origin else {}),
         },
     )
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    # loopback 流量不走系统代理（代理环境变量拦截 127.0.0.1 → 间歇 502）
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar)
+    )
     last = (-1, b"no-attempt")
     for attempt in range(retries):
         try:
