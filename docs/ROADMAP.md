@@ -100,6 +100,23 @@ AVFoundation（含其 objc2 崩溃面）。
 
 ## Known gaps (no milestone yet)
 
+### 桌面宠物 Web 控制台（2026-10-28 第一阶段完成，含写操作）
+
+本机浏览器管理宠物的工作台（loopback Server + 系统浏览器，非远程服务）。
+规格与契约：[桌面宠物 Web 控制台设计.md](design/桌面宠物%20Web%20控制台设计.md) / [技术方案.md](design/桌面宠物%20Web%20控制台技术方案.md)（含 9.2 实机验收记录）。
+
+- ✅ 托盘「在浏览器中管理宠物…」→ loopback 随机端口 Server（std TcpListener，无 HTTP 框架）→ 一次性 bootstrap code 换 HttpOnly cookie
+- ✅ 公开快照 DTO（无 seed/路径）+ 双轨 revision（state_revision 随内容 / adoption_revision 专供写操作乐观锁）
+- ✅ 受控 PNG 预览：正式宠物与领养候选（`?state=idle|sleep|blink&candidate=<id>`），复用 PetTemplate 软件渲染，手写 PNG 编码
+- ✅ 前端：Svelte 5 + Vite（`crates/app/web/`），自有 token 对齐 DESIGN.md，暗色主题、reduced-motion、窄屏；build.rs 自动 npm 构建内嵌产物（改前端后需重新 cargo build）
+- ✅ 写通道 `POST /api/adoption/op`：request_id 去重重放幂等 + adoption_revision 乐观锁（409）+ Origin 校验 + 异步 operation_id；执行在引擎线程与 GPUI 同一状态机
+- ✅ 领养五动作 / 显隐 / 尺寸 / 活跃度 / 两阶段重置（reset.confirm 服务端硬性守卫 reset_not_pending）
+- ✅ 实验室：idle/sleep/blink 受控预览 + 自动播放节奏 + 深色/浅色/棋盘格背景
+- ✅ E2E 脚本 `tools/pet-verify/web-e2e.py`（沙箱 HOME 跑，20 项断言）；debug 钩子 GESSO_PET_WEB=1 / GESSO_PET_WEB_ECHO=1 / GESSO_PET_WEB_NO_OPEN=1
+- ⚠️ 验收踩坑：前端产物编译期内嵌——改 web/ 后必须重新 cargo build；Chrome preconnect 空连接超时必须静默关闭（已修）
+- ⬜ 待人工：GPUI↔Web 双入口实机并发演练（机制同已验证的 409 恢复路径）；日常使用体感反馈
+- ⬜ 未做（刻意）：局域网/远程访问、request body 摘要、预览 PNG 缓存（渲染极廉价）、WebSocket/SSE
+
 - WE 零拷贝直引：video/web 不拷入库、不修改原文件。用户主动导入 `project.json` 后，经 `gesso://steam/<entry-id>/<rel>` 只读访问该条目的 source_dir（以库清单里的不可猜 entry id 为凭据，不扫描磁盘）。
 - Real-machine monitor outline (signature #1) and tray panel positioning on retina displays.
 - ~~HTML thumbnails use the gradient placeholder~~ → Done (`372b4c4`): html captures live frames via the same persistent-window capture pipeline as shader/video.
