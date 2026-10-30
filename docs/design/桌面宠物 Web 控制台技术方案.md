@@ -195,9 +195,11 @@ GET /api/operations/{operation_id} → {status: pending|applied|unknown}
 - **乐观锁用 `adoption_revision` 而非 `state_revision`**：state_revision 随行为状态（idle/blink）频繁跳动，会让写请求永远过期；adoption_revision 只在领养状态/候选变化时递增，才是领养操作的真正并发实体。
 - **执行在引擎线程**：操作入队后在主循环 drain 为既有 EngineAction（StartPetAdoption / PetAdoption(AdoptionEvent::…)），与 GPUI 领养窗口共用同一状态机和持久化事务；Web 线程绝不直接触碰 AdoptionState / PetStore。
 - **状态机天然幂等兑底**：非法转移（如未选候选就 confirm、重复 start）在 `adoption_transition` 中是无害 no-op；request_id 去重另外解决 reroll 这类非幂等操作的重放。
-- **设置类写操作（2026-10-28）**：`pet.set_visible`（payload `{visible:bool}`）→ 幂等动作 `EngineAction::SetPetVisibility(bool)`（同值零副作用，不产生 revision 跳动）；托盘 `TogglePetVisibility` 也改为基于它实现，消除读改写 TOCTOU。设置页显示状态、概览显隐按钮均已接入。
+- **设置类写操作（2026-10-28）**：`pet.set_visible`（payload `{visible:bool}`）→ 幂等动作 `EngineAction::SetPetVisibility(bool)`（同值零副作用，不产生 revision 跳动）；托盘 `TogglePetVisibility` 也改为基于它实现，消除读改写 TOCTOU。`pet.set_size` / `pet.set_activity` 复用引擎既有档位动作（非法档位/缺 payload 400）。设置页与概览均已接入。
+- **两阶段重置（2026-10-28）**：`pet.reset.request` 进入 `reset_confirm` 态（安全，宠物不破坏）→ `pet.reset.confirm` 触发引擎 `reset_pet_data` 破坏性事务；`pet.reset.cancel` 回退 Adopted。服务端硬性守卫：confirm 仅在待确认态受理，否则 `409 reset_not_pending`（防重复/乱序触发不可恢复操作）。设置页危险区 UI（红色仅用于真危险语义）。
+- **OpLog 纪律（审查修复）**：request_id 去重表 4096 条上限，超限整体重置（状态机对重复操作 no-op 兜底）。
 - **候选预览（2026-10-28）**：`GET /api/pet/preview?state=idle&candidate=<candidate_id>` 从已发布快照的公开候选 DTO 查找外观并渲染（candidate_id 本就公开，无新增泄露面）；领养页三候选卡即见即所得。
-- 尚未接入：尺寸/活跃度档位写、两阶段 reset、request body 摘要（当前 body 极小，暂无必要）。
+- 尚未接入：request body 摘要（当前 body 极小，暂无必要）；GPUI↔Web 并发冲突路径建议人工过一遍（409 → 前端自动刷新恢复）。
 
 ### 9.2 实机验收记录（2026-10-28）
 
