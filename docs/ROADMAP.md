@@ -10,7 +10,7 @@
 - ✅ 运行时：事件驱动显示器重配收敛、全屏/电源/锁屏/空闲策略、光标/时间桥、填充模式和应用内更新。
 - ✅ 桌面过渡：运行时不写系统桌面；几何过时窗口由 Gesso 自己的 AppKit 静帧过渡窗覆盖；旧版系统桌面桥接帧只在启动时清理。
 - ✅ 发布：`v0.1.3` 已通过 GitHub Actions 生成 macOS DMG、Windows 安装包、便携包和校验文件；更新器本地化修复与 Windows 代理修复在后续维护提交中继续验证。
-- ✅ 桌面宠物（feat/desktop-pet 分支，待合入）：macOS AppKit 宠物窗口 + 领养/行为状态机 + Web 控制台（loopback Server + Svelte 前端，读写全链路）；双入口并发演练已自动化（`GESSO_PET_GPUI_DRILL` + `tools/pet-verify/web-drill.py`）。
+- ✅ 桌面宠物（feat/desktop-pet 分支，待合入）：macOS AppKit 宠物窗口 + 领养/行为状态机 + Web 控制台（loopback Server + Svelte 前端）；2026-10-30 入口收敛后领养/设置/重置/模拟事件唯一管理面 = Web 控制台（GPUI 领养小窗已撤销）；双入口并发演练已自动化（`GESSO_PET_GPUI_DRILL` + `tools/pet-verify/web-drill.py`）。
 
 ## 下一步优先级
 
@@ -30,7 +30,9 @@
    - 保持 sandbox、CSP、无 IPC 和同源资源边界；
    - 评估 `fps_cap` 对第三方 RAF 的可控范围。
 5. **桌面宠物收尾（feat/desktop-pet）**
+   - 待人工实机确认：模拟事件气泡弹出、帧序修复后眨眼/注视火苗亮度（f2deaf7）；
    - 待人工：日常使用体感反馈（状态机层已由演练覆盖；2026-10-30 入口收敛后 GPUI 领养小窗已撤销，管理面唯一化为 Web 控制台）；
+   - Windows press 悬挂挂账修复（设计稿 §10 P2 待完成②，同款已修见①）；
    - 宠物正式美术与首发角色设计定稿。
 
 ## 明确不做
@@ -41,6 +43,21 @@
 - 内容下载器或再分发；
 - 运行时写入系统桌面壁纸；
 - 静默替换正在运行的应用。
+
+## 进行中交接（新 AI 会话提示词）
+
+桌面宠物开发（feat/desktop-pet）开工提示词，复制即用：
+
+> 继续 gesso 桌面宠物开发。进度和契约已写入仓库，先按顺序读：
+> 1. docs/ROADMAP.md——本文「当前状态」桌面宠物行与「下一步优先级」第 5 项；
+> 2. docs/design/桌面宠物设计.md v1.1（2026-10-30 入口收敛修订 + §10 分期挂账）；
+> 3. docs/design/桌面宠物 Web 控制台技术方案.md §9（写通道契约 + §9.3 演练）；
+> 4. 实现：crates/app/src/web_control.rs（Server+API）+ crates/app/web/（Svelte 前端，改后必须 cargo build——产物编译期内嵌）+ crates/app/src/pet_window.rs（桌面宠物窗）。
+>
+> 当前状态（2026-10-30）：领养/设置/重置/模拟事件唯一管理面 = Web 控制台（GPUI 领养小窗已撤销）；回归全绿：web-e2e 23 断言、web-drill 24 断言（python3 tools/pet-verify/）、cargo test 79+57。
+> 待人工：模拟事件气泡与帧序修复（眨眼/注视）实机观感、日常使用体感。
+> 待办：合回 main → 0.2.0 发版（docs/RELEASE-CHECKLIST.md）；Windows press 悬挂挂账（设计稿 §10 P2 待完成②）。
+> 遵守 AGENTS.md 硬性规则（原子提交、提交前 cargo check + cargo test 全绿、改界面先改设计文档）。
 
 ## 相关文档
 
