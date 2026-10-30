@@ -591,6 +591,9 @@ struct ActionOutcome {
     lang_changed: bool,
     /// 请求打开宠物领养小窗。
     open_pet_adoption: bool,
+    /// 领养状态已被外部入口（Web/托盘）改动，需唤醒已打开的领养小窗重渲
+    /// （GPUI 视图只在 notify 后重跑 render，render 虽读全局但不会自动触发）。
+    refresh_pet_adoption: bool,
     /// 请求打开管理窗口的宠物页。
     focus_pet: bool,
     /// 互动统计已在引擎内更新，刷新宠物投影。
@@ -1004,6 +1007,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                 std::mem::replace(&mut app.pet_adoption, gesso_core::AdoptionState::NotAdopted),
                 event,
             );
+            out.refresh_pet_adoption = true;
         }
         engine::EngineAction::PetAdoption(event) => {
             let current =
@@ -1011,10 +1015,12 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             let next = gesso_core::adoption_transition(current, event);
             let gesso_core::AdoptionState::Persisting { candidates } = next else {
                 app.pet_adoption = next;
+                out.refresh_pet_adoption = true;
                 return out;
             };
 
             app.pet_adoption = persist_pet_adoption(app, candidates);
+            out.refresh_pet_adoption = true;
         }
         engine::EngineAction::PetInteraction(interaction) => {
             if app.pet_save.adoption.is_some() && !app.pet_storage_blocked {
@@ -1083,6 +1089,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                 match reset_pet_data(app) {
                     Ok(()) => {
                         out.refresh_pet = true;
+                        out.refresh_pet_adoption = true;
                         out.open_pet_adoption = true;
                     }
                     Err(message) => app.pet_error = Some(message),
@@ -1696,6 +1703,7 @@ fn main() {
                         let mut focus_main = false;
                         let mut open_update_modal = false;
                         let mut open_pet_adoption = false;
+                        let mut refresh_pet_adoption = false;
                         let mut focus_pet = false;
                         let mut lang_changed = false;
                         let mut refresh_pet = false;
@@ -1723,6 +1731,9 @@ fn main() {
                                 }
                                 if out.open_pet_adoption {
                                     open_pet_adoption = true;
+                                }
+                                if out.refresh_pet_adoption {
+                                    refresh_pet_adoption = true;
                                 }
                                 if out.focus_pet {
                                     focus_pet = true;
@@ -1771,6 +1782,11 @@ fn main() {
                         }
                         if open_pet_adoption {
                             cx.update(pet_adoption_view::open);
+                        }
+                        // 外部入口改了领养状态：窗口开着就唤醒重渲（无窗口时 no-op）。
+                        // 放在 open 之后：刚开的窗口首帧即新状态，notify 无害。
+                        if refresh_pet_adoption {
+                            cx.update(pet_adoption_view::notify_state_changed);
                         }
                     }
 

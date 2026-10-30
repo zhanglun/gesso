@@ -81,6 +81,18 @@ fn adopt_event(event: AdoptionEvent) {
     engine::enqueue(EngineAction::PetAdoption(event));
 }
 
+/// 领养状态被窗口外入口（Web 控制台/托盘/重置）改动后，由主循环调用：
+/// 唤醒已打开的领养小窗重渲。render 每次读全局 AppState（数据总是新的），
+/// 但 GPUI 视图只在 notify 后才重跑 render——窗口内按钮自带 notify，
+/// 外部入口不会，不补这一步窗口就停在旧帧（双入口不同步的根因）。
+pub fn notify_state_changed(cx: &mut App) {
+    if let Some(handle) = WINDOW.lock().ok().and_then(|guard| *guard) {
+        if let Some(adopt) = handle.downcast::<PetAdoptionView>() {
+            let _ = adopt.update(cx, |_, _, cx| cx.notify());
+        }
+    }
+}
+
 impl PetAdoptionView {
     fn reroll(&mut self, cx: &mut Context<Self>) {
         if self.reroll_locked {
