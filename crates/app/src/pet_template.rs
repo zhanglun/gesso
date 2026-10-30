@@ -21,6 +21,22 @@ pub enum FrameKind {
     GazeRight,
 }
 
+impl FrameKind {
+    /// 预渲槽位序 → 帧类型。预渲染与运行时帧选择都必须经此对应，
+    /// 避免两处手写 match 漂移（曾致 Blink/Gaze 预渲成睡眠帧，见工程笔记 §2）。
+    pub fn from_index(index: usize) -> Self {
+        const ALL: [FrameKind; 6] = [
+            FrameKind::Idle,
+            FrameKind::Flicker,
+            FrameKind::Sleep,
+            FrameKind::Blink,
+            FrameKind::GazeLeft,
+            FrameKind::GazeRight,
+        ];
+        ALL.get(index).copied().unwrap_or(FrameKind::Idle)
+    }
+}
+
 /// 角色的全部帧变体（由模板数据提供）。
 #[derive(Debug, Clone)]
 pub struct PetFrames {
@@ -177,6 +193,22 @@ impl PetTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_kind_index_roundtrip_locks_sprite_slots() {
+        // 预渲槽位契约：序数即槽位，六个类别不得重叠/兑底
+        for (index, expected) in [
+            (0, FrameKind::Idle),
+            (1, FrameKind::Flicker),
+            (2, FrameKind::Sleep),
+            (3, FrameKind::Blink),
+            (4, FrameKind::GazeLeft),
+            (5, FrameKind::GazeRight),
+        ] {
+            assert_eq!(FrameKind::from_index(index), expected);
+            assert_eq!(expected as u8, index as u8);
+        }
+    }
 
     /// 测试用最小模板：2×2 网格，索引 1=主体 7=描边。
     fn tiny_template() -> PetTemplate {

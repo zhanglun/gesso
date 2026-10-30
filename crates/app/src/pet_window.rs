@@ -1192,11 +1192,9 @@ mod macos {
         let mut sprite_images: Vec<Option<Retained<CGImage>>> =
             vec![None; template.frames.kind_count() * boost_count];
         for frame_idx in 0..template.frames.kind_count() {
-            let kind = match frame_idx {
-                0 => FrameKind::Idle,
-                1 => FrameKind::Flicker,
-                _ => FrameKind::Sleep,
-            };
+            // 预渲索引必须与运行时帧选择一致：FrameKind 序数即 sprite 槽位
+            // （挂账①：曾把 3–5 兑底成 Sleep，眨眼/注视时火苗变暗）
+            let kind = FrameKind::from_index(frame_idx);
             let cells = template.compose(kind, appearance.marking, appearance.body);
             for boost in 0..3u8 {
                 let palette = template.palette(appearance.coat_color, appearance.accent, boost);
