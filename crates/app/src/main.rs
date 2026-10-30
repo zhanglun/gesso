@@ -852,6 +852,34 @@ fn persist_pet_adoption(
 
 /// 执行一条引擎动作：只改引擎状态 + 返回需延后的副作用。
 /// （窗口生命周期/cx 相关操作不在此处理。）
+/// 解析演练步 "secs:op"（op 见 web-drill.py 文件头）。仅 debug 钩子使用；
+/// 动作映射与真实入口一致：领养小窗按钮走 PetAdoption 事件，设置页「确认重置」
+/// 直接入队 ResetPetData（pet_view.rs 的二段式 armed 是 UI 本地状态）。
+#[cfg(debug_assertions)]
+fn parse_drill_step(step: &str) -> Option<(u64, engine::EngineAction)> {
+    let (secs, op) = step.trim().split_once(':')?;
+    let secs = secs.parse().ok()?;
+    use gesso_core::AdoptionEvent;
+    let action = match op {
+        "open" => engine::EngineAction::OpenPetAdoption,
+        "start" => engine::EngineAction::StartPetAdoption {
+            species: gesso_core::PetSpecies::Candle,
+        },
+        "reroll" => engine::EngineAction::PetAdoption(AdoptionEvent::Reroll),
+        "back" => engine::EngineAction::PetAdoption(AdoptionEvent::BackToSpecies),
+        "close" => engine::EngineAction::PetAdoption(AdoptionEvent::Close),
+        "confirm" => engine::EngineAction::PetAdoption(AdoptionEvent::ConfirmAdoption),
+        "reset_request" => engine::EngineAction::PetAdoption(AdoptionEvent::RequestReset),
+        "reset_cancel" => engine::EngineAction::PetAdoption(AdoptionEvent::CancelReset),
+        "reset_confirm" => engine::EngineAction::ResetPetData,
+        _ => {
+            let index = op.strip_prefix("select:")?.parse().ok()?;
+            engine::EngineAction::PetAdoption(AdoptionEvent::SelectCandidate(index))
+        }
+    };
+    Some((secs, action))
+}
+
 fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction) -> ActionOutcome {
     let mut out = ActionOutcome::default();
     let sm = &mut app.sm;
@@ -1510,6 +1538,33 @@ fn main() {
                         }
                         if env_secs("GESSO_PANIC_AFTER_SECS").is_some_and(|n| elapsed >= n) {
                             panic!("GESSO_PANIC_AFTER_SECS 模拟异常退出（壁纸播放中 panic）");
+                        }
+                        // 开发验证钩子（仅 debug 构建）：GESSO_PET_GPUI_DRILL=
+                        // "3:open,4:start,6:select:1,8:confirm" 按秒向引擎队列注入
+                        // GPUI 侧动作——与领养小窗/设置页按钮同一 EngineAction 通道，
+                        // 供 GPUI↔Web 双入口并发演练（tools/pet-verify/web-drill.py）。
+                        static DRILL: std::sync::OnceLock<Vec<(u64, engine::EngineAction)>> =
+                            std::sync::OnceLock::new();
+                        static DRILL_NEXT: std::sync::atomic::AtomicUsize =
+                            std::sync::atomic::AtomicUsize::new(0);
+                        let schedule = DRILL.get_or_init(|| {
+                            match std::env::var("GESSO_PET_GPUI_DRILL") {
+                                Ok(spec) => {
+                                    let mut steps: Vec<_> =
+                                        spec.split(',').filter_map(parse_drill_step).collect();
+                                    steps.sort_by_key(|(secs, _)| *secs);
+                                    steps
+                                }
+                                Err(_) => Vec::new(),
+                            }
+                        });
+                        let mut next = DRILL_NEXT.load(std::sync::atomic::Ordering::Relaxed);
+                        while schedule.get(next).is_some_and(|(secs, _)| elapsed >= *secs) {
+                            let (secs, action) = &schedule[next];
+                            eprintln!("[pet] GESSO_PET_GPUI_DRILL @{secs}s：{action:?}");
+                            engine::enqueue(action.clone());
+                            next += 1;
+                            DRILL_NEXT.store(next, std::sync::atomic::Ordering::Relaxed);
                         }
                     }
                     // UI/托盘写动作入队（API.md §4）——引擎轮询统一执行
