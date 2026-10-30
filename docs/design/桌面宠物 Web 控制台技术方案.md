@@ -216,9 +216,10 @@ GET /api/operations/{operation_id} → {status: pending|applied|unknown}
 GPUI↔Web 双入口并发不再依赖人工点窗口：debug 钩子 `GESSO_PET_GPUI_DRILL="秒:动作,…"`（仅 debug 构建，main.rs `parse_drill_step`）在主循环节拍里按秒向引擎队列注入 GPUI 侧动作——与领养小窗按钮 / 设置页「确认重置」**同一 EngineAction 通道**（二段式 armed 是 UI 本地状态，注入即确认段），配合 `tools/pet-verify/web-drill.py`（自启动沙箱实例，无需人工传 URL）：
 
 ```text
-动作：open / start / reroll / select:N / back / close / confirm /
+动作：start / reroll / select:N / back / close / confirm /
       reset_request / reset_cancel / reset_confirm
-示例调度：2:open,3:start,10:reroll,12:select:1,14:confirm,18:reset_confirm
+示例调度：3:start,10:reroll,12:select:1,14:confirm,18:reset_confirm
+（2026-10-30 入口收敛：领养小窗撤销，open 动作随 OpenPetAdoption 移除）
 ```
 
 演练断言（不变量而非具体交错，实测 24 项 × 2 轮全绿）：GPUI 3–10s 静默窗内 Web 确定性 409（自选后旧 revision 必过期）→ 刷新恢复；GPUI reroll/select 与 Web 覆盖选择交叉修改同一领养会话后状态收敛；GPUI confirm → adopted 且宠物即最后确认候选；Web reset.request → GPUI reset_confirm 清除 → not_adopted、非待确认态 confirm 拒绝（reset_not_pending）；adoption_revision 全程单调；退出后端口关闭、存档无领养残留。

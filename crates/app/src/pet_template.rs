@@ -172,33 +172,6 @@ impl PetTemplate {
             out[i * 4 + 3] = if idx == 0 { 0 } else { 255 };
         }
     }
-
-    /// 领养预览用：每行输出色块行程 (格数, 调色板索引)，索引 0 为透明。
-    pub fn row_runs(&self, cells: &[u8]) -> Vec<Vec<(usize, u8)>> {
-        (0..self.grid_h)
-            .map(|y| {
-                let row = &cells[y * self.grid_w..(y + 1) * self.grid_w];
-                let mut runs = Vec::new();
-                let mut len = 0usize;
-                let mut idx = 0u8;
-                for &c in row {
-                    if len > 0 && c == idx {
-                        len += 1;
-                    } else {
-                        if len > 0 {
-                            runs.push((len, idx));
-                        }
-                        len = 1;
-                        idx = c;
-                    }
-                }
-                if len > 0 {
-                    runs.push((len, idx));
-                }
-                runs
-            })
-            .collect()
-    }
 }
 
 #[cfg(test)]
@@ -289,14 +262,5 @@ mod tests {
         t.render_rgba(&cells, &colors, &mut out);
         assert_eq!(&out[0..4], &[10, 10, 10, 255]);
         assert_eq!(&out[12..16], &[1, 2, 3, 255]);
-    }
-
-    #[test]
-    fn row_runs_split_by_color() {
-        let t = tiny_template();
-        let cells = t.compose(FrameKind::Idle, 0, 0);
-        let runs = t.row_runs(&cells);
-        assert_eq!(runs[0], vec![(2, 1)]);
-        assert_eq!(runs[1], vec![(1, 1), (1, 7)]);
     }
 }

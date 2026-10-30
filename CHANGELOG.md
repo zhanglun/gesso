@@ -7,9 +7,11 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 ### Added
 
 - 更新器根据 App 当前语言显示双语发布说明，并兼容旧版静态清单格式。
+- **桌面宠物（feat/desktop-pet）**：macOS AppKit 宠物窗口（拖动/戳/摸/注视/透明穿透/位置存档）+ Windows 分层窗口（P2-W）；领养状态机与确定性候选生成、行为状态机（睡眠/走动/气泡/锁屏暂停）；Web 控制台（loopback Server + Svelte，领养/设置/两阶段重置全流程）+ GPUI↔Web 双入口并发演练自动化（`GESSO_PET_GPUI_DRILL` + `tools/pet-verify/web-drill.py` 24 断言，另有 `web-e2e.py` 20 断言契约回归）。
 
 ### Changed
 
+- **宠物管理入口收敛（2026-10-30）**：撤销 GPUI 领养小窗——领养/设置/重置唯一管理面 = Web 控制台；托盘合并为单项「管理宠物…」（显隐切换保留）；主窗口宠物页瘦身为纯展示 + 管理入口。动因：同一状态机双 UI 需永久同步，实机双入口验证暴露视图不同步缺陷（规格见《桌面宠物设计.md》v1.1 修订）。
 - README（中英）改版为产品门面：顶部应用图标、新增「下载安装」一节与内置壁纸清单；图片统一放在 `docs/assets/`，发布清单同步新增截图维护步骤。
 - 发布清单保留旧客户端使用的 `notes`，同时增加 `notes_localized.zh/en` 供新版本按语言选择。
 

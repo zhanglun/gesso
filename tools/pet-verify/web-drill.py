@@ -4,10 +4,10 @@
 用法：python3 tools/pet-verify/web-drill.py [gesso 二进制]   （默认 target/debug/gesso）
 前置：cargo build -p gesso-app（钩子仅 debug 构建存在）。
 
-机制：GESSO_PET_GPUI_DRILL 按秒向引擎队列注入 GPUI 侧 EngineAction（与领养
-小窗/设置页同一通道，见 main.rs parse_drill_step），本脚本同时作为 Web actor
-走 HTTP 写通道——双入口真并发。实机桌面会跑约 25s：会短暂打开领养小窗、
-指派样例壁纸并抢一次焦点，属演练预期（同 GESSO_PET_ADOPT 实践）。
+机制：GESSO_PET_GPUI_DRILL 按秒向引擎队列注入 GPUI 侧 EngineAction（与
+引擎动作同通道，见 main.rs parse_drill_step），本脚本同时作为 Web actor
+走 HTTP 写通道——双入口真并发。实机桌面会跑约 25s：首启会指派样例壁纸
+并短暂出现主窗口，属演练预期。
 
 断言（不变量而非具体交错）：
   - Web 侧确定性 409（陈旧 revision）→ 刷新 → 重试成功；
@@ -33,8 +33,9 @@ import uuid
 from http.cookiejar import CookieJar
 
 BIN = sys.argv[1] if len(sys.argv) > 1 else "target/debug/gesso"
-# GPUI 侧时间轴：2 开窗 / 3 开始 / 10 reroll / 12 选 1 / 14 确认 / 18 确认重置
-SCHEDULE = "2:open,3:start,10:reroll,12:select:1,14:confirm,18:reset_confirm"
+# GPUI 侧时间轴：3 开始 / 10 reroll / 12 选 1 / 14 确认 / 18 确认重置
+# （2026-10-30 入口收敛：领养小窗撤销，open 动作随 OpenPetAdoption 一并移除）
+SCHEDULE = "3:start,10:reroll,12:select:1,14:confirm,18:reset_confirm"
 
 PASS = 0
 FAIL = 0

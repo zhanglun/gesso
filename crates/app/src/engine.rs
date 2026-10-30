@@ -181,8 +181,6 @@ pub enum EngineAction {
     UpdateCancelDownload,
     /// 在系统浏览器中打开本地宠物控制台。
     OpenWebControl,
-    /// 打开宠物领养窗口。
-    OpenPetAdoption,
     /// 打开管理窗口的宠物页。
     OpenPetSettings,
     /// 创建一轮临时候选。

@@ -15,7 +15,6 @@ mod desktop_bridge;
 mod encoding;
 mod engine;
 mod host_cmd;
-mod pet_adoption_view;
 mod pet_cache;
 mod pet_sprite_data;
 mod pet_store;
@@ -589,11 +588,6 @@ struct ActionOutcome {
     open_update_modal: bool,
     /// 界面语言变化（托盘菜单文案需重建，见主循环）。
     lang_changed: bool,
-    /// 请求打开宠物领养小窗。
-    open_pet_adoption: bool,
-    /// 领养状态已被外部入口（Web/托盘）改动，需唤醒已打开的领养小窗重渲
-    /// （GPUI 视图只在 notify 后重跑 render，render 虽读全局但不会自动触发）。
-    refresh_pet_adoption: bool,
     /// 请求打开管理窗口的宠物页。
     focus_pet: bool,
     /// 互动统计已在引擎内更新，刷新宠物投影。
@@ -611,17 +605,7 @@ fn build_tray_menu_with_pet(
     let menu = Menu::new();
     let mi_pause = MenuItem::with_id("pause", ui::strings::TRAY_PAUSE_ALL(), true, None);
     let mi_cycle = MenuItem::with_id("cycle", ui::strings::TRAY_RANDOM(), true, None);
-    let pet_label = if adopted {
-        ui::strings::TRAY_PET_SETTINGS()
-    } else {
-        ui::strings::TRAY_PET_ADOPT()
-    };
-    let mi_pet = MenuItem::with_id(
-        if adopted { "pet-settings" } else { "pet-adopt" },
-        pet_label,
-        true,
-        None,
-    );
+    // 入口收敛（2026-10-30）：领养/设置统一走 Web 控制台单项「管理宠物…」
     let mi_pet_web = MenuItem::with_id("pet-web", ui::strings::TRAY_PET_WEB(), true, None);
     let mi_pet_visibility = adopted.then(|| {
         MenuItem::with_id(
@@ -655,7 +639,7 @@ fn build_tray_menu_with_pet(
     let sep_settings = PredefinedMenuItem::separator();
     let sep_exit = PredefinedMenuItem::separator();
     let mut items: Vec<&dyn tray_icon::menu::IsMenuItem> =
-        vec![&mi_pause, &mi_cycle, &sep_pet, &mi_pet, &mi_pet_web];
+        vec![&mi_pause, &mi_cycle, &sep_pet, &mi_pet_web];
     if let Some(item) = mi_pet_visibility.as_ref() {
         items.push(item);
     }
@@ -684,8 +668,6 @@ fn install_tray_menu_handler() {
                 engine::enqueue(EngineAction::PauseAll(paused));
             }
             "cycle" => engine::enqueue(EngineAction::CycleMain),
-            "pet-adopt" => engine::enqueue(EngineAction::OpenPetAdoption),
-            "pet-settings" => engine::enqueue(EngineAction::OpenPetSettings),
             "pet-web" => engine::enqueue(EngineAction::OpenWebControl),
             "pet-toggle" => engine::enqueue(EngineAction::TogglePetVisibility),
             "main" => engine::enqueue(EngineAction::FocusMainWindow),
@@ -880,7 +862,6 @@ fn parse_drill_step(step: &str) -> Option<(u64, engine::EngineAction)> {
     let secs = secs.parse().ok()?;
     use gesso_core::AdoptionEvent;
     let action = match op {
-        "open" => engine::EngineAction::OpenPetAdoption,
         "start" => engine::EngineAction::StartPetAdoption {
             species: gesso_core::PetSpecies::Candle,
         },
@@ -994,7 +975,6 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::OpenWebControl => {
             crate::web_control::open();
         }
-        engine::EngineAction::OpenPetAdoption => out.open_pet_adoption = true,
         engine::EngineAction::OpenPetSettings => out.focus_pet = true,
         engine::EngineAction::StartPetAdoption { species } => {
             let event = gesso_core::AdoptionEvent::Start {
@@ -1007,7 +987,6 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                 std::mem::replace(&mut app.pet_adoption, gesso_core::AdoptionState::NotAdopted),
                 event,
             );
-            out.refresh_pet_adoption = true;
         }
         engine::EngineAction::PetAdoption(event) => {
             let current =
@@ -1015,12 +994,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             let next = gesso_core::adoption_transition(current, event);
             let gesso_core::AdoptionState::Persisting { candidates } = next else {
                 app.pet_adoption = next;
-                out.refresh_pet_adoption = true;
                 return out;
             };
 
             app.pet_adoption = persist_pet_adoption(app, candidates);
-            out.refresh_pet_adoption = true;
         }
         engine::EngineAction::PetInteraction(interaction) => {
             if app.pet_save.adoption.is_some() && !app.pet_storage_blocked {
@@ -1087,11 +1064,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::ResetPetData => {
             if app.pet_save.adoption.is_some() {
                 match reset_pet_data(app) {
-                    Ok(()) => {
-                        out.refresh_pet = true;
-                        out.refresh_pet_adoption = true;
-                        out.open_pet_adoption = true;
-                    }
+                    Ok(()) => out.refresh_pet = true,
                     Err(message) => app.pet_error = Some(message),
                 }
             }
@@ -1702,8 +1675,6 @@ fn main() {
                     if !engine_actions.is_empty() {
                         let mut focus_main = false;
                         let mut open_update_modal = false;
-                        let mut open_pet_adoption = false;
-                        let mut refresh_pet_adoption = false;
                         let mut focus_pet = false;
                         let mut lang_changed = false;
                         let mut refresh_pet = false;
@@ -1728,12 +1699,6 @@ fn main() {
                                 }
                                 if out.open_update_modal {
                                     open_update_modal = true;
-                                }
-                                if out.open_pet_adoption {
-                                    open_pet_adoption = true;
-                                }
-                                if out.refresh_pet_adoption {
-                                    refresh_pet_adoption = true;
                                 }
                                 if out.focus_pet {
                                     focus_pet = true;
@@ -1779,14 +1744,6 @@ fn main() {
                                 });
                                 cx.refresh_windows();
                             });
-                        }
-                        if open_pet_adoption {
-                            cx.update(pet_adoption_view::open);
-                        }
-                        // 外部入口改了领养状态：窗口开着就唤醒重渲（无窗口时 no-op）。
-                        // 放在 open 之后：刚开的窗口首帧即新状态，notify 无害。
-                        if refresh_pet_adoption {
-                            cx.update(pet_adoption_view::notify_state_changed);
                         }
                     }
 
@@ -2147,14 +2104,6 @@ fn main() {
             #[cfg(debug_assertions)]
             if std::env::var("GESSO_UPDATE_MODAL").is_ok() {
                 engine::enqueue(engine::EngineAction::UpdateCheck { open_modal: true });
-            }
-
-            // 开发验证钩子（仅 debug 构建）：GESSO_PET_ADOPT=1 启动即等价托盘
-            // 「开始领养」——无头验证领养小窗全链路（角色选择/三候选/reroll/
-            // 确认/存档），不必自动化托盘菜单
-            #[cfg(debug_assertions)]
-            if std::env::var("GESSO_PET_ADOPT").is_ok() {
-                engine::enqueue(engine::EngineAction::OpenPetAdoption);
             }
 
             // 开发验证钩子（仅 debug 构建）：GESSO_PET_WEB=1 启动本地宠物控制台
