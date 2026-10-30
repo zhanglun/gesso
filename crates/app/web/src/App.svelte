@@ -12,6 +12,15 @@
   let previewState = 'idle';
   /** @type {Array<'idle'|'sleep'|'blink'>} */
   const previewStates = ['idle', 'sleep', 'blink'];
+  let autoplay = false;
+  let blinkOn = false;
+  let labBg = 'dark';
+  /** @type {Array<[string, string]>} */
+  const labBackgrounds = [
+    ['dark', '深色'],
+    ['light', '浅色'],
+    ['checker', '棋盘格'],
+  ];
   /** @type {Array<'small'|'medium'|'large'>} */
   const sizeOptions = ['small', 'medium', 'large'];
   /** @type {Array<'quiet'|'normal'|'lively'>} */
@@ -38,6 +47,12 @@
   onMount(() => {
     theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     document.documentElement.dataset.theme = theme;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // 实验室自动播放：接近真实眨眼节奏（4s 周期 / 短暂闭合）；
+    // reduced-motion 下强制静态（仅影响 Web 预览，不影响桌面宠物）
+    const blinkTimer = window.setInterval(() => {
+      blinkOn = !reducedMotion && Date.now() % 4000 < 300;
+    }, 100);
     /** @type {number | undefined} */
     let timer;
     (async () => {
@@ -50,11 +65,16 @@
       }
       timer = window.setInterval(refresh, 1500);
     })();
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      window.clearInterval(blinkTimer);
+    };
   });
 
   $: pet = snapshot?.pet ?? null;
   $: adoption = snapshot?.adoption ?? { status: 'not_adopted' };
+  $: displayState = autoplay && blinkOn && previewState === 'idle' ? 'blink' : previewState;
+  $: autoDisabled = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function toggleTheme() {
     theme = theme === 'dark' ? 'light' : 'dark';
@@ -144,7 +164,7 @@
     {:else if active === 'adoption'}
       <section class="adoption-page"><div class="adoption-heading"><span class="eyebrow">ADOPTION</span><h2>让一位小生命住进桌面</h2><p>候选只存在于当前领养会话中，确认前不会写入存档。</p></div>{#if adoption.candidates?.length}<div class="candidate-grid">{#each adoption.candidates as candidate}<article class:selected={adoption.selected === candidate.index} class="candidate-card"><div class="candidate-art"><img class="candidate-img" src={previewUrl('idle', candidate.candidate_id)} alt={candidate.name.zh} /></div><div class="candidate-meta"><strong>{candidate.name.zh}</strong><span>{candidate.name.en}</span><small>个体候选 {candidate.index + 1}</small></div><button class="candidate-select" class:chosen={adoption.selected === candidate.index} disabled={opBusy || adoption.status === 'persisting'} onclick={() => runOp('adoption.select', { index: candidate.index })}>{adoption.selected === candidate.index ? '已选择' : '选择'}</button></article>{/each}</div><div class="adoption-foot"><span class="muted">{adoption.status === 'persisting' ? '正在保存领养资料…' : adoption.status === 'candidate_selected' ? '已选择一位候选' : '选择你喜欢的外观'}</span>{#if opError}<span class="op-error" role="alert">{opError}</span>{/if}<div class="foot-buttons"><button class="secondary" disabled={opBusy || adoption.status === 'persisting'} onclick={() => runOp('adoption.reroll')}>重新抽取</button><button class="secondary" disabled={opBusy || adoption.status === 'persisting'} onclick={() => runOp('adoption.back')}>返回角色选择</button><button class="primary" disabled={opBusy || adoption.selected == null || adoption.status === 'persisting'} onclick={() => runOp('adoption.confirm')}>确认领养</button></div></div>{:else if adoption.status === 'adopted'}<div class="empty-card adoption-empty"><div class="placeholder-art">✦</div><h3>已经有了一位桌面居民</h3><p>{pet ? `当前居民：${pet.name.zh}。重置后才能重新领养。` : '领养已完成，请回到概览查看当前宠物。'}</p><button class="secondary" onclick={() => (active = 'overview')}>返回概览</button></div>{:else}<div class="empty-card adoption-empty"><div class="placeholder-art">✦</div><h3>准备遇见一位新朋友</h3><p>从首发角色「小蜡烛」开始，会为你生成三位候选，确认前不会写入存档。</p>{#if opError}<span class="op-error" role="alert">{opError}</span>{/if}<button class="primary" disabled={opBusy} onclick={() => runOp('adoption.start')}>开始领养小蜡烛</button></div>{/if}</section>
     {:else if active === 'lab'}
-      <section class="lab-layout"><div class="lab-preview"><span class="eyebrow">PREVIEW CANVAS</span>{#if pet}<img class="lab-pet-image" src={previewUrl(previewState)} alt={`${previewState} preview`} />{:else}<span class="muted">领养宠物后可预览动作</span>{/if}</div><div class="lab-controls"><span class="eyebrow">PET LAB</span><h2>宠物实验室</h2><p>预览不会改变桌面宠物的真实状态。</p><div class="control-group"><span class="control-label">动作</span><div class="segmented">{#each previewStates as state}<button class:chosen={previewState === state} onclick={() => (previewState = state)}>{state}</button>{/each}</div></div><div class="lab-row"><span class="tag">{pet?.behavior ?? 'idle'}</span><span class="muted">MVP preview</span></div></div></section>
+      <section class="lab-layout"><div class="lab-preview" class:bg-light={labBg === 'light'} class:bg-checker={labBg === 'checker'}><span class="eyebrow">PREVIEW CANVAS</span>{#if pet}<img class="lab-pet-image" src={previewUrl(displayState)} alt={`${displayState} preview`} />{:else}<span class="muted">领养宠物后可预览动作</span>{/if}</div><div class="lab-controls"><span class="eyebrow">PET LAB</span><h2>宠物实验室</h2><p>预览不会改变桌面宠物的真实状态。</p><div class="control-group"><span class="control-label">动作</span><div class="segmented">{#each previewStates as state}<button class:chosen={previewState === state} onclick={() => (previewState = state)}>{state}</button>{/each}</div></div><div class="control-group"><span class="control-label">自动播放</span><div class="segmented"><button class:chosen={autoplay} disabled={autoDisabled} onclick={() => (autoplay = !autoplay)}>{autoplay ? '开' : '关'}</button></div>{#if autoDisabled}<span class="muted">系统已开启减少动态，保持静态预览</span>{/if}</div><div class="control-group"><span class="control-label">背景</span><div class="segmented">{#each labBackgrounds as [id, label]}<button class:chosen={labBg === id} onclick={() => (labBg = id)}>{label}</button>{/each}</div></div><div class="lab-row"><span class="tag">{pet?.behavior ?? 'idle'}</span><span class="muted">MVP preview</span></div></div></section>
     {:else}
       <section class="page-card"><span class="eyebrow">SETTINGS</span><h2>宠物设置</h2><p>档位即改即存，与桌面窗口同一真源。</p><div class="setting-list"><div class="setting-row"><span>显示宠物</span><button class="secondary" disabled={opBusy || !pet} onclick={() => pet && runOp('pet.set_visible', { visible: !pet.visible })}>{pet?.visible ? '显示中' : '已隐藏'}</button></div><div class="setting-row"><span>尺寸</span><div class="segmented">{#each sizeOptions as option}<button class:chosen={pet?.size === option} disabled={opBusy || !pet} onclick={() => runOp('pet.set_size', { size: option })}>{option}</button>{/each}</div></div><div class="setting-row"><span>活跃度</span><div class="segmented">{#each activityOptions as option}<button class:chosen={pet?.activity === option} disabled={opBusy || !pet} onclick={() => runOp('pet.set_activity', { activity: option })}>{option}</button>{/each}</div></div><div class="setting-row"><span>连接状态</span><strong>{status === 'connected' ? '正常' : '等待连接'}</strong></div></div>
         {#if adoption.status === 'reset_confirm'}
