@@ -68,12 +68,15 @@ pub enum WebOp {
 }
 
 /// 写操作簿记：request_id → operation_id 去重，operation_id → 已执行标记。
-/// 只在进程内存中存在，随 Gesso 退出一起消失。
+/// 只在进程内存中存在，随 Gesso 退出一起消失；超量时整体重置
+/// （去重窗口清空可接受：状态机对重复操作天然 no-op 兕底）。
 struct OpLog {
     queue: Vec<(String, WebOp)>,
     seen: HashMap<String, String>,
     done: HashSet<String>,
 }
+
+const OP_LOG_CAP: usize = 4096;
 
 static OP_LOG: OnceLock<Mutex<OpLog>> = OnceLock::new();
 
@@ -263,17 +266,17 @@ fn preview_query(path: &str) -> Option<(FrameKind, Option<String>)> {
                 "blink" => FrameKind::Blink,
                 _ => return None,
             });
-        } else if let Some(value) = part.strip_prefix("candidate=") {
-            if candidate.is_some()
-                || value.is_empty()
-                || value.len() > 64
-                || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+        } else {
+            let value = part.strip_prefix("candidate=")?;
+            if candidate.is_none()
+                && !value.is_empty()
+                && value.len() <= 64
+                && value.bytes().all(|byte| byte.is_ascii_hexdigit())
             {
+                candidate = Some(value.to_string());
+            } else {
                 return None;
             }
-            candidate = Some(value.to_string());
-        } else {
-            return None;
         }
     }
     Some((kind?, candidate))
@@ -673,6 +676,10 @@ fn adoption_op(
         return;
     }
     let mut log = op_log().lock().expect("宠物控制台操作簿记");
+    if log.seen.len() >= OP_LOG_CAP {
+        log.seen.clear();
+        log.done.clear();
+    }
     if let Some(existing) = log.seen.get(request_id) {
         respond(
             stream,

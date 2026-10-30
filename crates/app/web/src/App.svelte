@@ -74,7 +74,7 @@
       window.setTimeout(refresh, 250);
     } catch (cause) {
       opError = cause instanceof Error && cause.message === 'op_409'
-        ? '领养状态已在其他窗口变化，请重新确认候选'
+        ? '状态已在其他窗口变化，已刷新，请重试'
         : '操作未完成，请重试';
       refresh();
     } finally {
