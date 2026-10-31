@@ -132,6 +132,17 @@ function App() {
   const adoptedRef = useRef(false);
   /** 模拟事件的 Web 端回执：瞬时触发也要给「已发送」反馈 */
   const [notifyHint, setNotifyHint] = useState('');
+  /**
+   * 乐观档位：点击立即呈现目标态，快照确认后清除，1.5s 超时回退
+   * （否则选中态跟快照走，点完要等 POST→引擎→轮询回来才变色 = 卡顿感）
+   */
+  const [pending, setPending] = useState(null);
+  const pendingTimer = useRef();
+  const optimistic = (kind, value) => {
+    setPending({ kind, value });
+    window.clearTimeout(pendingTimer.current);
+    pendingTimer.current = window.setTimeout(() => setPending(null), 1500);
+  };
   // 浏览器减少动态：只影响 Web 预览（自动播放锁），不是宠物存档设置
   const autoDisabled = useRef(window.matchMedia('(prefers-reduced-motion: reduce)').matches).current;
 
@@ -206,6 +217,10 @@ function App() {
   const connected = status === 'connected';
   // 断连/未就绪时禁用全部写 CTA（runOp 内还有 snapshot 守卫，这里让按钮先说明问题）
   const engineReady = !!snapshot && connected;
+  // 设置页乐观呈现值：pending 优先，快照兜底
+  const shownVisible = pending?.kind === 'visible' ? pending.value : !!pet?.visible;
+  const shownSize = pending?.kind === 'size' ? pending.value : pet?.size;
+  const shownActivity = pending?.kind === 'activity' ? pending.value : pet?.activity;
   // 头部连接语义：三态（已连接 / 未运行 / 连接中），不再永远谎报「连接中」
   const headNote = connected ? '本机已连接' : status === 'error' ? 'Gesso 未运行' : '连接中…';
   const headLedLabel = connected ? '已连接' : status === 'error' ? '未运行' : '连接中';
@@ -233,6 +248,13 @@ function App() {
     const timer = window.setTimeout(() => setNotifyHint(''), 2500);
     return () => window.clearTimeout(timer);
   }, [notifyHint]);
+
+  // 快照确认乐观值：引擎已应用即清除，回到真源驱动
+  useEffect(() => {
+    if (!pending || !pet) return;
+    const current = pending.kind === 'visible' ? pet.visible : pet[pending.kind];
+    if (current === pending.value) setPending(null);
+  }, [snapshot]);
 
   // ---------- 各页视图 ----------
 
@@ -359,22 +381,22 @@ function App() {
         <div class="set-row">
           <span>显示宠物</span>
           <div class="pseg">
-            <button class=${pet?.visible ? 'on' : ''} aria-pressed=${String(!!pet?.visible)} disabled=${!engineReady} onclick=${() => pet && runOp('pet.set_visible', { visible: true })}>显示中</button>
-            <button class=${pet && !pet.visible ? 'on' : ''} aria-pressed=${String(!!pet && !pet.visible)} disabled=${!engineReady} onclick=${() => pet && runOp('pet.set_visible', { visible: false })}>已隐藏</button>
+            <button class=${shownVisible ? 'on' : ''} aria-pressed=${String(shownVisible)} disabled=${!engineReady} onclick=${() => { optimistic('visible', true); pet && runOp('pet.set_visible', { visible: true }); }}>显示中</button>
+            <button class=${!shownVisible ? 'on' : ''} aria-pressed=${String(!shownVisible)} disabled=${!engineReady} onclick=${() => { optimistic('visible', false); pet && runOp('pet.set_visible', { visible: false }); }}>已隐藏</button>
           </div>
         </div>
         <div class="set-row">
           <span>尺寸</span>
           <div class="pseg">
             ${SIZE_OPTIONS.map((option) => html`
-              <button key=${option} class=${pet?.size === option ? 'on' : ''} aria-pressed=${String(pet?.size === option)} disabled=${!engineReady} onclick=${() => runOp('pet.set_size', { size: option })}>${SIZE_LABEL[option]}</button>`)}
+              <button key=${option} class=${shownSize === option ? 'on' : ''} aria-pressed=${String(shownSize === option)} disabled=${!engineReady} onclick=${() => { optimistic('size', option); runOp('pet.set_size', { size: option }); }}>${SIZE_LABEL[option]}</button>`)}
           </div>
         </div>
         <div class="set-row">
           <span>活跃度</span>
           <div class="pseg">
             ${ACTIVITY_OPTIONS.map((option) => html`
-              <button key=${option} class=${pet?.activity === option ? 'on' : ''} aria-pressed=${String(pet?.activity === option)} disabled=${!engineReady} onclick=${() => runOp('pet.set_activity', { activity: option })}>${ACTIVITY_LABEL[option]}</button>`)}
+              <button key=${option} class=${shownActivity === option ? 'on' : ''} aria-pressed=${String(shownActivity === option)} disabled=${!engineReady} onclick=${() => { optimistic('activity', option); runOp('pet.set_activity', { activity: option }); }}>${ACTIVITY_LABEL[option]}</button>`)}
           </div>
         </div>
         <div class="set-row">
@@ -396,8 +418,8 @@ function App() {
               <strong>重置待确认</strong>
               <p>宠物数据将被清除且不可恢复：个体、外观与互动统计全部清零。</p>
               <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                <button class="pbtn pbtn--danger" disabled=${opBusy} onclick=${() => runOp('pet.reset.confirm')}>确认重置（不可恢复）</button>
-                <button class="pbtn" disabled=${opBusy} onclick=${() => runOp('pet.reset.cancel')}>取消</button>
+                <button class="pbtn pbtn--danger" onclick=${() => runOp('pet.reset.confirm')}>确认重置（不可恢复）</button>
+                <button class="pbtn" onclick=${() => runOp('pet.reset.cancel')}>取消</button>
               </div>
             </div>`
           : pet
@@ -405,7 +427,7 @@ function App() {
               <div class="set-danger">
                 <strong>高级操作</strong>
                 <p>清除当前宠物个体并回到未领养状态，需要两步确认。</p>
-                <button class="pbtn pbtn--danger" disabled=${opBusy} onclick=${() => runOp('pet.reset.request')}>重置宠物数据…</button>
+                <button class="pbtn pbtn--danger" onclick=${() => runOp('pet.reset.request')}>重置宠物数据…</button>
               </div>`
             : null}
       </div>
