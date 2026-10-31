@@ -967,14 +967,6 @@ img {
   flex-wrap: wrap;
 }
 
-.foot-actions--flash {
-  animation: op-flash-paper 600ms steps(1) 1;
-}
-
-@keyframes op-flash-paper {
-  50% { outline: 3px solid var(--vermilion); outline-offset: 3px; }
-}
-
 /* ---------- LCD 内提示条 ---------- */
 
 .notice {

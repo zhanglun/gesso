@@ -130,6 +130,8 @@ function App() {
   const [welcome, setWelcome] = useState(null);
   const seenSnapshotRef = useRef(false);
   const adoptedRef = useRef(false);
+  /** 模拟事件的 Web 端回执：瞬时触发也要给「已发送」反馈 */
+  const [notifyHint, setNotifyHint] = useState('');
   // 浏览器减少动态：只影响 Web 预览（自动播放锁），不是宠物存档设置
   const autoDisabled = useRef(window.matchMedia('(prefers-reduced-motion: reduce)').matches).current;
 
@@ -225,6 +227,12 @@ function App() {
     const timer = window.setTimeout(() => setWelcome(null), 12000);
     return () => window.clearTimeout(timer);
   }, [welcome]);
+
+  useEffect(() => {
+    if (!notifyHint) return;
+    const timer = window.setTimeout(() => setNotifyHint(''), 2500);
+    return () => window.clearTimeout(timer);
+  }, [notifyHint]);
 
   // ---------- 各页视图 ----------
 
@@ -351,31 +359,32 @@ function App() {
         <div class="set-row">
           <span>显示宠物</span>
           <div class="pseg">
-            <button class=${pet?.visible ? 'on' : ''} aria-pressed=${String(!!pet?.visible)} disabled=${opBusy || !pet} onclick=${() => pet && runOp('pet.set_visible', { visible: true })}>显示中</button>
-            <button class=${pet && !pet.visible ? 'on' : ''} aria-pressed=${String(!!pet && !pet.visible)} disabled=${opBusy || !pet} onclick=${() => pet && runOp('pet.set_visible', { visible: false })}>已隐藏</button>
+            <button class=${pet?.visible ? 'on' : ''} aria-pressed=${String(!!pet?.visible)} disabled=${!engineReady} onclick=${() => pet && runOp('pet.set_visible', { visible: true })}>显示中</button>
+            <button class=${pet && !pet.visible ? 'on' : ''} aria-pressed=${String(!!pet && !pet.visible)} disabled=${!engineReady} onclick=${() => pet && runOp('pet.set_visible', { visible: false })}>已隐藏</button>
           </div>
         </div>
         <div class="set-row">
           <span>尺寸</span>
           <div class="pseg">
             ${SIZE_OPTIONS.map((option) => html`
-              <button key=${option} class=${pet?.size === option ? 'on' : ''} aria-pressed=${String(pet?.size === option)} disabled=${opBusy || !pet} onclick=${() => runOp('pet.set_size', { size: option })}>${SIZE_LABEL[option]}</button>`)}
+              <button key=${option} class=${pet?.size === option ? 'on' : ''} aria-pressed=${String(pet?.size === option)} disabled=${!engineReady} onclick=${() => runOp('pet.set_size', { size: option })}>${SIZE_LABEL[option]}</button>`)}
           </div>
         </div>
         <div class="set-row">
           <span>活跃度</span>
           <div class="pseg">
             ${ACTIVITY_OPTIONS.map((option) => html`
-              <button key=${option} class=${pet?.activity === option ? 'on' : ''} aria-pressed=${String(pet?.activity === option)} disabled=${opBusy || !pet} onclick=${() => runOp('pet.set_activity', { activity: option })}>${ACTIVITY_LABEL[option]}</button>`)}
+              <button key=${option} class=${pet?.activity === option ? 'on' : ''} aria-pressed=${String(pet?.activity === option)} disabled=${!engineReady} onclick=${() => runOp('pet.set_activity', { activity: option })}>${ACTIVITY_LABEL[option]}</button>`)}
           </div>
         </div>
         <div class="set-row">
           <span>模拟事件</span>
           <div class="pseg">
             ${NOTICE_OPTIONS.map(([kind, label]) => html`
-              <button key=${kind} disabled=${opBusy || !pet} onclick=${() => runOp('pet.notify', { kind })}>${label}</button>`)}
+              <button key=${kind} disabled=${!engineReady} onclick=${() => { setNotifyHint(label); runOp('pet.notify', { kind }); }}>${label}</button>`)}
           </div>
-          <span class="pnote">发送后真实宠物按优先级规则显示气泡，正文不持久化。</span>
+          ${notifyHint && html`<span class="ptag">已发送 · ${notifyHint} — 看桌面宠物</span>`}
+          <span class="pnote">气泡出现在桌面宠物身上（主屏右下角），按优先级规则显示，正文不持久化。</span>
         </div>
         <div class="set-row">
           <span>连接状态</span>
@@ -411,8 +420,8 @@ function App() {
         <span class="plaque"><span>被摸</span><b>${pet.stats.touch_count}</b></span>
         <span class="plaque"><span>被戳</span><b>${pet.stats.poke_count}</b></span>
       </div>
-      <div class=${'foot-actions' + (opFlash ? ' foot-actions--flash' : '')}>
-        <button class="pbtn" disabled=${opBusy} onclick=${() => runOp('pet.set_visible', { visible: !pet.visible })}>
+      <div class="foot-actions">
+        <button class="pbtn" onclick=${() => runOp('pet.set_visible', { visible: !pet.visible })}>
           ${pet.visible ? '显示中 · 点击隐藏' : '已隐藏 · 点击显示'}
         </button>
         <button class="pbtn pbtn--accent" onclick=${() => setActive('lab')}>预览动作</button>
