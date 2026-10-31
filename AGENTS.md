@@ -58,7 +58,7 @@ crates/app      应用：
   ├─ pet_window.rs / pet_window/   桌面宠物窗（macOS AppKit / Windows 分层窗口；逐拍 sync）
   ├─ pet_store.rs / pet_cache.rs   宠物存档安全加载与缓存事务（状态机在 core: adoption/pet）
   ├─ pet_template*.rs / pet_sprite_data.rs  宠物软件渲染（程序化占位蜡烛；正式美术接入面）
-  ├─ web_control.rs / web/        本机 Web 控制台（loopback Server + Svelte 前端，产物编译期内嵌；领养/设置/重置唯一管理面）
+  ├─ web_control.rs / web/        本机 Web 控制台（loopback Server + Preact/HTM 免构建静态前端，vendor/ 内置运行时，产物编译期内嵌、无 npm 依赖；领养/设置/重置唯一管理面）
   ├─ update.rs    应用自更新（静态 latest.json 清单检查 + 下载/交付；状态真源在模块全局，代数计数回灌）
   ├─ ui/          管理窗口 UI（gpui-kit；strings.rs 双语包；update_view.rs 更新小窗；pet_view.rs 宠物展示页）
   └─ assets/      宿主页（host/index.html）/ 预置壁纸（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）

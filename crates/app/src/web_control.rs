@@ -590,6 +590,18 @@ fn handle(
         respond(&mut stream, 200, "text/javascript; charset=utf-8", WEB_JS);
         return;
     }
+    if request.method == "GET" && request.path == "/assets/preact.js" {
+        respond(&mut stream, 200, "text/javascript; charset=utf-8", WEB_PREACT);
+        return;
+    }
+    if request.method == "GET" && request.path == "/assets/hooks.js" {
+        respond(&mut stream, 200, "text/javascript; charset=utf-8", WEB_HOOKS);
+        return;
+    }
+    if request.method == "GET" && request.path == "/assets/htm.js" {
+        respond(&mut stream, 200, "text/javascript; charset=utf-8", WEB_HTM);
+        return;
+    }
     if request.method == "POST" && request.path == "/api/session/exchange" {
         exchange(&mut stream, &request, host, auth);
         return;
@@ -933,6 +945,10 @@ fn open_url(url: &str) {
 const WEB_INDEX: &str = include_str!(concat!(env!("OUT_DIR"), "/web/index.html"));
 const WEB_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/web/assets/app.css"));
 const WEB_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/web/assets/app.js"));
+// Preact + HTM 免构建运行时（vendor 内置，见 web/vendor/ 与 build.rs）
+const WEB_PREACT: &str = include_str!(concat!(env!("OUT_DIR"), "/web/assets/preact.js"));
+const WEB_HOOKS: &str = include_str!(concat!(env!("OUT_DIR"), "/web/assets/hooks.js"));
+const WEB_HTM: &str = include_str!(concat!(env!("OUT_DIR"), "/web/assets/htm.js"));
 
 #[cfg(test)]
 mod tests {

@@ -1,4 +1,7 @@
-//! Windows 资源内嵌：把 win/gesso.ico 以资源 ID 1 塞进 exe。
+//! 构建期资源内嵌：
+//! 1. Web 控制台静态资产（web/ → OUT_DIR/web/）：纯静态文件直接复制，无 npm/Node 依赖。
+//!    前端为 Preact + HTM 免构建形态（vendor/ 内置运行时），产物 = index.html + assets/ 四个 js/css。
+//! 2. Windows 资源内嵌：把 win/gesso.ico 以资源 ID 1 塞进 exe。
 //!
 //! gpui-pre-windows 启动时经 `LoadImageW(module, MAKEINTRESOURCE(1), IMAGE_ICON)`
 //! 取窗口类图标（platform.rs::load_icon），取不到就 `unwrap_or_default()` 静默降级
@@ -21,41 +24,28 @@ fn main() {
 fn build_web_assets() {
     for path in [
         "web/index.html",
-        "web/package.json",
-        "web/package-lock.json",
-        "web/vite.config.js",
-        "web/jsconfig.json",
-        // 目录形式递归监听（新增组件文件也会触发重建）
-        "web/src",
+        "web/src/app.js",
+        "web/src/styles.css",
+        "web/vendor/preact.js",
+        "web/vendor/hooks.js",
+        "web/vendor/htm.js",
     ] {
         println!("cargo:rerun-if-changed={path}");
     }
 
     let web_dir = std::path::Path::new("web");
-    let node_modules = web_dir.join("node_modules");
-    if !node_modules.exists() {
-        run_web_command("npm", &["ci"], web_dir);
-    }
-    run_web_command("npm", &["run", "build"], web_dir);
-
     let out_dir = std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     let output = out_dir.join("web");
     std::fs::create_dir_all(output.join("assets")).expect("创建 Web 资源输出目录");
     for (source, target) in [
-        ("dist/index.html", "index.html"),
-        ("dist/assets/app.js", "assets/app.js"),
-        ("dist/assets/app.css", "assets/app.css"),
+        ("index.html", "index.html"),
+        ("src/app.js", "assets/app.js"),
+        ("src/styles.css", "assets/app.css"),
+        ("vendor/preact.js", "assets/preact.js"),
+        ("vendor/hooks.js", "assets/hooks.js"),
+        ("vendor/htm.js", "assets/htm.js"),
     ] {
         std::fs::copy(web_dir.join(source), output.join(target))
             .unwrap_or_else(|error| panic!("复制 Web 资源 {source}: {error}"));
     }
-}
-
-fn run_web_command(program: &str, args: &[&str], dir: &std::path::Path) {
-    let status = std::process::Command::new(program)
-        .args(args)
-        .current_dir(dir)
-        .status()
-        .unwrap_or_else(|error| panic!("运行 {program} {args:?} 失败：{error}"));
-    assert!(status.success(), "运行 {program} {args:?} 失败：{status}");
 }
