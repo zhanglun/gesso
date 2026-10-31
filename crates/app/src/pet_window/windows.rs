@@ -838,14 +838,8 @@ impl PetWindow {
         let boost_count = template.notice_palettes.len() + 1;
         let mut sprites = Vec::with_capacity(template.frames.kind_count() * boost_count);
         for frame_idx in 0..template.frames.kind_count() {
-            let kind = match frame_idx {
-                0 => FrameKind::Idle,
-                1 => FrameKind::Flicker,
-                2 => FrameKind::Sleep,
-                3 => FrameKind::Blink,
-                4 => FrameKind::GazeLeft,
-                _ => FrameKind::GazeRight,
-            };
+            // 槽位→帧类别走唯一对应（与 macOS 同源，防两处手写 match 漂移）
+            let kind = FrameKind::from_index(frame_idx);
             let cells = template.compose(kind, appearance.marking, appearance.body);
             for boost in 0..boost_count as u8 {
                 let palette = template.palette(appearance.coat_color, appearance.accent, boost);
