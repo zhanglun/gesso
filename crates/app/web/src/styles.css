@@ -28,7 +28,7 @@
   --line: #b3a685;
   --ink: #3b3222;
   --ink-soft: #6b5f49;
-  --ink-faint: #9a8c6a;
+  --ink-faint: #756749;
   --vermilion: #c4452b;
   --vermilion-ink: #a93a24;
   --vermilion-hi: #d95638;
@@ -40,7 +40,7 @@
   --lcd-bright: #4a5040;
   --lcd-text: #e8e4d2;
   --lcd-dim: #a8ac96;
-  --lcd-faint: #7d8371;
+  --lcd-faint: #868c79;
   --lcd-accent: #ff7a52;
   --lcd-accent-soft: rgba(255, 122, 82, 0.1);
   --lcd-danger: #ff9a7e;
@@ -63,7 +63,7 @@
   --line: #5c5340;
   --ink: #efe6d2;
   --ink-soft: #c6bca4;
-  --ink-faint: #8f866f;
+  --ink-faint: #99907a;
   --vermilion: #d95638;
   --vermilion-ink: #e0704f;
   --vermilion-hi: #e8825f;
@@ -588,6 +588,43 @@ img {
 
 .readout .lcd-note {
   letter-spacing: 0.02em;
+}
+
+/* 读出区在 LCD 内：行为牌改用观测台语法（纸层朱红在深底上对比度不足） */
+.readout .ptag {
+  border-color: var(--lcd-accent);
+  color: var(--lcd-accent);
+  background: var(--lcd-accent-soft);
+}
+
+/* 欢迎横幅（领养成功的一次性时刻，规格 §3.2） */
+.welcome {
+  margin: 14px 2px 0;
+  border: 2px solid var(--vermilion);
+  background: var(--paper-deep);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.welcome-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.welcome-text b {
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 24px;
+}
+
+.welcome-text i {
+  color: var(--ink-soft);
+  font-style: normal;
+  font-size: 24px;
 }
 
 .readout--flash {

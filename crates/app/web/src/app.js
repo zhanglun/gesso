@@ -79,7 +79,7 @@ const NAV = [
   ['lab', '宠物实验室', 'LAB'],
   ['settings', '设置', 'SETTINGS'],
 ];
-const PREVIEW_STATES = ['idle', 'sleep', 'blink'];
+const PREVIEW_STATES = [['idle', '待机'], ['sleep', '睡着'], ['blink', '眨眼']];
 const LAB_BACKGROUNDS = [['dark', '深色'], ['light', '浅色'], ['checker', '棋盘格']];
 const SIZE_OPTIONS = ['small', 'medium', 'large'];
 const ACTIVITY_OPTIONS = ['quiet', 'normal', 'lively'];
@@ -93,6 +93,22 @@ const BEHAVIOR_LABEL = { idle: '待机', sleep: '睡着', walking: '散步', wat
 const behaviorLabel = (value) => BEHAVIOR_LABEL[value] ?? value;
 const osdTitle = (id) => NAV.find(([nid]) => nid === id)?.[2] ?? '';
 const osdName = (id) => NAV.find(([nid]) => nid === id)?.[1] ?? '';
+/** 陪伴时长 → 「Xh Ym / Ym」；新宠物不显示冷冰冰的 0h */
+const formatCompanion = (seconds) => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
+/** 连接/请求错误 → 用户语言；不向界面泄漏内部状态码 */
+const describeError = (cause) => {
+  if (cause instanceof TypeError) return 'Gesso 未运行或已退出';
+  if (cause instanceof Error) {
+    if (cause.message === 'state_404') return 'Gesso 服务不可用，请确认 Gesso 正在运行';
+    if (cause.message.startsWith('state_') || cause.message.startsWith('exchange_')) return '连接本机 Gesso 失败';
+    return cause.message;
+  }
+  return '连接失败';
+};
 
 // ---------- 应用 ----------
 
@@ -110,6 +126,10 @@ function App() {
   const [opBusy, setOpBusy] = useState(false);
   const [opError, setOpError] = useState('');
   const [opFlash, setOpFlash] = useState(false);
+  /** 领养成功的一次性欢迎（规格 §3.2）：确认当轮展示，刷新页面不复播 */
+  const [welcome, setWelcome] = useState(null);
+  const seenSnapshotRef = useRef(false);
+  const adoptedRef = useRef(false);
   // 浏览器减少动态：只影响 Web 预览（自动播放锁），不是宠物存档设置
   const autoDisabled = useRef(window.matchMedia('(prefers-reduced-motion: reduce)').matches).current;
 
@@ -135,7 +155,7 @@ function App() {
       setError('');
     } catch (cause) {
       setStatus('error');
-      setError(cause instanceof Error ? cause.message : '连接失败');
+      setError(describeError(cause));
     }
   }
 
@@ -147,8 +167,8 @@ function App() {
         await exchangeBootstrapCode();
         await refresh();
       } catch (cause) {
-        setStatus('error');
-        setError(cause instanceof Error ? cause.message : '连接失败');
+        // exchange 失败不阻断轮询：状态展示交给 refresh 的错误横幅
+        await refresh();
       }
       timer = window.setInterval(refresh, 1500);
     })();
@@ -182,6 +202,29 @@ function App() {
   const adoption = snapshot?.adoption ?? { status: 'not_adopted' };
   const displayState = autoplay && blinkOn && previewState === 'idle' ? 'blink' : previewState;
   const connected = status === 'connected';
+  // 断连/未就绪时禁用全部写 CTA（runOp 内还有 snapshot 守卫，这里让按钮先说明问题）
+  const engineReady = !!snapshot && connected;
+  // 头部连接语义：三态（已连接 / 未运行 / 连接中），不再永远谎报「连接中」
+  const headNote = connected ? '本机已连接' : status === 'error' ? 'Gesso 未运行' : '连接中…';
+  const headLedLabel = connected ? '已连接' : status === 'error' ? '未运行' : '连接中';
+
+  // 领养成功检测：上一轮未领养 → 本轮 adopted，注入一次性欢迎并回到概览
+  useEffect(() => {
+    if (!snapshot) return;
+    const adopted = snapshot.adoption?.status === 'adopted' || !!snapshot.pet;
+    if (seenSnapshotRef.current && adopted && !adoptedRef.current && snapshot.pet) {
+      setWelcome(snapshot.pet.name.zh);
+      setActive('overview');
+    }
+    seenSnapshotRef.current = true;
+    adoptedRef.current = adopted;
+  }, [snapshot]);
+
+  useEffect(() => {
+    if (!welcome) return;
+    const timer = window.setTimeout(() => setWelcome(null), 12000);
+    return () => window.clearTimeout(timer);
+  }, [welcome]);
 
   // ---------- 各页视图 ----------
 
@@ -212,7 +255,7 @@ function App() {
           <div class="slot" aria-hidden="true"></div>
           <h2>还没有一位桌面居民</h2>
           <p>选择一个角色，生成三位候选，确认后它才会来到你的桌面。</p>
-          <button class="pbtn pbtn--accent" onclick=${() => setActive('adoption')}>开始领养</button>
+          <button class="pbtn pbtn--accent" disabled=${!engineReady} onclick=${() => setActive('adoption')}>开始领养</button>
         </div>
       </section>`;
 
@@ -257,7 +300,7 @@ function App() {
             <div class="slot" aria-hidden="true"></div>
             <h2>准备遇见一位新朋友</h2>
             <p>从首发角色「小蜡烛」开始，会为你生成三位候选，确认前不会写入存档。</p>
-            <button class="pbtn pbtn--accent" disabled=${opBusy} onclick=${() => runOp('adoption.start')}>开始领养小蜡烛</button>
+            <button class="pbtn pbtn--accent" disabled=${opBusy || !engineReady} onclick=${() => runOp('adoption.start')}>开始领养小蜡烛</button>
           </div>
         </section>`;
 
@@ -267,19 +310,19 @@ function App() {
         <div class=${'dex-screen lab-screen' + (labBg === 'light' ? ' lab-screen--light' : '') + (labBg === 'checker' ? ' lab-screen--checker' : '')}>
           <div class="lcd-scan" aria-hidden="true"></div>
           ${pet
-            ? html`<img src=${previewUrl(displayState)} alt=${`${displayState} preview`} />`
+            ? html`<img src=${previewUrl(displayState)} alt=${`${behaviorLabel(displayState)}动作预览`} />`
             : html`<span class="lcd-note">领养宠物后可预览动作</span>`}
         </div>
         <div class="lab-panel">
           <h2>宠物实验室</h2>
           <span class="lcd-note">预览不会改变桌面宠物的真实状态。</span>
-          <div class="ctrl">
-            <span class="ctrl-label">动作</span>
-            <div class="pseg">
-              ${PREVIEW_STATES.map((state) => html`
-                <button key=${state} class=${previewState === state ? 'on' : ''} aria-pressed=${String(previewState === state)} onclick=${() => setPreviewState(state)}>${state}</button>`)}
+            <div class="ctrl">
+              <span class="ctrl-label">动作</span>
+              <div class="pseg">
+                ${PREVIEW_STATES.map(([value, label]) => html`
+                <button key=${value} class=${previewState === value ? 'on' : ''} aria-pressed=${String(previewState === value)} onclick=${() => setPreviewState(value)}>${label}</button>`)}
+              </div>
             </div>
-          </div>
           <div class="ctrl">
             <span class="ctrl-label">自动播放</span>
             <div class="pseg">
@@ -296,7 +339,7 @@ function App() {
           </div>
           <div class="lab-status">
             <span class="ptag">${behaviorLabel(pet?.behavior ?? 'idle')} · ${pet?.behavior ?? 'idle'}</span>
-            <span class="pnote">MVP PREVIEW</span>
+            <span class="pnote">MVP 预览 · 三态受控</span>
           </div>
         </div>
       </div>
@@ -344,7 +387,7 @@ function App() {
               <strong>重置待确认</strong>
               <p>宠物数据将被清除且不可恢复：个体、外观与互动统计全部清零。</p>
               <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                <button class="pbtn pbtn--accent" disabled=${opBusy} onclick=${() => runOp('pet.reset.confirm')}>确认重置（不可恢复）</button>
+                <button class="pbtn pbtn--danger" disabled=${opBusy} onclick=${() => runOp('pet.reset.confirm')}>确认重置（不可恢复）</button>
                 <button class="pbtn" disabled=${opBusy} onclick=${() => runOp('pet.reset.cancel')}>取消</button>
               </div>
             </div>`
@@ -364,7 +407,7 @@ function App() {
   const foot = active === 'overview' && pet
     ? html`
       <div class="plaques">
-        <span class="plaque"><span>陪伴时间</span><b>${Math.floor(pet.stats.companion_seconds / 3600)}h</b></span>
+        <span class="plaque"><span>陪伴时间</span><b>${formatCompanion(pet.stats.companion_seconds)}</b></span>
         <span class="plaque"><span>被摸</span><b>${pet.stats.touch_count}</b></span>
         <span class="plaque"><span>被戳</span><b>${pet.stats.poke_count}</b></span>
       </div>
@@ -396,8 +439,8 @@ function App() {
         <header class="folio-head">
           <span class="stamp" aria-hidden="true">G</span>
           <span class="brand"><b>Gesso</b><i>PET STUDIO · 桌面生物图鉴</i></span>
-          <span class=${connected ? 'led' : 'led led--off'} role="img" aria-label=${connected ? '已连接' : '连接中'}></span>
-          <span class="head-note">${connected ? '本机已连接' : '连接中…'}</span>
+          <span class=${connected ? 'led' : 'led led--off'} role="img" aria-label=${headLedLabel}></span>
+          <span class="head-note">${headNote}</span>
           <span class="head-tools">
             <button class="tool" onclick=${refresh} aria-label="刷新状态" title="刷新状态">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6" /><path d="M13 1.5v3h-3" /></svg>
@@ -416,12 +459,21 @@ function App() {
         ${error
           ? html`
             <div class="notice--paper" role="alert">
-              无法读取 Gesso 状态：${error}
+              ${error}
               <button class="pbtn" onclick=${refresh}>重试</button>
             </div>`
           : opError
             ? html`<div class="notice--paper" role="alert">${opError}</div>`
-            : null}
+            : welcome
+              ? html`
+                <div class="welcome" role="status">
+                  <span class="welcome-text"><b>欢迎来到桌面，${welcome}。</b><i>它已经出现在主屏右下角，正在适应新家。</i></span>
+                  <span class="foot-actions">
+                    <button class="pbtn" onclick=${() => setWelcome(null)}>关闭</button>
+                    <button class="pbtn pbtn--accent" onclick=${() => { setWelcome(null); setActive('settings'); }}>前往设置</button>
+                  </span>
+                </div>`
+              : null}
 
         ${active === 'overview' ? overviewView : active === 'adoption' ? adoptionView : active === 'lab' ? labView : settingsView}
 
