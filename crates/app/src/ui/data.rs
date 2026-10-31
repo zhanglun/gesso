@@ -169,6 +169,35 @@ impl SuspendPolicy {
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct PetStats {
+    pub companion_seconds: u64,
+    pub touch_count: u64,
+    pub poke_count: u64,
+}
+
+/// 宠物设置与统计的 UI 投影。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct PetView {
+    pub adopted: bool,
+    pub activity: gesso_core::PetActivity,
+    pub size: gesso_core::PetSize,
+    pub visible: bool,
+    pub stats: PetStats,
+}
+
+impl Default for PetView {
+    fn default() -> Self {
+        Self {
+            adopted: false,
+            activity: gesso_core::PetActivity::Normal,
+            size: gesso_core::PetSize::Medium,
+            visible: true,
+            stats: PetStats::default(),
+        }
+    }
+}
+
 /// 设置项（全部即时生效；真源 = core AppConfig.settings，快照映射注入）。
 #[derive(Clone)]
 pub struct Settings {

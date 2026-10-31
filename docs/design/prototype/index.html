@@ -303,6 +303,19 @@ select.sel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .tray-panel h4{font-size:12px;color:var(--text-2);font-weight:500;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
 .tray-panel h4 a{color:var(--accent);text-decoration:none;font-size:12px;cursor:pointer}
 
+/* ============ 桌面宠物 · 首次领养 ============ */
+.pet-modal{position:fixed;inset:0;z-index:180;display:none;place-items:center;background:rgba(0,0,0,.28);backdrop-filter:blur(3px)}
+.pet-modal.open{display:grid}
+.pet-dialog{width:min(560px,calc(100vw - 32px));background:var(--bg-elevated);border:1px solid var(--hairline);border-radius:14px;box-shadow:var(--shadow-pop);padding:22px}
+.pet-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px}.pet-head h2{font-size:20px;font-weight:650;letter-spacing:-.02em}.pet-head p{font-size:12px;color:var(--text-2);margin-top:4px}.pet-close{margin-left:auto}
+.pet-step{display:flex;align-items:center;gap:7px;margin-bottom:18px;font-size:11px;color:var(--text-2)}.pet-step span{height:5px;flex:1;border-radius:3px;background:var(--hairline)}.pet-step span.on{background:var(--accent)}
+.pet-species,.pet-candidates{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.pet-candidates{grid-template-columns:repeat(3,1fr)}
+.pet-choice{border:1px solid var(--hairline);background:var(--bg-panel);border-radius:10px;padding:12px;text-align:left;cursor:pointer;color:var(--text-1);transition:border-color .15s,background .15s,transform .15s}.pet-choice:hover{border-color:var(--accent);transform:translateY(-1px)}.pet-choice:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.pet-choice.selected{border-color:var(--accent);background:var(--accent-soft)}
+.pet-art{height:116px;border-radius:8px;display:grid;place-items:center;background:linear-gradient(145deg,#eef3ff,#dfe7f9);color:#52658f;position:relative;overflow:hidden;margin-bottom:10px}.pet-art:after{content:'';position:absolute;width:90px;height:50px;border-radius:50%;background:currentColor;opacity:.88;bottom:20px}.pet-art.cat:before{content:'⌃  ⌃';position:absolute;z-index:1;top:31px;font-size:34px;letter-spacing:20px;color:#fff;font-weight:700}.pet-art.jelly{background:linear-gradient(145deg,#f8eaff,#e3d4ff);color:#9a65ca}.pet-art.jelly:after{width:94px;height:76px;border-radius:46% 46% 38% 38%;bottom:18px}.pet-art.jelly:before{content:'•  •';position:absolute;z-index:1;top:43px;font-size:20px;letter-spacing:15px;color:#fff}
+.pet-choice .name{font-size:14px;font-weight:600}.pet-choice .en{font-size:11px;color:var(--text-2);margin-top:2px}.pet-choice .meta{font-size:11px;color:var(--text-2);margin-top:8px}
+.pet-copy{font-size:13px;color:var(--text-2);margin-bottom:14px}.pet-candidates .pet-choice{padding:8px}.pet-candidates .pet-art{height:92px}.pet-candidates .name{font-size:13px}.pet-note{font-size:11px;color:var(--text-2);min-height:16px}.pet-note.warn{color:#a36a00}.pet-actions{display:flex;align-items:center;gap:8px;margin-top:18px;border-top:1px solid var(--hairline);padding-top:14px}.pet-actions .spacer{flex:1}.pet-actions .btn.primary[disabled]{opacity:.45;cursor:not-allowed}
+.pet-view{display:none}.pet-view.active{display:block}.pet-reroll{min-width:128px}
+
 /* ================== 拖拽投放层 ================== */
 #dragzone{
   position:fixed;inset:0;z-index:250;display:none;place-items:center;
@@ -473,11 +486,37 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   </div>
 </div>
 
+<!-- ================= 桌面宠物 · 首次领养浮层 ================= -->
+<div class="pet-modal" id="pet-modal" role="dialog" aria-modal="true" aria-labelledby="pet-title">
+  <div class="pet-dialog">
+    <div class="pet-head">
+      <div><h2 id="pet-title">领养一位桌面居民</h2><p id="pet-subtitle">先选择你想遇见的物种。</p></div>
+      <button class="icon-btn pet-close" id="pet-close" aria-label="关闭领养">×</button>
+    </div>
+    <div class="pet-step" aria-label="领养步骤"><b id="pet-step-label">1 / 2</b><span class="on" id="pet-step-1"></span><span id="pet-step-2"></span></div>
+    <div class="pet-view active" id="pet-species-view">
+      <p class="pet-copy">首版每台电脑只领养一位宠物。确认后，普通流程不能换物种。</p>
+      <div class="pet-species">
+        <button class="pet-choice" data-species="cat"><div class="pet-art cat"></div><div class="name">小猫</div><div class="en">Quiet Cat</div><div class="meta">安静、困倦、喜欢陪伴</div></button>
+        <button class="pet-choice" data-species="jelly"><div class="pet-art jelly"></div><div class="name">果冻生物</div><div class="en">Jelly Resident</div><div class="meta">活泼、亲人、会轻轻弹跳</div></button>
+      </div>
+      <div class="pet-actions"><span class="pet-note">选择物种后生成 3 个随机候选</span><span class="spacer"></span><button class="btn primary" id="pet-next" disabled>查看候选</button></div>
+    </div>
+    <div class="pet-view" id="pet-candidates-view">
+      <p class="pet-copy" id="pet-candidate-copy">这 3 位来自同一物种，选中后才能确认领养。</p>
+      <div class="pet-candidates" id="pet-candidates"></div>
+      <div class="pet-actions"><button class="btn text" id="pet-back">返回选物种</button><button class="btn secondary pet-reroll" id="pet-reroll">重新抽取</button><span class="pet-note" id="pet-reroll-note">候选由程序随机生成</span><span class="spacer"></span><button class="btn primary" id="pet-adopt" disabled>确认领养</button></div>
+    </div>
+  </div>
+</div>
+
 <!-- ================= 托盘（2026-10-03：左/右键 = 原生菜单；原快速面板撤销） ================= -->
 <div class="tray-zone">
   <div class="tray-panel" id="tray-panel" role="menu" aria-label="托盘菜单" style="min-width:190px">
     <div class="mi" role="menuitem" id="tm-pause">暂停全部壁纸</div>
     <div class="mi" role="menuitem" id="tm-cycle">随机换一张</div>
+    <div class="sep"></div>
+    <div class="mi" role="menuitem" id="tm-pet">开始领养</div>
     <div class="sep"></div>
     <div class="mi" role="menuitem" id="tm-main">管理窗口…</div>
     <div class="mi" role="menuitem" id="tm-update">检查更新…</div>
@@ -777,6 +816,7 @@ btnImport.onclick=e=>{
 /* ================== 托盘（2026-10-03：原生菜单示意） ================== */
 function renderTray(){
   // 原生菜单无可渲染缩略图；状态经菜单第一项文案与托盘角标反映
+  document.getElementById('tm-pet').textContent='开始领养';
   const mi=document.getElementById('tm-pause');
   const anyPaused=MONOS.some(m=>m.paused);
   mi.textContent=anyPaused?'恢复全部壁纸':'暂停全部壁纸';
@@ -798,6 +838,7 @@ document.getElementById('tm-cycle').onclick=()=>{
   const idx=(usable.indexOf(cur)+1)%usable.length;
   assign(usable[idx].id,0);closeTray();
 };
+document.getElementById('tm-pet').onclick=()=>{closeTray();openPetAdoption();};
 document.getElementById('tm-main').onclick=()=>{closeTray();switchView('library');toast('已激活管理窗口');};
 document.getElementById('tm-auto').onclick=()=>toast('开机自启已切换（演示）');
 document.getElementById('tm-quit').onclick=()=>toast('退出 Gesso（演示）');
@@ -854,6 +895,28 @@ function closeCtx(){ctx.classList.remove('open');}
 document.addEventListener('click',closeCtx);
 document.addEventListener('scroll',closeCtx,true);
 
+/* ================== 桌面宠物 · 领养交互 ================== */
+const petModal=document.getElementById('pet-modal'),petSpeciesView=document.getElementById('pet-species-view'),petCandidatesView=document.getElementById('pet-candidates-view');
+const petSpecies=petModal.querySelectorAll('[data-species]');
+let petSelectedSpecies=null,petSelectedCandidate=null,petGenerating=false,petCooldown=null,petGenerationTimer=null,petSession=0,petCandidateRound=0;
+const petNames={cat:[['团云','Cloudlet'],['栗子','Chestnut'],['小眠','Napper']],jelly:[['轻弹','Bouncer'],['紫柚','Pomelo'],['软云','Softcloud']]};
+function cancelPetGeneration(){petSession++;if(petGenerationTimer){clearTimeout(petGenerationTimer);petGenerationTimer=null;}if(petCooldown){clearTimeout(petCooldown);petCooldown=null;}petGenerating=false;document.getElementById('pet-reroll').disabled=false;document.getElementById('pet-reroll-note').textContent='候选由程序随机生成';}
+function openPetAdoption(){cancelPetGeneration();petSelectedSpecies=null;petSelectedCandidate=null;petCandidateRound=0;petSpecies.forEach(x=>x.classList.remove('selected'));document.getElementById('pet-next').disabled=true;petModal.classList.add('open');showPetSpecies();}
+function closePetAdoption(){cancelPetGeneration();petModal.classList.remove('open');}
+function showPetSpecies(){petSpeciesView.classList.add('active');petCandidatesView.classList.remove('active');document.getElementById('pet-title').textContent='领养一位桌面居民';document.getElementById('pet-subtitle').textContent='先选择你想遇见的物种。';document.getElementById('pet-step-label').textContent='1 / 2';document.getElementById('pet-step-1').classList.add('on');document.getElementById('pet-step-2').classList.remove('on');}
+function renderPetCandidates(){
+  const box=document.getElementById('pet-candidates');box.innerHTML='';petSelectedCandidate=null;document.getElementById('pet-adopt').disabled=true;
+  const names=petNames[petSelectedSpecies]; const start=petCandidateRound%names.length; const choices=[0,1,2].map(i=>names[(start+i)%names.length]); choices.forEach((name,i)=>{const b=document.createElement('button');b.className='pet-choice';b.dataset.i=i;b.innerHTML=`<div class="pet-art ${petSelectedSpecies}"></div><div class="name">${name[0]}</div><div class="en">${name[1]}</div><div class="meta">随机生成的候选</div>`;b.onclick=()=>{box.querySelectorAll('.pet-choice').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');petSelectedCandidate=name;document.getElementById('pet-adopt').disabled=false;};box.appendChild(b);});
+}
+function showPetCandidates(){petSpeciesView.classList.remove('active');petCandidatesView.classList.add('active');document.getElementById('pet-title').textContent='选择一位居民';document.getElementById('pet-subtitle').textContent=petSelectedSpecies==='cat'?'安静小猫 · 3 个随机候选':'活泼果冻生物 · 3 个随机候选';document.getElementById('pet-step-label').textContent='2 / 2';document.getElementById('pet-step-1').classList.add('on');document.getElementById('pet-step-2').classList.add('on');renderPetCandidates();}
+petSpecies.forEach(b=>b.onclick=()=>{petSpecies.forEach(x=>x.classList.remove('selected'));b.classList.add('selected');petSelectedSpecies=b.dataset.species;document.getElementById('pet-next').disabled=false;});
+document.getElementById('pet-next').onclick=showPetCandidates;
+document.getElementById('pet-back').onclick=()=>{cancelPetGeneration();petCandidateRound=0;showPetSpecies();};
+document.getElementById('pet-close').onclick=closePetAdoption;
+document.getElementById('pet-reroll').onclick=()=>{if(petGenerating||petCooldown||!petSelectedSpecies)return;petCandidateRound++;petGenerating=true;const session=petSession,btn=document.getElementById('pet-reroll'),note=document.getElementById('pet-reroll-note');btn.disabled=true;note.textContent='生成中…';petGenerationTimer=setTimeout(()=>{petGenerationTimer=null;if(session!==petSession||!petModal.classList.contains('open'))return;renderPetCandidates();petGenerating=false;note.textContent='候选由程序随机生成';petCooldown=setTimeout(()=>{petCooldown=null;if(session===petSession)btn.disabled=false;},900);},260);};
+document.getElementById('pet-adopt').onclick=()=>{if(!petSelectedCandidate)return;closePetAdoption();toast(`已领养「${petSelectedCandidate[0]}」 · ${petSelectedCandidate[1]}`);};
+petModal.addEventListener('click',e=>{if(e.target===petModal)closePetAdoption();});
+
 /* ================== 页签 & 键盘 ================== */
 function switchView(v){
   document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected',t.dataset.view===v));
@@ -867,7 +930,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='2')switchView('monitors');
   if(e.key==='3')switchView('settings');
   if(e.key==='f'||e.key==='/'){e.preventDefault();q.focus();}
-  if(e.key==='Escape'){closeCtx();closeTray();}
+  if(e.key==='Escape'){closeCtx();closeTray();if(petModal.classList.contains('open'))closePetAdoption();}
 });
 
 /* ================== 启动 ================== */

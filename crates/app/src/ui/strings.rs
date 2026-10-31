@@ -17,6 +17,7 @@ pub struct Texts {
     // 页签
     pub tab_library: &'static str,
     pub tab_monitors: &'static str,
+    pub tab_pet: &'static str,
     pub tab_settings: &'static str,
 
     // 库页工具条
@@ -72,6 +73,28 @@ pub struct Texts {
     pub toast_change_hint: &'static str,
 
     // 设置页
+    pub group_pet: &'static str,
+    pub set_pet_activity: &'static str,
+    pub set_pet_activity_desc: &'static str,
+    pub set_pet_size: &'static str,
+    pub set_pet_visible: &'static str,
+    pub pet_stats: &'static str,
+    pub pet_companion_time: &'static str,
+    pub pet_touch_count: &'static str,
+    pub pet_poke_count: &'static str,
+    pub pet_activity_quiet: &'static str,
+    pub pet_activity_normal: &'static str,
+    pub pet_activity_lively: &'static str,
+    pub pet_size_small: &'static str,
+    pub pet_size_medium: &'static str,
+    pub pet_size_large: &'static str,
+    pub pet_notice_group: &'static str,
+    pub pet_notice_new: &'static str,
+    pub pet_notice_attention: &'static str,
+    pub pet_notice_warning: &'static str,
+    pub pet_notice_new_text: &'static str,
+    pub pet_notice_attention_text: &'static str,
+    pub pet_notice_warning_text: &'static str,
     pub group_perf: &'static str,
     pub group_startup: &'static str,
     pub group_linkage: &'static str,
@@ -122,6 +145,16 @@ pub struct Texts {
     // 托盘（构建时取启动语言；语言切换经 UpdateSettings 检测后实时重建）
     pub tray_pause_all: &'static str,
     pub tray_random: &'static str,
+    pub tray_pet_web: &'static str,
+    pub tray_pet_settings: &'static str,
+    pub pet_manage_hint: &'static str,
+    pub pet_visible_state: &'static str,
+    pub pet_hidden_state: &'static str,
+    pub tray_pet_show: &'static str,
+    pub tray_pet_hide: &'static str,
+    pub pet_title: &'static str,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub pet_a11y_label: &'static str,
     pub tray_main_window: &'static str,
     pub tray_autostart: &'static str,
     pub tray_quit: &'static str,
@@ -194,6 +227,7 @@ pub const ZH: Texts = Texts {
 
     tab_library: "壁纸库",
     tab_monitors: "显示器",
+    tab_pet: "宠物",
     tab_settings: "设置",
 
     search_placeholder: "搜索壁纸",
@@ -241,6 +275,15 @@ pub const ZH: Texts = Texts {
 
     tray_pause_all: "暂停全部壁纸",
     tray_random: "随机换一张",
+    tray_pet_web: "管理宠物…",
+    tray_pet_settings: "宠物设置",
+    pet_manage_hint: "设置、领养与重置在管理页进行。",
+    pet_visible_state: "显示中",
+    pet_hidden_state: "已隐藏",
+    tray_pet_show: "显示宠物",
+    tray_pet_hide: "隐藏宠物",
+    pet_title: "桌面宠物",
+    pet_a11y_label: "桌面宠物小蜡烛",
     tray_main_window: "管理窗口…",
     tray_autostart: "开机自启",
     tray_quit: "退出 Gesso",
@@ -313,6 +356,28 @@ pub const ZH: Texts = Texts {
     toast_redetect: "已重新检测显示器",
     toast_change_hint: "在壁纸库双击即设为主显示器",
 
+    group_pet: "宠物",
+    set_pet_activity: "活动档位",
+    set_pet_activity_desc: "控制宠物进入睡眠前的等待时间。",
+    set_pet_size: "尺寸",
+    set_pet_visible: "显示宠物",
+    pet_stats: "统计",
+    pet_companion_time: "陪伴时间",
+    pet_touch_count: "摸",
+    pet_poke_count: "戳",
+    pet_activity_quiet: "安静",
+    pet_activity_normal: "正常",
+    pet_activity_lively: "活泼",
+    pet_size_small: "小",
+    pet_size_medium: "中",
+    pet_size_large: "大",
+    pet_notice_group: "模拟事件",
+    pet_notice_new: "新动静",
+    pet_notice_attention: "需要看一下",
+    pet_notice_warning: "警告",
+    pet_notice_new_text: "有新动静。",
+    pet_notice_attention_text: "要看一下吗？",
+    pet_notice_warning_text: "这个不太对。",
     group_perf: "性能",
     group_startup: "启动",
     group_linkage: "联动",
@@ -351,6 +416,7 @@ pub const EN: Texts = Texts {
 
     tab_library: "Library",
     tab_monitors: "Displays",
+    tab_pet: "Pet",
     tab_settings: "Settings",
 
     search_placeholder: "Search wallpapers",
@@ -397,6 +463,15 @@ pub const EN: Texts = Texts {
 
     tray_pause_all: "Pause all wallpapers",
     tray_random: "Shuffle",
+    tray_pet_web: "Manage pet…",
+    tray_pet_settings: "Pet settings",
+    pet_manage_hint: "Settings, adoption and reset live in the manage page.",
+    pet_visible_state: "Visible",
+    pet_hidden_state: "Hidden",
+    tray_pet_show: "Show pet",
+    tray_pet_hide: "Hide pet",
+    pet_title: "Desktop pet",
+    pet_a11y_label: "Little Candle desktop pet",
     tray_main_window: "Open manager…",
     tray_autostart: "Launch at login",
     tray_quit: "Quit Gesso",
@@ -470,6 +545,28 @@ pub const EN: Texts = Texts {
     toast_redetect: "Displays redetected",
     toast_change_hint: "Double-click a wallpaper in the library to set it on the main display",
 
+    group_pet: "Pet",
+    set_pet_activity: "Activity",
+    set_pet_activity_desc: "Controls how long the pet waits before sleeping.",
+    set_pet_size: "Size",
+    set_pet_visible: "Show pet",
+    pet_stats: "Statistics",
+    pet_companion_time: "Companion time",
+    pet_touch_count: "Touches",
+    pet_poke_count: "Pokes",
+    pet_activity_quiet: "Quiet",
+    pet_activity_normal: "Normal",
+    pet_activity_lively: "Lively",
+    pet_size_small: "Small",
+    pet_size_medium: "Medium",
+    pet_size_large: "Large",
+    pet_notice_group: "Simulate Event",
+    pet_notice_new: "New result",
+    pet_notice_attention: "Needs attention",
+    pet_notice_warning: "Warning",
+    pet_notice_new_text: "something new.",
+    pet_notice_attention_text: "take a look?",
+    pet_notice_warning_text: "hm… seems off.",
     group_perf: "Performance",
     group_startup: "Startup",
     group_linkage: "Integration",
@@ -550,9 +647,11 @@ fn system_is_english() -> bool {
 
 // ── 访问函数（旧 const 名，改调用点加 ()）──────────────────────────────────
 macro_rules! accessors {
-    ($($field:ident => $name:ident),* $(,)?) => {
+    // 每项可选前置 #[...] 属性（如平台条件 allow(dead_code)）；无属性时展开为空
+    ($($(#[$attr:meta])* $field:ident => $name:ident),* $(,)?) => {
         $(
             #[allow(non_snake_case)]
+            $(#[$attr])*
             #[doc = concat!("当前语言：", stringify!($name))]
             pub fn $name() -> &'static str {
                 t().$field
@@ -562,7 +661,8 @@ macro_rules! accessors {
 }
 accessors! {
     app_name => APP_NAME,
-    tab_library => TAB_LIBRARY, tab_monitors => TAB_MONITORS, tab_settings => TAB_SETTINGS,
+    tab_library => TAB_LIBRARY, tab_monitors => TAB_MONITORS, tab_pet => TAB_PET,
+    tab_settings => TAB_SETTINGS,
     search_placeholder => SEARCH_PLACEHOLDER, btn_import => BTN_IMPORT,
     filter_all => FILTER_ALL, filter_we => FILTER_WE,
     hint_library => HINT_LIBRARY, empty_library_title => EMPTY_LIBRARY_TITLE,
@@ -580,6 +680,14 @@ accessors! {
     policy_pause => POLICY_PAUSE, policy_downclock => POLICY_DOWNCLOCK, policy_ignore => POLICY_IGNORE,
     fit_cover => FIT_COVER, fit_contain => FIT_CONTAIN, fit_fill => FIT_FILL,
     tray_pause_all => TRAY_PAUSE_ALL, tray_random => TRAY_RANDOM,
+    tray_pet_web => TRAY_PET_WEB, tray_pet_settings => TRAY_PET_SETTINGS,
+    pet_manage_hint => PET_MANAGE_HINT,
+    pet_visible_state => PET_VISIBLE_STATE, pet_hidden_state => PET_HIDDEN_STATE,
+    tray_pet_show => TRAY_PET_SHOW,
+    tray_pet_hide => TRAY_PET_HIDE,
+    pet_title => PET_TITLE,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pet_a11y_label => PET_A11Y_LABEL,
     tray_main_window => TRAY_MAIN_WINDOW, tray_autostart => TRAY_AUTOSTART, tray_quit => TRAY_QUIT,
     mon_main => MON_MAIN, mon_main_short => MON_MAIN_SHORT, meta_builtin => META_BUILTIN,
     tip_toggle_theme => TIP_TOGGLE_THEME,
@@ -614,6 +722,19 @@ accessors! {
     st_playing => ST_PLAYING, st_paused => ST_PAUSED, st_fullscreen => ST_FULLSCREEN,
     st_battery => ST_BATTERY, st_unassigned => ST_UNASSIGNED,
     btn_go_assign => BTN_GO_ASSIGN, toast_redetect => TOAST_REDETECT, toast_change_hint => TOAST_CHANGE_HINT,
+    group_pet => GROUP_PET, set_pet_activity => SET_PET_ACTIVITY,
+    set_pet_activity_desc => SET_PET_ACTIVITY_DESC, set_pet_size => SET_PET_SIZE,
+    set_pet_visible => SET_PET_VISIBLE, pet_stats => PET_STATS,
+    pet_companion_time => PET_COMPANION_TIME, pet_touch_count => PET_TOUCH_COUNT,
+    pet_poke_count => PET_POKE_COUNT, pet_activity_quiet => PET_ACTIVITY_QUIET,
+    pet_activity_normal => PET_ACTIVITY_NORMAL, pet_activity_lively => PET_ACTIVITY_LIVELY,
+    pet_size_small => PET_SIZE_SMALL, pet_size_medium => PET_SIZE_MEDIUM,
+    pet_size_large => PET_SIZE_LARGE,
+    pet_notice_group => PET_NOTICE_GROUP, pet_notice_new => PET_NOTICE_NEW,
+    pet_notice_attention => PET_NOTICE_ATTENTION, pet_notice_warning => PET_NOTICE_WARNING,
+    pet_notice_new_text => PET_NOTICE_NEW_TEXT,
+    pet_notice_attention_text => PET_NOTICE_ATTENTION_TEXT,
+    pet_notice_warning_text => PET_NOTICE_WARNING_TEXT,
     group_perf => GROUP_PERF, group_startup => GROUP_STARTUP, group_linkage => GROUP_LINKAGE,
     group_experimental => GROUP_EXPERIMENTAL, group_advanced => GROUP_ADVANCED,
     set_fps_cap => SET_FPS_CAP, set_fullscreen => SET_FULLSCREEN,

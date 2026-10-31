@@ -7,9 +7,11 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 ### Added
 
 - 更新器根据 App 当前语言显示双语发布说明，并兼容旧版静态清单格式。
+- **桌面宠物（feat/desktop-pet）**：macOS AppKit 宠物窗口（拖动/戳/摸/注视/透明穿透/位置存档）+ Windows 分层窗口（P2-W）；领养状态机与确定性候选生成、行为状态机（睡眠/走动/气泡/锁屏暂停）；Web 控制台（loopback Server + Svelte，领养/设置/两阶段重置/模拟事件全流程）+ GPUI↔Web 双入口并发演练自动化（`GESSO_PET_GPUI_DRILL` + `tools/pet-verify/web-drill.py` 24 断言，另有 `web-e2e.py` 20 断言契约回归）。
 
 ### Changed
 
+- **宠物管理入口收敛（2026-10-30）**：撤销 GPUI 领养小窗——领养/设置/重置唯一管理面 = Web 控制台；托盘合并为单项「管理宠物…」（显隐切换保留）；主窗口宠物页瘦身为纯展示 + 管理入口。动因：同一状态机双 UI 需永久同步，实机双入口验证暴露视图不同步缺陷（规格见《桌面宠物设计.md》v1.1 修订）。
 - README（中英）改版为产品门面：顶部应用图标、新增「下载安装」一节与内置壁纸清单；图片统一放在 `docs/assets/`，发布清单同步新增截图维护步骤。
 - 发布清单保留旧客户端使用的 `notes`，同时增加 `notes_localized.zh/en` 供新版本按语言选择。
 
@@ -24,6 +26,8 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - 更新检查只读取 GitHub Release 里的 `latest.json` 静态清单，不再访问未认证 GitHub API；清单不可用时显示明确失败原因并提供发布页入口。
 
 ### Changed
+
+- **桌面宠物 macOS P0 基础链路（`feat/desktop-pet`）**：完成 v1.0 产品/领养规格与原型；新增 `gesso-core::pet` 纯数据确定性生成器（root seed、命名空间子 seed、三候选去重、版本输入、临时候选身份）、`gesso-core::adoption` 领养状态机和 `gesso-core::pet_save` 正式个体/存档纯数据模型；macOS app 已接入 `pet_store` 安全加载、损坏备份、版本保护和领养确认写盘骨架；正式 ID 使用 128 位随机值；已接入托盘“开始领养”和最小领养小窗（物种选择、三候选程序化占位外观预览、reroll、900ms 单任务冷却、确认保存状态、存档错误提示和“重试保存”按钮）；已接入版本化缓存元数据事务（缓存目录当前只写入 `pet.json`）、独立 macOS AppKit 占位宠物窗口（主屏右下角显示）、窗口拖动后的位置识别与存档、托盘显示/隐藏和全屏临时隐藏；正式视觉资源、互动动画、Windows 宠物窗口和跨平台回归暂缓；macOS 占位窗口已支持身体矩形命中、透明区域穿透、6pt 拖动阈值、300ms 连点摸和单击戳判定；互动统计经引擎动作更新并约 1s 节流写盘；宠物与壁纸平级、产品上独立但由 Gesso 承载。详见 `docs/design/桌面宠物设计.md` v1.0。
 
 ### Fixed
 
@@ -54,6 +58,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Fixed
 
+- **桌面宠物 macOS 占位窗口命中修复**：透明区域不再拦截后方应用；自定义 `NSView::hitTest:` 仅让带 padding 的身体占位矩形接收鼠标事件，正式 alpha 轮廓命中和互动动画仍待后续接入。
 - **多屏唤醒/重配改为事件驱动两段式收敛（epoch 重构，v3 定稿）**：显示器重配（唤醒/解锁/插拔/改分辨率/主屏切换/合盖开盖）由 CG 重配回调（macOS）/ `WM_DISPLAYCHANGE`（Windows）翻转纪元代数触发，引擎心跳去抖（1.5s 静默期，4s 陈旧期上限）后收敛，替代 2s 轮询发现。30ms 快速观察器先熄灭与现实脱节的窗口，跨采样稳定后再以可见原子切换施加几何；macOS 已完成多轮实机验证，Windows 尚未完成多屏实机验证。
 - **Windows 安装版启动闪退（#2）**：0.1.0 的安装包在 Windows 上 100% 无法启动，黑窗一闪而过。单实例锁把文件路径字符串当内核对象名传给 `CreateMutexW`，路径里的 `\` 不被接受。锁名改为扁平的 `Local\gesso-app-lock`。
 - **视频壁纸卡顿（macOS / Windows 双平台）**：视频此前在 webview 里播放，浏览器把视频帧跨进程搬上屏的路径没有匀速保证（macOS 实测 60fps 内容只上屏 53~56fps；Windows 的呈现交接层同样的问题），高帧率素材和多屏下肉眼可见地卡。两平台都改为原生播放器直挂壁纸窗口（macOS 用 AVPlayerLayer，Windows 用 Media Foundation 解码 + DXGI swapchain 呈现），webview 只保留给 shader / 网页 / 图片。重写前做了三代构建 × 两种传输 × 三类素材的真机对照，确认问题在呈现层而不是数据供给。

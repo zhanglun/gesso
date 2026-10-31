@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:  # 手动触发（PR 事件被 OAuth 令牌抑制时的等效验证路径）
 
 jobs:
   test:
