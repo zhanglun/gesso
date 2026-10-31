@@ -45,6 +45,10 @@
   --lcd-accent-soft: rgba(255, 122, 82, 0.1);
   --lcd-danger: #ff9a7e;
   --fire: 244, 155, 51;
+  /* 像素光标：手工点阵 PNG，data URI 内嵌（出处与生成器见 .impeccable/cursors/，
+     点阵调色与图鉴层同源：墨 #3b3222 / 纸白 #fbf3e4）；热点对齐像素网格 */
+  --cursor-default: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAUCAYAAACEYr13AAAAiklEQVR4nGOwNlL6z0ABYAIRlBjCBCIOHDxEtiFMMAa5hjAhc8gxhAldgFRDmLAJkmIIEy4JYg1hwidJjCFMhGwgZAgTIQMIGcKCT6ODvR0KH2TI0XP3GDEEf39+AsbobGJcxwDTBNNAqiFMMKdiOI1YYI3FFlJcwUS2zcS4jBhXEJUOKHIFoTAAAOTAb7EaLsouAAAAAElFTkSuQmCC) 1 1;
+  --cursor-pointer: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAUCAYAAAC9BQwsAAAAf0lEQVR4nGNgQALWRkr/f39+AsbWRkr/GfAAJnyS9NdobaSE08l4NR44eAiMsWkm2qnWaJqJ0ngAi82UB441gXhDBywwTSCnkAIYSdXkYG/HcPTcPcYBSDlHz91jBFkPwmQDa6Tc8RsLpko8MhBrK3o8M+LSjC4GCguquY4sAAAqlGP+GtD9EgAAAABJRU5ErkJggg==) 4 0;
   /* 语义（两层通用） */
   --led-ok: #4cc38a;
   --led-off: #6e7360;
@@ -93,6 +97,7 @@ body {
   background: var(--ground);
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
+  cursor: var(--cursor-default), default;
 }
 
 ::selection {
@@ -108,11 +113,11 @@ body {
 button {
   font: inherit;
   color: inherit;
-  cursor: pointer;
+  cursor: var(--cursor-pointer), pointer;
 }
 
 button:disabled {
-  cursor: not-allowed;
+  cursor: var(--cursor-default), default;
   opacity: 0.4;
 }
 
