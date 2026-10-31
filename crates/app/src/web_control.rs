@@ -591,11 +591,21 @@ fn handle(
         return;
     }
     if request.method == "GET" && request.path == "/assets/preact.js" {
-        respond(&mut stream, 200, "text/javascript; charset=utf-8", WEB_PREACT);
+        respond(
+            &mut stream,
+            200,
+            "text/javascript; charset=utf-8",
+            WEB_PREACT,
+        );
         return;
     }
     if request.method == "GET" && request.path == "/assets/hooks.js" {
-        respond(&mut stream, 200, "text/javascript; charset=utf-8", WEB_HOOKS);
+        respond(
+            &mut stream,
+            200,
+            "text/javascript; charset=utf-8",
+            WEB_HOOKS,
+        );
         return;
     }
     if request.method == "GET" && request.path == "/assets/htm.js" {
@@ -1118,7 +1128,10 @@ mod tests {
             parse_op(&json!({"op": "pet.notify", "kind": "attention"})),
             Some(WebOp::SimulateNotice(PetNotice::NeedsAttention))
         );
-        assert_eq!(parse_op(&json!({"op": "pet.notify", "kind": "bogus"})), None);
+        assert_eq!(
+            parse_op(&json!({"op": "pet.notify", "kind": "bogus"})),
+            None
+        );
         assert_eq!(parse_op(&json!({"op": "pet.notify"})), None);
     }
 

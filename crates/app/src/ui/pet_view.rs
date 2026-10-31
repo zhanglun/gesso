@@ -156,23 +156,18 @@ impl Render for PetView {
             .child(self.group(GROUP_PET(), status_rows, cx))
             .child(self.group(PET_STATS(), stats_rows, cx))
             .child(
-                div()
-                    .px(px(18.))
-                    .py(px(14.))
-                    .flex_1()
-                    .items_end()
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .italic()
-                                    .text_color(t.text2)
-                                    .child(PET_MANAGE_HINT()),
-                            )
-                            .child(self.manage_button()),
-                    ),
+                div().px(px(18.)).py(px(14.)).flex_1().items_end().child(
+                    v_flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .italic()
+                                .text_color(t.text2)
+                                .child(PET_MANAGE_HINT()),
+                        )
+                        .child(self.manage_button()),
+                ),
             )
             .into_any_element()
     }
