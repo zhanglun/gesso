@@ -30,10 +30,10 @@
    - 保持 sandbox、CSP、无 IPC 和同源资源边界；
    - 评估 `fps_cap` 对第三方 RAF 的可控范围。
 5. **桌面宠物收尾（feat/desktop-pet）**
-   - 待人工实机确认：模拟事件气泡弹出、帧序修复后眨眼/注视火苗亮度（f2deaf7）；
-   - 待人工：日常使用体感反馈（状态机层已由演练覆盖；2026-10-30 入口收敛后 GPUI 领养小窗已撤销，管理面唯一化为 Web 控制台）；
+   - ✅ 人工实机确认（2026-10-31，dev 实例）：模拟事件三类气泡正常弹出、帧序修复后眨眼/注视仅动眼睛且火苗亮度不变（f2deaf7）；Web 控制台视觉重设计 v0.3「像素图鉴 · 观测台」+ 前端栈 Preact/HTM 免构建落地（含设置档位乐观更新，CI 全绿）；
+   - 日常使用体感反馈持续收集中（状态机层已由演练覆盖；2026-10-30 入口收敛后 GPUI 领养小窗已撤销，管理面唯一化为 Web 控制台）；
    - Windows press 悬挂挂账修复（设计稿 §10 P2 待完成②，同款已修见①）；
-   - 宠物正式美术与首发角色设计定稿（物种选型已重启，进行中见《缝隙居民·物种族群设计稿.md》）。
+   - 宠物正式美术与首发角色设计定稿（物种选型已重启，进行中见《缝隙居民·物种族群设计稿.md》）；**物种形态拍板前不合 main**（用户约束 2026-10-31）。
 6. **通知能力（桌面宠物 P3 立项中，2026-10-25）**：**线 A 出站**——把散在 `update.rs` 的系统通知（macOS osascript / Windows WinRT toast，均已 best-effort + 兜底）收敛为可复用 notify 模块，附一次精简系统 toast 可达性实测；**线 B 入站**——本地事件接口选型（来源认证先于线格式定稿，首版外部只传事件类型不传自由文本），首个生产者接 Gesso 内部氛围类事件 → 宠物气泡。分流/去重规则见《界面与交互设计.md》§3.1；明确不做系统级通知拦截/替代。
 
 ## 明确不做
@@ -53,11 +53,11 @@
 > 1. docs/ROADMAP.md——本文「当前状态」桌面宠物行与「下一步优先级」第 5 项；
 > 2. docs/design/桌面宠物设计.md v1.1（2026-10-30 入口收敛修订 + §10 分期挂账）；
 > 3. docs/design/桌面宠物 Web 控制台技术方案.md §9（写通道契约 + §9.3 演练）；
-> 4. 实现：crates/app/src/web_control.rs（Server+API）+ crates/app/web/（Svelte 前端，改后必须 cargo build——产物编译期内嵌）+ crates/app/src/pet_window.rs（桌面宠物窗）。
+> 4. 实现：crates/app/src/web_control.rs（Server+API）+ crates/app/web/（Preact/HTM 免构建静态前端 + vendor/ 运行时，改后必须 cargo build——产物编译期内嵌、无 npm）+ crates/app/src/pet_window.rs（桌面宠物窗）。
 >
-> 当前状态（2026-10-30）：领养/设置/重置/模拟事件唯一管理面 = Web 控制台（GPUI 领养小窗已撤销）；回归全绿：web-e2e 23 断言、web-drill 24 断言（python3 tools/pet-verify/）、cargo test 79+57。
-> 待人工：模拟事件气泡与帧序修复（眨眼/注视）实机观感、日常使用体感。
-> 待办：合回 main → 0.2.0 发版（docs/RELEASE-CHECKLIST.md）；Windows press 悬挂挂账（设计稿 §10 P2 待完成②）。
+> 当前状态（2026-10-31）：领养/设置/重置/模拟事件唯一管理面 = Web 控制台（GPUI 领养小窗已撤销）；控制台视觉 = v0.3「像素图鉴 · 观测台」（Fusion Pixel 中文像素字体内嵌、Preact+HTM 免构建，视觉基线见控制台设计稿头部）；实机人工确认已过（模拟事件气泡、帧序观感）；CI 全绿。
+> 待人工：日常使用体感持续收集。
+> 待办：**物种形态拍板（拍板前不合 main，用户约束 2026-10-31）** → 合回 main → 0.2.0 发版（docs/RELEASE-CHECKLIST.md）；Windows press 悬挂挂账（设计稿 §10 P2 待完成②）。
 > 遵守 AGENTS.md 硬性规则（原子提交、提交前 cargo check + cargo test 全绿、改界面先改设计文档）。
 
 ## 相关文档
