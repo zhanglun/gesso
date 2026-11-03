@@ -6,7 +6,7 @@
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::{App, BorrowAppContext as _, Global, SharedString, Window};
 
-use super::data::{Kind, LibraryItem, MonitorEntry, PlayState, Settings, UpdateView};
+use super::data::{Kind, LibraryItem, MonitorEntry, PetView, PlayState, Settings, UpdateView};
 
 /// 筛选段控件的当前值。
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -38,6 +38,7 @@ pub struct GessoState {
     pub library: Vec<LibraryItem>,
     pub monitors: Vec<MonitorEntry>,
     pub settings: Settings,
+    pub pet: PetView,
     /// 当前页签（Shell 的三页签状态也归真源管）。
     pub active_tab: super::shell::Tab,
     pub filter: Filter,
@@ -73,6 +74,7 @@ impl Default for GessoState {
             library: Vec::new(),
             monitors: Vec::new(),
             settings: Settings::default(),
+            pet: PetView::default(),
             active_tab: super::shell::Tab::Library,
             filter: Filter::All,
             query: String::new(),

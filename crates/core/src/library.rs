@@ -59,7 +59,7 @@ impl LibraryManifest {
     }
 }
 
-/// 生成 16 hex 随机 ID。128 位熵，不可猜测性由 gesso://library/<id>/ 路由依赖。
+/// 生成 16 hex 随机 ID。64 位熵，不可猜测性由 gesso://library/<id>/ 路由依赖。
 pub fn generate_id() -> String {
     let mut buf = [0u8; 8];
     getrandom::fill(&mut buf).expect("系统熵源不可用");

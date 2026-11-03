@@ -10,10 +10,16 @@
 1. **壁纸窗口不是 GPUI 窗口**：`pin/` 使用平台原生窗口和 `lb-wry` 直挂；GPUI 只管管理窗口与托盘。壁纸窗口的桌面级几何由 `pin/` 和会话收敛负责。
 2. **UI 不碰引擎内部**：只经 `crates/app/API.md`。写操作入队 `engine::EngineAction`（引擎 150ms 轮询执行，与托盘同一通道）；读操作走 `snapshot_ui(&sm)` 快照，且**必须保留 UI 本地状态**（`active_tab/selected/query/filter/import_counter`），否则用户输入每 150ms 被冲掉。
 3. **改界面先改规格与原型**（`docs/design/界面与交互设计.md` + `docs/design/prototype/index.html`），再改代码；token/组件/文案以 `docs/design/DESIGN.md` 为准。
-4. **提交前必须 `cargo check -p gesso-app` 通过**。UI 代码曾因从未编译积累 115 个错误。
-5. **类型知识与主资源发现只在单一事实源**：类型↔扩展名↔MIME↔缩略图策略查 `gesso_core::content`；主资源文件名走 `encoding::main_asset_name`，导入/失效判定/宿主页 spec 共用。四处各写一份“类型→扩展名”映射，就会出现“能导入但被判失效”或“宿主页请求错文件名”。
-6. **平台 FFI 的所有权不裸写**。ObjC 一律走 objc2 生成绑定（所有权编码在类型里：init/copy 家族 → `Retained<T>`，autoreleased 返回值由绑定内部 `objc_retainAutoreleasedReturnValue` 处理）；手写 extern 只留给纯 C API（CF 的 +1/CFRelease 对称即可，如 ImageIO `CGImageDestination`）。后台线程做 ObjC/AVFoundation 整段包 `objc2::rc::autoreleasepool`，并且只跑在有重试上限 + 在途去重的调度器后面（`thumb.rs` + `engine::ThumbScheduler` 是范本）。
+4. **桌面宠物窗口独立于壁纸窗口**：`pet_window/` 用纯原生宠物面板（macOS: AppKit NSPanel；Windows: Win32 分层窗 `pet_window/windows.rs`，穿透纪律见 §2 P2-W 行），不进入 GPUI 或 `SessionManager`；窗口事件写操作仍必须经 `EngineAction` 进入引擎，不能由 view 直接写 `PetStore`。两平台均以模板声明的蜡身命中区做圆角矩形命中 + 命中区外整窗穿透（macOS `ignoresMouseEvents` / Windows `WS_EX_TRANSPARENT`）；正式资源接入后再替换为 alpha/轮廓命中。
+5. **桌面宠物互动已接入 macOS 基础链路**：300ms 内连续点击为 `Touch`，单击延迟确认后为 `Poke`，超过 6pt 进入自定义 `setFrameOrigin` 拖动；互动统计经 `EngineAction` 更新并约 1s 节流保存。行为反馈事件也经 `EngineAction::PetBehavior` 驱动 `PetBehavior`，AppKit 占位层按状态提供戳/摸/拖拽/睡眠反馈，Watching 通过眼睛高光表达注视；macOS reduced-motion 时保持静态。退出前必须 flush dirty 存档；缓存启动恢复只删除版本目录下的 `.tmp-` 临时目录。不要用全局鼠标轮询替代窗口命中，也不要让每次互动同步写盘。
+6. **提交前必须 `cargo check -p gesso-app` 通过**。UI 代码曾因从未编译积累 115 个错误。
+7. **类型知识与主资源发现只在单一事实源**：类型↔扩展名↔MIME↔缩略图策略查 `gesso_core::content`；主资源文件名走 `encoding::main_asset_name`，导入/失效判定/宿主页 spec 共用。四处各写一份“类型→扩展名”映射，就会出现“能导入但被判失效”或“宿主页请求错文件名”。
+8. **平台 FFI 的所有权不裸写**。ObjC 一律走 objc2 生成绑定（所有权编码在类型里：init/copy 家族 → `Retained<T>`，autoreleased 返回值由绑定内部 `objc_retainAutoreleasedReturnValue` 处理）；手写 extern 只留给纯 C API（CF 的 +1/CFRelease 对称即可，如 ImageIO `CGImageDestination`）。后台线程做 ObjC/AVFoundation 整段包 `objc2::rc::autoreleasepool`，并且只跑在有重试上限 + 在途去重的调度器后面（`thumb.rs` + `engine::ThumbScheduler` 是范本）。
 
+## 2. 当前平台纪律
+
+| 范围 | 必须遵守的规则 |
+|---|---|
 ## 2. 当前平台纪律
 
 | 范围 | 必须遵守的规则 |
@@ -30,6 +36,14 @@
 | 宿主页命令 | Rust 仅用 `HostCommand` 生成脚本；光标 30 Hz 推送，宿主页保存最新目标并自行平滑。 |
 | 数据完整性 | 清单解析失败时不得回退为空库再写回；临时输出写入 `.tmp` 后原子 rename；环境变量测试须持有共享锁。 |
 | UI 细节 | `overflow_y_scroll` 必须在 `.id(...)` 后调用；`AtomicBool` 切换用 `fetch_xor(true)`，不要用 `swap(true)`。 |
+| **Windows 宠物窗口穿透组合（P2-W，2026-10-25 实测）** | `WS_EX_LAYERED` + `UpdateLayeredWindow`（ULW_ALPHA，DIB 预乘 BGRA）逐像素 alpha：alpha=0 区域系统直接放行鼠标（分层窗口文档语义），透明穿透零成本成立。**命中区外（火苗/气泡区）必须整窗切 `WS_EX_TRANSPARENT`**（150ms 同步节拍判定光标 vs 屏幕命中区，等价 macOS `ignoresMouseEvents`）——alpha≠0 像素系统视为窗口命中会吞点击，而 wndproc 返回 HTTRANSPARENT 跨进程不可靠（见 pin 实测行）。按住/拖动期间禁止加 TRANSPARENT，否则 SetCapture 链路中断 |
+| **窗口内容验证用 PrintWindow，别信屏幕截图（P2-W）** | 置顶分层窗在**独占全屏游戏**下不参与 DWM 合成（屏幕上看不到），CopyFromScreen 得出"没渲染"的假阴性；`PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT)` 直接渲染窗口自身内容，被遮挡/独占全屏都照拍（P2-W 靠它确诊渲染管线正常）。另：DPI-unaware 工具（PowerShell 默认）查窗口坐标是虚拟化值，先 `SetProcessDpiAwarenessContext(-4)` 再 GetWindowRect 才是物理像素 |
+| RGBA 字节流当调色板索引（P2-W 渲染全透明 bug） | 精灵预渲染产物是 RGBA **字节**数组（`render_rgba` 输出，格号×4 才是字节偏移）不是索引网格——`sprite[格号]` 读到别格 R 字节再乘 4 当偏移，几乎全像素被误判透明跳过，整窗隐身且无报错。写像素循环前先确认数据布局 |
+| 跨 DPI 窗口先落位再读 DPI（P2-W） | `GetDpiForWindow` 返回窗口**当前所在显示器**的 DPI——建窗在主屏、宠物在另一块屏（混合 DPI）时首拍读到错缩放。先 SetWindowPos 到目标屏中心再查（`placed` 旗标），每拍重查自然收敛模式切换 |
+| macOS 精灵帧序映射 quirk（feat/desktop-pet 遗留） | macos 预渲染循环（pet_window.rs `for frame_idx in 0..kind_count()` 的 `match frame_idx {0=>Idle,1=>Flicker,_=>Sleep}`）使 Blink/GazeLeft/GazeRight（索引 3–5）预渲成睡眠帧——眨眼/注视时火苗变暗（运行时帧选择已正确区分六态，但索引 3–5 的图本身是睡眠帧）。Windows 实现六帧各自正确映射；macOS 侧修正是独立变更，勿混进平台移植提交（挂账见桌面宠物设计.md §10 P2 待完成①） |
+| **宠物 press 状态悬挂（P2-W 复审修复，2026-10-25）** | Win32 按住期间捕获被夺（全屏应用启动把宠物隐藏等）只收 `WM_CAPTURECHANGED` 不收 `WM_LBUTTONUP`——press 悬挂会**永久卡死** sync 的拖拽守卫与穿透切换。必须在 wndproc 处理该消息收尾；且 `on_left_up` 要**先取走 press 再 ReleaseCapture**——ReleaseCapture 同步派发 WM_CAPTURECHANGED，处理器会抢先消费 press 导致点击丢失。macOS 无显式信号（mouseUp 丢失同样悬挂），是两平台共同的潜在形状 |
+| **GDI DIB 位图先拷再删（P2-W 复审修复，实机单测 ACCESS_VIOLATION 抓获）** | `CreateDIBSection` 的 bits 指针在 `DeleteObject(dib)` 后即悬垂——清理顺手写在读取前是 use-after-free，多数时候读到未回收内存"碰巧能用"，气泡路径首次真实执行即崩。铁律：**从 DIB 拷出数据后才允许删任何 GDI 对象**；`text_mask` 有单测锁定（GDI 光栅化产出白底+笔画双值掩码） |
+| **TrackPopupMenu 模态期冻结宿主窗口几何（P2-W 复审修复）** | 150ms 主循环对宠物窗的 TOPMOST 重申/位置校正在菜单打开期间会把它抖掉（走动还会把菜单甩在原地）——`menu_open` 旗标期间跳过一切窗口几何操作（渲染/统计照常）。另：测菜单行为必须用 `mouse_event` 真实注入，`PostMessage` 合成输入不授予前台权，`SetForegroundWindow` 失败 → 菜单收不到键盘自动退场（命令恒返回 0） |
 
 ## 3. 高风险调试
 

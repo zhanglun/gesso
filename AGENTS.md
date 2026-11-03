@@ -35,6 +35,8 @@ cargo clippy -p gesso-core --all-targets -- -D warnings
 pkill -f "target/debug/gesso"            # 退出（有单实例锁）
 GESSO_LOCK=dev ./target/debug/gesso      # 开发期多实例并存（用完记得关）
 GESSO_UPDATE_MODAL=1 GESSO_LOCK=dev ./target/debug/gesso   # 启动即「检查更新+开小窗」；加 GESSO_UPDATE_AUTO_DL=1 连「发现→下载」一并自动确认（仅 debug）
+GESSO_PET_NOTICE=new GESSO_LOCK=dev ./target/debug/gesso   # 启动 ~3s 注入一次宠物模拟通知（气泡链路无头验证，仅 debug）；窗口层行为回归见 tools/pet-verify/regress.ps1
+python3 tools/pet-verify/web-drill.py   # GPUI↔Web 双入口并发演练（自启动沙箱实例；钩子 GESSO_PET_GPUI_DRILL="秒:动作,…" 仅 debug，用法见文件头；改 web/ 后先 cargo build）
 ```
 
 ## 仓库地图
@@ -53,10 +55,15 @@ crates/app      应用：
   ├─ protocol.rs  gesso:// 资源协议（已打通：host 统一宿主页 + library 条目资源，视频 Range）
   ├─ bridge/      系统事件桥（光标/全屏/电源/时间）
   ├─ engine.rs    AppState 全局 + EngineAction 动作队列
+  ├─ pet_window.rs / pet_window/   桌面宠物窗（macOS AppKit / Windows 分层窗口；逐拍 sync）
+  ├─ pet_store.rs / pet_cache.rs   宠物存档安全加载与缓存事务（状态机在 core: adoption/pet）
+  ├─ pet_template*.rs / pet_sprite_data.rs  宠物软件渲染（程序化占位蜡烛；正式美术接入面）
+  ├─ web_control.rs / web/        本机 Web 控制台（loopback Server + Preact/HTM 免构建静态前端，vendor/ 内置运行时，产物编译期内嵌、无 npm 依赖；领养/设置/重置唯一管理面）
   ├─ update.rs    应用自更新（静态 latest.json 清单检查 + 下载/交付；状态真源在模块全局，代数计数回灌）
-  ├─ ui/          管理窗口 UI（gpui-kit；strings.rs 双语包；update_view.rs 更新小窗）
+  ├─ ui/          管理窗口 UI（gpui-kit；strings.rs 双语包；update_view.rs 更新小窗；pet_view.rs 宠物展示页）
   └─ assets/      宿主页（host/index.html）/ 预置壁纸（samples/）/ 产品图标（icons/ 产出 + 再生成管线，见其 README）
 docs/           工程文档 + design/（当前设计源；历史资料在 docs/archive/）
+tools/pet-verify  宠物回归：窗口行为（regress.ps1，Windows）+ Web 控制台 e2e/drill（跨平台）
 ```
 
 ## 当前实现边界

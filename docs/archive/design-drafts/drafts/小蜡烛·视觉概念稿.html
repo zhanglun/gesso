@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小蜡烛 · 视觉概念稿 v0.2</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 28px 48px;
+    font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif;
+    background: #FAF7F1; color: #3D362D;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .sub { color: #8A8072; font-size: 13px; margin-bottom: 28px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; max-width: 1200px; }
+  .card {
+    background: #FFFFFF; border: 1px solid #EAE3D6; border-radius: 14px;
+    padding: 20px 20px 16px;
+  }
+  .card h2 { font-size: 16px; margin: 0 0 2px; }
+  .card .desc { font-size: 12.5px; color: #8A8072; margin: 0 0 14px; line-height: 1.6; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile {
+    border-radius: 10px; padding: 10px 6px 6px; text-align: center;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .tile.light { background: linear-gradient(180deg, #F6F0E5, #E9E0CE); }
+  .tile.dark  { background: linear-gradient(180deg, #3A342C, #23201B); }
+  .tile svg { width: 116px; height: 140px; }
+  .tile figcaption { font-size: 11px; margin-top: 2px; }
+  .tile.light figcaption { color: #9A8F7D; }
+  .tile.dark figcaption { color: #8D8474; }
+  .swatches { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .sw { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #8A8072;
+        background: #F7F2E9; border-radius: 20px; padding: 3px 9px 3px 4px; }
+  .sw i { width: 14px; height: 14px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,.08); }
+  .note { margin-top: 26px; max-width: 1200px; font-size: 13px; color: #6E6557; line-height: 1.8;
+          background: #F3EDDF; border-radius: 10px; padding: 14px 18px; }
+  .note b { color: #3D362D; }
+</style>
+</head>
+<body>
+
+<h1>小蜡烛 · 视觉概念稿 v0.2</h1>
+<p class="sub">方向选型用，非定稿。四版共用同一组约束：奶油蜡身 + 暖橙火苗 + 点状眼；每版给「清醒 / 睡眠」两态，浅色与深色壁纸底各一张（对应规格里的双底验证要求）。</p>
+
+<div class="grid">
+
+<!-- ═══════════ A 扁平极简 ═══════════ -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <radialGradient id="glowA" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFD9A0" stop-opacity=".5"/>
+      <stop offset="100%" stop-color="#FFD9A0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flameA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFC873"/>
+      <stop offset="100%" stop-color="#FF9D45"/>
+    </linearGradient>
+  </defs>
+  <symbol id="candleA-idle" viewBox="0 0 200 240">
+    <circle cx="100" cy="72" r="62" fill="url(#glowA)"/>
+    <path d="M100,26 C110,44 119,58 119,73 C119,88 111,99 100,99 C89,99 81,88 81,73 C81,58 90,44 100,26 Z" fill="url(#flameA)"/>
+    <path d="M100,52 C105,62 109,69 109,77 C109,86 105,92 100,92 C95,92 91,86 91,77 C91,69 95,62 100,52 Z" fill="#FFF3D6"/>
+    <rect x="97.5" y="95" width="5" height="9" rx="2" fill="#6B5B49"/>
+    <rect x="58" y="100" width="84" height="114" rx="14" fill="#FCF3E2"/>
+    <ellipse cx="100" cy="102" rx="41" ry="7" fill="#F2E2C6"/>
+    <circle cx="84" cy="150" r="5.5" fill="#4A3F35"/>
+    <circle cx="116" cy="150" r="5.5" fill="#4A3F35"/>
+    <path d="M96,164 Q100,168 104,164" stroke="#4A3F35" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="candleA-sleep" viewBox="0 0 200 240">
+    <circle cx="100" cy="96" r="26" fill="url(#glowA)" opacity=".55"/>
+    <path d="M100,76 C105,84 110,91 110,98 C110,105 106,110 100,110 C94,110 90,105 90,98 C90,91 95,84 100,76 Z" fill="#F0B878" opacity=".85"/>
+    <rect x="97.5" y="106" width="5" height="9" rx="2" fill="#6B5B49"/>
+    <rect x="58" y="100" width="84" height="114" rx="14" fill="#FCF3E2"/>
+    <ellipse cx="100" cy="102" rx="41" ry="7" fill="#F2E2C6"/>
+    <path d="M78,150 Q84,155 90,150" stroke="#4A3F35" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M110,150 Q116,155 122,150" stroke="#4A3F35" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </symbol>
+</svg>
+
+<!-- ═══════════ B 软胶柔光 ═══════════ -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <radialGradient id="glowB" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFD9A0" stop-opacity=".65"/>
+      <stop offset="100%" stop-color="#FFD9A0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flameB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE1A0"/>
+      <stop offset="55%" stop-color="#FFB65C"/>
+      <stop offset="100%" stop-color="#FF8E3D"/>
+    </linearGradient>
+    <linearGradient id="bodyB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFAF0"/>
+      <stop offset="100%" stop-color="#F5E1C2"/>
+    </linearGradient>
+  </defs>
+  <symbol id="candleB-idle" viewBox="0 0 200 240">
+    <circle cx="100" cy="72" r="66" fill="url(#glowB)"/>
+    <path d="M100,24 C111,43 120,58 120,73 C120,89 111,100 100,100 C89,100 80,89 80,73 C80,58 89,43 100,24 Z" fill="url(#flameB)"/>
+    <path d="M100,50 C106,61 110,69 110,78 C110,87 106,93 100,93 C94,93 90,87 90,78 C90,69 94,61 100,50 Z" fill="#FFF8E4"/>
+    <rect x="97.5" y="95" width="5" height="10" rx="2" fill="#6B5B49"/>
+    <rect x="58" y="100" width="84" height="114" rx="16" fill="url(#bodyB)"/>
+    <ellipse cx="100" cy="102" rx="41" ry="7.5" fill="#F0DDBD"/>
+    <path d="M138,128 C143,140 143,152 139,160 C136,166 130,164 131,156 C132,146 134,137 133,129 Z" fill="#F8EAD0"/>
+    <ellipse cx="100" cy="196" rx="34" ry="10" fill="#EAD3AC" opacity=".55"/>
+    <ellipse cx="75" cy="162" rx="7" ry="4.5" fill="#F5B98E" opacity=".55"/>
+    <ellipse cx="125" cy="162" rx="7" ry="4.5" fill="#F5B98E" opacity=".55"/>
+    <circle cx="84" cy="149" r="5.5" fill="#4A3F35"/>
+    <circle cx="116" cy="149" r="5.5" fill="#4A3F35"/>
+    <path d="M96,163 Q100,167 104,163" stroke="#4A3F35" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="candleB-sleep" viewBox="0 0 200 240">
+    <circle cx="100" cy="98" r="28" fill="url(#glowB)" opacity=".5"/>
+    <path d="M100,74 C106,83 111,91 111,98 C111,106 107,111 100,111 C93,111 89,106 89,98 C89,91 94,83 100,74 Z" fill="#F2BC80" opacity=".9"/>
+    <rect x="97.5" y="106" width="5" height="10" rx="2" fill="#6B5B49"/>
+    <rect x="58" y="100" width="84" height="114" rx="16" fill="url(#bodyB)"/>
+    <ellipse cx="100" cy="102" rx="41" ry="7.5" fill="#F0DDBD"/>
+    <path d="M138,128 C143,140 143,152 139,160 C136,166 130,164 131,156 C132,146 134,137 133,129 Z" fill="#F8EAD0"/>
+    <ellipse cx="100" cy="196" rx="34" ry="10" fill="#EAD3AC" opacity=".55"/>
+    <path d="M77,150 Q84,156 91,150" stroke="#4A3F35" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M109,150 Q116,156 123,150" stroke="#4A3F35" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </symbol>
+</svg>
+
+<!-- ═══════════ C 手绘暖线 ═══════════ -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <radialGradient id="glowC" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFD9A0" stop-opacity=".45"/>
+      <stop offset="100%" stop-color="#FFD9A0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <symbol id="candleC-idle" viewBox="0 0 200 240">
+    <circle cx="100" cy="72" r="60" fill="url(#glowC)"/>
+    <path d="M100,27 C109,44 118,58 118,73 C118,87 111,98 100,98 C89,98 82,87 82,73 C82,58 91,44 100,27 Z"
+          fill="#FFDCA0" stroke="#E19A4E" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M100,54 C104,63 108,70 108,77 C108,85 104,91 100,91 C96,91 92,85 92,77 C92,70 96,63 100,54 Z" fill="#FFF6DE"/>
+    <rect x="97.5" y="95" width="5" height="9" rx="2" fill="#6B5B49"/>
+    <rect x="59.5" y="101.5" width="81" height="111" rx="13" fill="#FBF1DD" stroke="#C4A87E" stroke-width="2.5"/>
+    <ellipse cx="100" cy="102" rx="39" ry="6.5" fill="#F3E2C4" stroke="#C4A87E" stroke-width="2"/>
+    <circle cx="84" cy="150" r="5.5" fill="#4A3F35"/>
+    <circle cx="116" cy="150" r="5.5" fill="#4A3F35"/>
+    <path d="M95,165 Q100,169 105,165" stroke="#4A3F35" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="candleC-sleep" viewBox="0 0 200 240">
+    <circle cx="100" cy="96" r="24" fill="url(#glowC)" opacity=".5"/>
+    <path d="M100,77 C105,85 110,92 110,98 C110,105 106,110 100,110 C94,110 90,105 90,98 C90,92 95,85 100,77 Z"
+          fill="#F2C089" stroke="#E19A4E" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="97.5" y="106" width="5" height="9" rx="2" fill="#6B5B49"/>
+    <rect x="59.5" y="101.5" width="81" height="111" rx="13" fill="#FBF1DD" stroke="#C4A87E" stroke-width="2.5"/>
+    <ellipse cx="100" cy="102" rx="39" ry="6.5" fill="#F3E2C4" stroke="#C4A87E" stroke-width="2"/>
+    <path d="M78,150 Q84,155 90,150" stroke="#4A3F35" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M110,150 Q116,155 122,150" stroke="#4A3F35" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </symbol>
+</svg>
+
+<!-- ═══════════ D 像素点阵 ═══════════ -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="candleD-idle" viewBox="0 0 200 240">
+    <g shape-rendering="crispEdges">
+      <g fill="#FFD9A0">
+        <rect x="96" y="16" width="8" height="8" opacity=".35"/>
+        <rect x="72" y="32" width="8" height="8" opacity=".28"/>
+        <rect x="120" y="32" width="8" height="8" opacity=".28"/>
+        <rect x="56" y="48" width="8" height="8" opacity=".2"/>
+        <rect x="136" y="48" width="8" height="8" opacity=".2"/>
+        <rect x="64" y="64" width="8" height="8" opacity=".14"/>
+        <rect x="128" y="64" width="8" height="8" opacity=".14"/>
+      </g>
+      <rect x="96" y="40" width="8" height="8" fill="#FFC873"/>
+      <rect x="88" y="48" width="24" height="8" fill="#FFB65C"/>
+      <rect x="80" y="56" width="40" height="16" fill="#FFA94F"/>
+      <rect x="88" y="72" width="24" height="8" fill="#FFB65C"/>
+      <rect x="96" y="44" width="8" height="20" fill="#FFE9A8"/>
+      <rect x="96" y="84" width="8" height="8" fill="#6B5B49"/>
+      <rect x="56" y="92" width="88" height="8" fill="#FFF9EC"/>
+      <rect x="56" y="100" width="88" height="100" fill="#FCF3E2"/>
+      <rect x="136" y="100" width="8" height="100" fill="#F0DDB9"/>
+      <rect x="56" y="192" width="88" height="14" fill="#F3E4C6"/>
+      <rect x="56" y="200" width="88" height="6" fill="#EFD9B4"/>
+      <rect x="78" y="132" width="12" height="12" fill="#4A3F35"/>
+      <rect x="110" y="132" width="12" height="12" fill="#4A3F35"/>
+      <rect x="96" y="152" width="8" height="6" fill="#4A3F35"/>
+    </g>
+  </symbol>
+  <symbol id="candleD-sleep" viewBox="0 0 200 240">
+    <g shape-rendering="crispEdges">
+      <rect x="96" y="70" width="8" height="8" fill="#FFD9A0" opacity=".3"/>
+      <rect x="80" y="84" width="8" height="8" fill="#FFD9A0" opacity=".2"/>
+      <rect x="112" y="84" width="8" height="8" fill="#FFD9A0" opacity=".2"/>
+      <rect x="96" y="78" width="8" height="8" fill="#F2BC80" opacity=".8"/>
+      <rect x="88" y="86" width="24" height="8" fill="#F2BC80" opacity=".7"/>
+      <rect x="96" y="84" width="8" height="8" fill="#6B5B49"/>
+      <rect x="56" y="92" width="88" height="8" fill="#FFF9EC"/>
+      <rect x="56" y="100" width="88" height="100" fill="#FCF3E2"/>
+      <rect x="136" y="100" width="8" height="100" fill="#F0DDB9"/>
+      <rect x="56" y="192" width="88" height="14" fill="#F3E4C6"/>
+      <rect x="56" y="200" width="88" height="6" fill="#EFD9B4"/>
+      <rect x="76" y="138" width="16" height="5" fill="#4A3F35"/>
+      <rect x="108" y="138" width="16" height="5" fill="#4A3F35"/>
+    </g>
+  </symbol>
+</svg>
+
+<!-- ═══════════ 卡片 ═══════════ -->
+<section class="card">
+  <h2>A · 扁平极简</h2>
+  <p class="desc">纯色蜡身、两层火苗、最少的细节。最接近 Gesso 管理窗口的克制气质，任何壁纸上都不抢戏；代价是个性最弱，奶感靠颜色不靠质感。</p>
+  <div class="tiles">
+    <figure class="tile light"><svg><use href="#candleA-idle"/></svg><figcaption>清醒 · 浅底</figcaption></figure>
+    <figure class="tile dark"><svg><use href="#candleA-idle"/></svg><figcaption>清醒 · 深底</figcaption></figure>
+    <figure class="tile light"><svg><use href="#candleA-sleep"/></svg><figcaption>睡眠 · 浅底</figcaption></figure>
+    <figure class="tile dark"><svg><use href="#candleA-sleep"/></svg><figcaption>睡眠 · 深底</figcaption></figure>
+  </div>
+  <div class="swatches">
+    <span class="sw"><i style="background:#FCF3E2"></i>蜡身 FCF3E2</span>
+    <span class="sw"><i style="background:#FFB65C"></i>火苗 FFB65C</span>
+    <span class="sw"><i style="background:#4A3F35"></i>眼 4A3F35</span>
+  </div>
+</section>
+
+<section class="card">
+  <h2>B · 软胶柔光</h2>
+  <p class="desc">蜡身带纵向柔光渐变、底部软阴影、一滴蜡泪和淡腮红——奶感最浓、生命感最强的一版；火苗三层色。风格化程度中等，与「安静观察者」气质最贴。</p>
+  <div class="tiles">
+    <figure class="tile light"><svg><use href="#candleB-idle"/></svg><figcaption>清醒 · 浅底</figcaption></figure>
+    <figure class="tile dark"><svg><use href="#candleB-idle"/></svg><figcaption>清醒 · 深底</figcaption></figure>
+    <figure class="tile light"><svg><use href="#candleB-sleep"/></svg><figcaption>睡眠 · 浅底</figcaption></figure>
+    <figure class="tile dark"><svg><use href="#candleB-sleep"/></svg><figcaption>睡眠 · 深底</figcaption></figure>
+  </div>
+  <div class="swatches">
+    <span class="sw"><i style="background:#FFFAF0"></i>蜡身亮 FFFAF0</span>
+    <span class="sw"><i style="background:#F5E1C2"></i>蜡身暗 F5E1C2</span>
+    <span class="sw"><i style="background:#FFB65C"></i>火苗 FFB65C</span>
+    <span class="sw"><i style="background:#F5B98E"></i>腮红 F5B98E</span>
+  </div>
+</section>
+
+<section class="card">
+  <h2>C · 手绘暖线</h2>
+  <p class="desc">暖褐描边 + 蜡纹纸感底色，像画在便利贴上的小蜡烛；亲和力和涂鸦感最强，但描边在深色壁纸上会偏「卡通」，与极简工具气质略有张力。</p>
+  <div class="tiles">
+    <figure class="tile light"><svg><use href="#candleC-idle"/></svg><figcaption>清醒 · 浅底</figcaption></figure>
+    <figure class="tile dark"><svg><use href="#candleC-idle"/></svg><figcaption>清醒 · 深底</figcaption></figure>
+    <figure class="tile light"><svg><use href="#candleC-sleep"/></svg><figcaption>睡眠 · 浅底</figcaption></figure>
+    <figure class="tile dark"><svg><use href="#candleC-sleep"/></svg><figcaption>睡眠 · 深底</figcaption></figure>
+  </div>
+  <div class="swatches">
+    <span class="sw"><i style="background:#FBF1DD"></i>蜡身 FBF1DD</span>
+    <span class="sw"><i style="background:#C4A87E"></i>描边 C4A87E</span>
+    <span class="sw"><i style="background:#FFDCA0"></i>火苗 FFDCA0</span>
+  </div>
+</section>
+
+<section class="card">
+  <h2>D · 像素点阵</h2>
+  <p class="desc">8px 点阵、直角硬边、抖动光晕——桌宠老祖宗（Tamagotchi / Neko）的血统；点眼是像素的天然语言，火苗摇曳只需 2~3 帧换帧，未来动作帧表和资源契约都最简单。深底上点阵光晕反而更出效果。</p>
+  <div class="tiles">
+    <figure class="tile light"><svg><use href="#candleD-idle"/></svg><figcaption>清醒 · 浅底</figcaption></figure>
+    <figure class="tile dark"><svg><use href="#candleD-idle"/></svg><figcaption>清醒 · 深底</figcaption></figure>
+    <figure class="tile light"><svg><use href="#candleD-sleep"/></svg><figcaption>睡眠 · 浅底</figcaption></figure>
+    <figure class="tile dark"><svg><use href="#candleD-sleep"/></svg><figcaption>睡眠 · 深底</figcaption></figure>
+  </div>
+  <div class="swatches">
+    <span class="sw"><i style="background:#FCF3E2"></i>蜡身 FCF3E2</span>
+    <span class="sw"><i style="background:#F0DDB9"></i>蜡身暗 F0DDB9</span>
+    <span class="sw"><i style="background:#FFA94F"></i>火苗 FFA94F</span>
+    <span class="sw"><i style="background:#FFE9A8"></i>火芯 FFE9A8</span>
+  </div>
+</section>
+
+</div>
+
+<div class="note">
+  <b>怎么反馈：</b>直接选 A / B / C / D，也可以混搭（例如「D 的像素 + B 的腮红」「去掉蜡泪」「眼睛大一格」）。
+  选定后我会出<b>定稿稿</b>：尺寸三档（小/中/大）+ 深浅壁纸完整验证 + 火苗摇曳帧（3~4 帧）+ reduced-motion 静态帧，
+  然后按定稿色值升级占位层、定义蜡烛部件池。<br>
+  <b>已知留待项：</b>眼睛比例和间距目前凭感觉画的；正式名字等这版定稿后一起定。
+</div>
+
+</body>
+</html>

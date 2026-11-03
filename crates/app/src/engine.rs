@@ -7,8 +7,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
-use gesso_core::Settings;
+use gesso_core::{
+    AdoptionEvent, AdoptionState, PetActivity, PetBehavior, PetBehaviorEvent, PetInteraction,
+    PetPosition, PetSave, PetSize, PetSpecies, PetStats, Settings,
+};
 use gpui_kit::Global;
 
 use crate::session::SessionManager;
@@ -16,20 +20,87 @@ use crate::session::SessionManager;
 /// 引擎全局（API.md §4：cx.set_global(AppState::new(sm))）。
 pub struct AppState {
     pub sm: SessionManager,
+    pub pet_save: PetSave,
+    pub pet_adoption: AdoptionState,
+    pub pet_store: crate::pet_store::PetStore,
+    /// 启动读取失败时禁止用默认值覆盖原存档。
+    pub pet_storage_blocked: bool,
+    /// 最近一次领养存档错误，仅供领养窗口显示。
+    pub pet_error: Option<String>,
+    /// 互动统计已变更，等待主循环节流写盘。
+    pub pet_stats_dirty: bool,
+    /// 全屏应用出现时隐藏宠物窗口，但不改写用户的 visible 偏好。
+    pub pet_fullscreen: bool,
+    /// 当前会话是否锁屏；锁屏期间不累计陪伴时间。
+    pub pet_locked: bool,
+    /// 陪伴时间的单调时钟与不足一秒的余数。
+    pub pet_companion_clock: PetCompanionClock,
+    /// 互动反馈状态机；渲染层只消费当前状态。
+    pub pet_behavior: PetBehavior,
     /// 缩略图抽帧调度簿记（主线程独占，见 `ThumbScheduler`）。
     pub thumbs: ThumbScheduler,
 }
 
 impl AppState {
-    pub fn new(sm: SessionManager) -> Self {
+    pub fn new(
+        sm: SessionManager,
+        pet_store: crate::pet_store::PetStore,
+        pet_save: PetSave,
+        pet_storage_blocked: bool,
+    ) -> Self {
+        let pet_behavior = PetBehavior::new(pet_save.activity);
+        let pet_adoption = if pet_save.adoption.is_some() {
+            AdoptionState::Adopted
+        } else {
+            AdoptionState::NotAdopted
+        };
         AppState {
             sm,
+            pet_save,
+            pet_adoption,
+            pet_store,
+            pet_storage_blocked,
+            pet_error: None,
+            pet_stats_dirty: false,
+            pet_fullscreen: false,
+            pet_locked: false,
+            pet_companion_clock: PetCompanionClock::default(),
+            pet_behavior,
             thumbs: ThumbScheduler::default(),
         }
     }
 }
 
 impl Global for AppState {}
+
+#[derive(Debug, Default)]
+pub struct PetCompanionClock {
+    last_at: Option<Instant>,
+    remainder: Duration,
+}
+
+impl PetCompanionClock {
+    /// 推进陪伴时间；inactive 时只重置时间基准，不补算暂停期间。
+    pub fn advance(&mut self, now: Instant, active: bool, stats: &mut PetStats) -> bool {
+        let elapsed = self
+            .last_at
+            .replace(now)
+            .map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
+        if !active {
+            self.remainder = Duration::ZERO;
+            return false;
+        }
+
+        self.remainder = self.remainder.saturating_add(elapsed);
+        let seconds = self.remainder.as_secs();
+        if seconds == 0 {
+            return false;
+        }
+        stats.companion_seconds = stats.companion_seconds.saturating_add(seconds);
+        self.remainder -= Duration::from_secs(seconds);
+        true
+    }
+}
 
 /// 抽帧调度簿记：在途去重 + 每目录重试上限（主线程独占，无锁）。
 ///
@@ -108,6 +179,30 @@ pub enum EngineAction {
     UpdateDownload,
     /// 取消进行中的下载（回到 Available 态并清理 .part）。
     UpdateCancelDownload,
+    /// 在系统浏览器中打开本地宠物控制台。
+    OpenWebControl,
+    /// 打开管理窗口的宠物页。
+    OpenPetSettings,
+    /// 创建一轮临时候选。
+    StartPetAdoption { species: PetSpecies },
+    /// 领养 UI 的选择、刷新和确认。
+    PetAdoption(AdoptionEvent),
+    /// 保存宠物窗口拖动后的显示器归属和屏内位置。
+    SavePetPosition(PetPosition),
+    /// 宠物窗口的戳/摸互动事件。
+    PetInteraction(PetInteraction),
+    /// 宠物窗口行为反馈事件。
+    PetBehavior(PetBehaviorEvent),
+    /// 更新宠物活动档位并持久化。
+    SetPetActivity(PetActivity),
+    /// 更新宠物尺寸并持久化。
+    SetPetSize(PetSize),
+    /// 切换宠物用户可见状态并持久化。
+    TogglePetVisibility,
+    /// 幂等设置可见状态（Web 写操作用；避免 TOCTOU 读改写）。
+    SetPetVisibility(bool),
+    /// 设置页高级区域：重置宠物数据后重新领养。
+    ResetPetData,
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
     /// 托盘「恢复系统壁纸」：清全部指派 + 拆全部壁纸窗——运行时不接管
@@ -135,6 +230,35 @@ pub fn drain() -> Vec<EngineAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn companion_clock_counts_active_seconds_without_counting_pauses() {
+        let start = Instant::now();
+        let mut clock = PetCompanionClock::default();
+        let mut stats = PetStats::default();
+
+        assert!(!clock.advance(start, true, &mut stats));
+        assert!(clock.advance(start + Duration::from_secs(2), true, &mut stats));
+        assert_eq!(stats.companion_seconds, 2);
+        assert!(!clock.advance(start + Duration::from_secs(10), false, &mut stats));
+        assert_eq!(stats.companion_seconds, 2);
+        assert!(!clock.advance(start + Duration::from_millis(10_500), true, &mut stats));
+        assert!(clock.advance(start + Duration::from_millis(11_500), true, &mut stats));
+        assert_eq!(stats.companion_seconds, 3);
+    }
+
+    #[test]
+    fn companion_clock_saturates_at_u64_max() {
+        let start = Instant::now();
+        let mut clock = PetCompanionClock::default();
+        let mut stats = PetStats {
+            companion_seconds: u64::MAX,
+            ..PetStats::default()
+        };
+        clock.advance(start, true, &mut stats);
+        clock.advance(start + Duration::from_secs(1), true, &mut stats);
+        assert_eq!(stats.companion_seconds, u64::MAX);
+    }
 
     #[test]
     fn scheduler_dedups_in_flight() {

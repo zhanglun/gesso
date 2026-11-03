@@ -14,6 +14,7 @@ use gpui_kit::gpui::{
 use super::app_state::state;
 use super::library_view::LibraryView;
 use super::monitors_view::MonitorsView;
+use super::pet_view::PetView;
 use super::settings_view::SettingsView;
 use super::strings::*;
 use super::theme::tokens;
@@ -22,6 +23,7 @@ use super::theme::tokens;
 pub enum Tab {
     Library,
     Monitors,
+    Pet,
     Settings,
 }
 
@@ -30,6 +32,7 @@ impl Tab {
         match self {
             Tab::Library => TAB_LIBRARY(),
             Tab::Monitors => TAB_MONITORS(),
+            Tab::Pet => TAB_PET(),
             Tab::Settings => TAB_SETTINGS(),
         }
     }
@@ -37,7 +40,8 @@ impl Tab {
     fn next(self) -> Self {
         match self {
             Tab::Library => Tab::Monitors,
-            Tab::Monitors => Tab::Settings,
+            Tab::Monitors => Tab::Pet,
+            Tab::Pet => Tab::Settings,
             Tab::Settings => Tab::Library,
         }
     }
@@ -46,12 +50,15 @@ impl Tab {
         match self {
             Tab::Library => Tab::Settings,
             Tab::Monitors => Tab::Library,
-            Tab::Settings => Tab::Monitors,
+            Tab::Pet => Tab::Monitors,
+            Tab::Settings => Tab::Pet,
         }
     }
 
     pub fn from_index(i: usize) -> Option<Self> {
-        [Tab::Library, Tab::Monitors, Tab::Settings].get(i).copied()
+        [Tab::Library, Tab::Monitors, Tab::Pet, Tab::Settings]
+            .get(i)
+            .copied()
     }
 }
 
@@ -64,6 +71,7 @@ pub struct Shell {
     focus: FocusHandle,
     library: gpui_kit::gpui::Entity<LibraryView>,
     monitors: gpui_kit::gpui::Entity<MonitorsView>,
+    pet: gpui_kit::gpui::Entity<PetView>,
     settings: gpui_kit::gpui::Entity<SettingsView>,
 }
 
@@ -77,6 +85,7 @@ impl Shell {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let library = cx.new(|cx| LibraryView::new(window, cx));
         let monitors = cx.new(|cx| MonitorsView::new(window, cx));
+        let pet = cx.new(|cx| PetView::new(window, cx));
         let settings = cx.new(|cx| SettingsView::new(window, cx));
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
@@ -84,6 +93,7 @@ impl Shell {
             focus,
             library,
             monitors,
+            pet,
             settings,
         }
     }
@@ -220,6 +230,7 @@ impl Shell {
             .child(h_flex().ml_2().gap(px(2.)).children([
                 self.tab_button(Tab::Library, cx),
                 self.tab_button(Tab::Monitors, cx),
+                self.tab_button(Tab::Pet, cx),
                 self.tab_button(Tab::Settings, cx),
             ]))
             .child(
@@ -234,14 +245,14 @@ impl Shell {
             .into_any_element()
     }
 
-    /// 键盘模型（§3）：Tab 走焦点环；1/2/3 与 ←/→ 切页签；F 聚焦搜索；
+    /// 键盘模型（§3）：Tab 走焦点环；1/2/3/4 与 ←/→ 切页签；F 聚焦搜索；
     /// Esc 清搜索；Cmd/Ctrl+, 进设置。输入框聚焦时按键由输入框消化，不会误触。
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let cmd = event.keystroke.modifiers.platform;
         let active = state(cx).active_tab;
         match key {
-            "1" | "2" | "3" => {
+            "1" | "2" | "3" | "4" => {
                 if let Some(tab) = Tab::from_index(key.to_string().parse::<usize>().unwrap() - 1) {
                     switch_tab(window, cx, tab);
                 }
@@ -276,6 +287,7 @@ impl Render for Shell {
             .child(self.topbar(cx))
             .when(active == Tab::Library, |d| d.child(self.library.clone()))
             .when(active == Tab::Monitors, |d| d.child(self.monitors.clone()))
+            .when(active == Tab::Pet, |d| d.child(self.pet.clone()))
             .when(active == Tab::Settings, |d| d.child(self.settings.clone()))
     }
 }

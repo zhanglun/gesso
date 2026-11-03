@@ -315,6 +315,17 @@ pub fn config_dir() -> PathBuf {
     PathBuf::from(base)
 }
 
+/// 宠物正式存档路径。
+#[allow(dead_code)]
+pub fn pet_save_path() -> PathBuf {
+    config_dir().join("pet-save-v1.json")
+}
+
+/// 宠物视觉缓存根目录。
+pub fn pet_cache_dir() -> PathBuf {
+    config_dir().join("pet-cache")
+}
+
 /// 库根目录
 pub fn library_dir() -> PathBuf {
     config_dir().join("library")
