@@ -383,6 +383,16 @@ mod macos {
             self.ivars().press.borrow().is_some()
         }
 
+        fn abort_press(&self) {
+            let Some(press) = self.ivars().press.borrow_mut().take() else {
+                return;
+            };
+            self.ivars().pending_click.replace(None);
+            if press.dragged {
+                engine::enqueue(EngineAction::PetBehavior(PetBehaviorEvent::DragEnded));
+            }
+        }
+
         fn hit_rect(&self) -> NSRect {
             self.ivars().hit_rect.get()
         }
@@ -624,6 +634,9 @@ mod macos {
             }
             let window = self.window.as_ref()?;
             if let Some(hit_view) = &self.hit_view {
+                if hit_view.is_dragging() && (NSEvent::pressedMouseButtons() & 1) == 0 {
+                    hit_view.abort_press();
+                }
                 apply_feedback(hit_view, behavior, self.template);
                 hit_view.update_menu_state(save.activity, save.size);
                 hit_view.flush_pending_click();
@@ -711,6 +724,9 @@ mod macos {
         }
 
         fn hide(&self) {
+            if let Some(hit_view) = &self.hit_view {
+                hit_view.abort_press();
+            }
             if let Some(window) = &self.window {
                 window.orderOut(None);
             }
