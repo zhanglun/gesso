@@ -28,7 +28,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowRect, ShowWindow, PW_RENDERFULLCONTENT, SW_HIDE, SW_SHOWNA,
+    DestroyWindow, GetWindowRect, ShowWindow, PW_RENDERFULLCONTENT, SW_HIDE, SW_SHOWNA,
 };
 
 use gesso_core::WallpaperKind;
@@ -197,17 +197,18 @@ async fn poll_true(
 
 /// dataURL → PNG 原子落盘（`.tmp` → rename；契约与 macOS thumb.rs v2 一致）。
 /// ExecuteScript 的字符串结果经 JSON 编码（带引号），base64/dataURL 前缀
-/// 无转义字符，trim 引号即安全。
+/// 无转义字符，trim 引号即安全。任意 image/* dataURL（png/jpeg 通用）。
 fn write_dataurl(dataurl: &str, out: &Path) -> bool {
     let payload = dataurl.trim().trim_matches('"');
     let b64 = payload
-        .strip_prefix("data:image/png;base64,")
+        .split_once(";base64,")
+        .map(|(_, b)| b)
         .unwrap_or(payload);
     let Some(bytes) = crate::encoding::base64_decode(b64) else {
         println!("[thumbs] dataURL 解码失败");
         return false;
     };
-    let tmp = out.with_extension("png.tmp");
+    let tmp = out.with_extension("tmp");
     let ok = std::fs::write(&tmp, &bytes).is_ok() && std::fs::rename(&tmp, out).is_ok();
     if !ok {
         let _ = std::fs::remove_file(&tmp);
@@ -221,6 +222,7 @@ fn write_dataurl(dataurl: &str, out: &Path) -> bool {
 
 /// 采集助手：影子 `<video crossorigin=anonymous>`（协议响应带 ACAO:*，canvas
 /// 不被污染）+ cover-fit 绘制画布；不触碰宿主页自己的播放元素。
+/// 画布尺寸与输出格式用占位符注入：缩略图 640×360 PNG，封面帧按目标分辨率 JPEG。
 const CAP_SETUP_JS: &str = r##"window.__cap = (function () {
   if (window.__cap) return window.__cap;
   let spec = null;
@@ -228,7 +230,7 @@ const CAP_SETUP_JS: &str = r##"window.__cap = (function () {
   const v = document.createElement("video");
   v.crossOrigin = "anonymous"; v.muted = true; v.playsInline = true; v.preload = "auto";
   if (spec && spec.source) v.src = spec.source;
-  const cvs = document.createElement("canvas"); cvs.width = 640; cvs.height = 360;
+  const cvs = document.createElement("canvas"); cvs.width = __W__; cvs.height = __H__;
   return {
     v: v, cvs: cvs, ctx: cvs.getContext("2d"),
     meta: function () {
@@ -237,14 +239,22 @@ const CAP_SETUP_JS: &str = r##"window.__cap = (function () {
     seek: function (t) { v.currentTime = t; },
     settled: function () { return (!v.seeking && v.readyState >= 2) ? "true" : "false"; },
     grab: function () {
-      const s = Math.max(640 / (v.videoWidth || 640), 360 / (v.videoHeight || 360));
-      const dw = (v.videoWidth || 640) * s, dh = (v.videoHeight || 360) * s;
-      this.ctx.fillStyle = "#000"; this.ctx.fillRect(0, 0, 640, 360);
-      this.ctx.drawImage(v, (640 - dw) / 2, (360 - dh) / 2, dw, dh);
-      return cvs.toDataURL("image/png");
+      const s = Math.max(__W__ / (v.videoWidth || __W__), __H__ / (v.videoHeight || __H__));
+      const dw = (v.videoWidth || __W__) * s, dh = (v.videoHeight || __H__) * s;
+      this.ctx.fillStyle = "#000"; this.ctx.fillRect(0, 0, __W__, __H__);
+      this.ctx.drawImage(v, (__W__ - dw) / 2, (__H__ - dh) / 2, dw, dh);
+      return cvs.toDataURL("__MIME____Q__");
     }
   };
 })(); 'ok'"##;
+
+fn cap_setup_js(w: u32, h: u32, mime: &str, quality: &str) -> String {
+    CAP_SETUP_JS
+        .replace("__W__", &w.to_string())
+        .replace("__H__", &h.to_string())
+        .replace("__MIME__", mime)
+        .replace("__Q__", quality)
+}
 
 async fn video_frames(
     cap: &CaptureWindow,
@@ -255,7 +265,10 @@ async fn video_frames(
     let _ = cap
         .webview
         .load_url(&crate::pin::windows::workaround_url(url));
-    if eval_cb(cap, bg, CAP_SETUP_JS).await.is_none() {
+    if eval_cb(cap, bg, &cap_setup_js(640, 360, "image/png", ""))
+        .await
+        .is_none()
+    {
         println!("[thumbs] 视频采集助手注入失败：{dir}");
         return 0;
     }
@@ -476,4 +489,144 @@ pub(crate) fn encode_png_rgba(rgba: &[u8], w: u32, h: u32, out: &Path) -> bool {
         let _ = std::fs::remove_file(&tmp);
     }
     ok
+}
+
+// ---------------------------------------------------------------------------
+// 封面帧（§4.8）：入库时按主屏分辨率产一张固定帧，锁屏即指即得
+// ---------------------------------------------------------------------------
+
+/// 按目标物理尺寸产封面帧：video/shader 走画布 JPEG（canvas 原生编码，快），
+/// html/image/gif 走 PrintWindow PNG。窗口一次性（建→采→毁，导入低频）；
+/// TOPMOST + alpha 3/255，采集期近隐形不抢焦点。
+pub(crate) async fn capture_poster(
+    bg: &gpui_kit::gpui::BackgroundExecutor,
+    url: String,
+    kind: WallpaperKind,
+    out: &Path,
+    physical: (i32, i32),
+) -> bool {
+    let hwnd =
+        crate::pin::windows::create_overlay_window_physical(physical).expect("封面窗口创建失败");
+    let webview = crate::protocol::create_webview(HwndWrap(hwnd), "about:blank")
+        .expect("封面 webview 创建失败");
+    let _ = webview.set_bounds(lb_wry::Rect {
+        size: lb_wry::dpi::Size::Physical(lb_wry::dpi::PhysicalSize::new(
+            physical.0 as u32,
+            physical.1 as u32,
+        )),
+        position: lb_wry::dpi::Position::Physical(lb_wry::dpi::PhysicalPosition::new(0, 0)),
+    });
+    // SAFETY: 同主线程刚创建的窗口
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOWNA);
+    }
+    let cap = CaptureWindow { hwnd, webview };
+    let ok = match kind {
+        WallpaperKind::Video => poster_video(&cap, bg, &url, out, physical).await,
+        WallpaperKind::Shader => poster_shader(&cap, bg, &url, out).await,
+        _ => poster_print(&cap, bg, &url, out).await,
+    };
+    drop(cap);
+    // SAFETY: 本线程自建自毁，采集已全部完成
+    unsafe {
+        let _ = DestroyWindow(hwnd);
+    }
+    ok
+}
+
+/// 视频：定位到 10% 处（避开常见黑首帧）抓一帧画布 JPEG。
+async fn poster_video(
+    cap: &CaptureWindow,
+    bg: &gpui_kit::gpui::BackgroundExecutor,
+    url: &str,
+    out: &Path,
+    physical: (i32, i32),
+) -> bool {
+    let _ = cap
+        .webview
+        .load_url(&crate::pin::windows::workaround_url(url));
+    let js = cap_setup_js(
+        physical.0.max(1) as u32,
+        physical.1.max(1) as u32,
+        "image/jpeg",
+        ",0.9",
+    );
+    if eval_cb(cap, bg, &js).await.is_none() {
+        println!("[poster] 视频采集助手注入失败");
+        return false;
+    }
+    if !poll_true(
+        cap,
+        bg,
+        "window.__cap && __cap.meta() !== ''",
+        READY_TIMEOUT,
+    )
+    .await
+    {
+        println!("[poster] 视频未就绪（解码失败或超时）");
+        return false;
+    }
+    let duration: f64 = eval_cb(cap, bg, "__cap.meta()")
+        .await
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0.0);
+    let t = if duration > 1.0 { duration * 0.1 } else { 0.0 };
+    let _ = eval_cb(cap, bg, &format!("__cap.seek({t}); 'ok'")).await;
+    bg.timer(FRAME_SETTLE).await;
+    if !poll_true(cap, bg, "__cap.settled()", Duration::from_secs(2)).await {
+        println!("[poster] seek 超时");
+        return false;
+    }
+    match eval_cb(cap, bg, "__cap.grab()").await {
+        Some(data) => write_dataurl(&data, out),
+        None => false,
+    }
+}
+
+/// shader：宿主页就绪后直接 toDataURL JPEG。
+async fn poster_shader(
+    cap: &CaptureWindow,
+    bg: &gpui_kit::gpui::BackgroundExecutor,
+    url: &str,
+    out: &Path,
+) -> bool {
+    let _ = cap
+        .webview
+        .load_url(&crate::pin::windows::workaround_url(url));
+    if !poll_true(cap, bg, "window.__gessoReady === true", READY_TIMEOUT).await {
+        println!("[poster] shader 页面未就绪（编译失败或加载超时）");
+        return false;
+    }
+    bg.timer(Duration::from_millis(300)).await;
+    match eval_cb(
+        cap,
+        bg,
+        "document.getElementById('gl').toDataURL('image/jpeg',0.9)",
+    )
+    .await
+    {
+        Some(data) => write_dataurl(&data, out),
+        None => false,
+    }
+}
+
+/// html / 图片 / gif：宿主页渲染完整内容后 PrintWindow 整窗成 PNG。
+async fn poster_print(
+    cap: &CaptureWindow,
+    bg: &gpui_kit::gpui::BackgroundExecutor,
+    url: &str,
+    out: &Path,
+) -> bool {
+    let _ = cap
+        .webview
+        .load_url(&crate::pin::windows::workaround_url(url));
+    if !poll_true(cap, bg, "window.__gessoReady === true", READY_TIMEOUT).await {
+        println!("[poster] 页面未就绪");
+        return false;
+    }
+    bg.timer(Duration::from_millis(500)).await;
+    match screenshot_window(cap.hwnd) {
+        Some((rgba, w, h)) => encode_png_rgba(&rgba, w as u32, h as u32, out),
+        None => false,
+    }
 }

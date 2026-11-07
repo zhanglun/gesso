@@ -886,7 +886,7 @@ impl SessionManager {
         let _ = self.save_config();
     }
 
-    /// 主屏壁纸窗的原生句柄（锁屏快照 PrintWindow 用，§4.8）。
+    /// 主屏壁纸窗的原生句柄（锁屏快照 PrintWindow 兜底用，§4.8）。
     /// 主屏无会话 / 窗口隐藏（收敛中）→ None，调用方稍后重试。
     pub fn main_wallpaper_hwnd(&self) -> Option<isize> {
         let (_, s) = self
@@ -894,6 +894,15 @@ impl SessionManager {
             .iter()
             .find(|(_, s)| s.monitor.is_main && s.visible && s.window.is_some())?;
         s.window.as_ref().and_then(|w| w.hwnd_raw())
+    }
+
+    /// 主屏当前指派的条目 ID（锁屏封面帧查找用，§4.8）。
+    /// 主屏无会话 = None（未指派态锁屏不该动作）。
+    pub fn main_wallpaper_entry_id(&self) -> Option<String> {
+        self.sessions
+            .iter()
+            .find(|(_, s)| s.monitor.is_main)
+            .map(|(_, s)| s.entry_id.clone())
     }
 
     /// 锁屏还原簿记（§4.8）：Some = 首次写入前的原锁屏状态；None = 已还原/未覆盖。

@@ -1,9 +1,12 @@
 //! 锁屏快照同步（设计规格 §4.8 / 技术方案 §9）：Windows 专属，opt-in，默认关。
 //!
-//! 打开后，指派收敛的壁纸以静态帧写入 Windows 锁屏图（官方
-//! `Windows.System.UserProfile.LockScreen` API，WE「Override lock screen image」
-//! 同款路线）；关闭开关 / 托盘「恢复系统壁纸」/ 退出时，恢复打开前的锁屏设置
-//! （模式 + 图片路径，记在 `config.lockscreen_backup`）。
+//! 打开后，锁屏显示当前壁纸的「封面帧」——入库时按主屏分辨率生成的固定帧
+//! （`thumb_home/poster.jpg|.png`；jpg/png 静图直接引用主文件），经官方
+//! `Windows.System.UserProfile.LockScreen` API 贴上锁屏。即指即得，零抓帧。
+//! 兜底：旧条目/封面缺失时，活窗 PrintWindow 抓一帧（存为该条目的应用缓存
+//! `config_dir/lockscreen/<entry_id>.png`，下次直接用）。关闭开关 / 托盘
+//! 「恢复系统壁纸」/ 退出时，恢复打开前的锁屏设置（模式 + 图片路径，记在
+//! `config.lockscreen_backup`）。
 //!
 //! 纪律（与 2026-10-13 桌面桥接被砍的结构对照）：
 //! - 一次性后台写，**不进任何交互路径**（写入由主循环 150ms 拍消费到期任务，
@@ -19,10 +22,11 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// 指派收敛后的防抖延迟（§4.8）：等两段式收敛与静帧稳定。
-const DEBOUNCE: Duration = Duration::from_secs(3);
-/// 主屏窗口未就绪（收敛中 / 隐藏态）时的重试间隔与上限；超限放弃本轮，
-/// 下次指派重来。
+/// 指派后的防抖延迟（§4.8）：批量收敛保护。封面帧就绪时应用是毫秒级
+/// WinRT 调用，1s 足够。
+const DEBOUNCE: Duration = Duration::from_secs(1);
+/// 兜底抓帧路径下，主屏窗口未就绪（收敛中 / 隐藏态）时的重试间隔与上限；
+/// 超限放弃本轮，下次指派重来。
 const RETRY_DELAY: Duration = Duration::from_millis(1500);
 const MAX_RETRY: u32 = 20;
 
@@ -43,6 +47,7 @@ mod imp {
     pub fn schedule_sync_immediate() {}
     pub fn schedule_restore() {}
     pub fn probe_async() {}
+    pub fn discard(_entry_id: &str) {}
     pub fn available() -> bool {
         false
     }
@@ -72,6 +77,7 @@ mod imp {
     };
 
     use gesso_core::config::LockScreenBackup;
+    use gesso_core::WallpaperKind;
 
     use super::{now_ms, DEBOUNCE, MAX_RETRY, RETRY_DELAY};
     use crate::session::SessionManager;
@@ -109,16 +115,27 @@ mod imp {
         DUE_MS.store(now_ms() + DEBOUNCE.as_millis() as u64, Ordering::Release);
     }
 
-    /// 开关打开的即时应用（用户直接动作）：贴现成缓存帧，亚秒级生效——
-    /// 抓 4K 帧 + PNG 编码要 1–3s，现场抓会让打开后立刻锁屏的用户等旧状态。
-    /// 随后的 schedule_sync（3s 全量）会补一帧更新鲜的。
+    /// 开关打开的即时应用（用户直接动作）：封面帧/缓存现成 → 直接贴上锁屏，
+    /// 亚秒级生效。无可用帧时回落 schedule_sync 的兜底抓帧路径（main 侧两个都排）。
     pub fn schedule_sync_immediate() {
         APPLY_ONLY.store(true, Ordering::Release);
     }
 
-    /// 快照缓存路径：既是要贴上锁屏的图，也是随指派持续维护的帧缓存。
-    fn cache_path() -> PathBuf {
-        crate::protocol::config_dir().join("lockscreen.png")
+    /// 兜底抓帧的应用缓存：`config_dir/lockscreen/<entry_id>.png`（按条目隔离，
+    /// 防止 A 壁纸的旧帧贴到 B 上）。
+    fn apply_cache_path(entry_id: &str) -> PathBuf {
+        crate::protocol::config_dir()
+            .join("lockscreen")
+            .join(format!("{entry_id}.png"))
+    }
+
+    /// 条目移除时清理其应用缓存（Remove 动作调用）。
+    pub fn discard(entry_id: &str) {
+        let p = apply_cache_path(entry_id);
+        if p.is_file() {
+            let _ = std::fs::remove_file(&p);
+            println!("[lockscreen] 已清理 {} 的应用缓存", entry_id);
+        }
     }
 
     pub fn schedule_restore() {
@@ -162,8 +179,8 @@ mod imp {
             return;
         }
 
-        // 即时应用（开关打开）：缓存帧现成 → 直接贴上锁屏（亚秒级，不抓帧）。
-        // 随后 schedule_sync 的 3s 全量刷新会补一帧更新鲜的；无缓存则落全量路径
+        // 即时应用（开关打开）：封面帧/缓存现成 → 直接贴上（亚秒级，不抓帧）。
+        // 无可用帧时不在此处抓——schedule_sync 的兜底抓帧路径随后处理
         if APPLY_ONLY.swap(false, Ordering::AcqRel) {
             if IN_FLIGHT.swap(true, Ordering::AcqRel) {
                 APPLY_ONLY.store(true, Ordering::Release); // 在途：诉求保持，下一拍再试
@@ -173,11 +190,11 @@ mod imp {
                 IN_FLIGHT.store(false, Ordering::Release);
                 return;
             }
-            if cache_path().is_file() {
-                let need_backup = sm.lockscreen_backup().is_none();
-                spawn_apply(need_backup);
-            } else {
-                IN_FLIGHT.store(false, Ordering::Release); // 无缓存 → 等 schedule_sync 全量抓帧
+            match sm.main_wallpaper_entry_id().and_then(|id| {
+                poster_or_cache(sm, &id).map(|p| (p, sm.lockscreen_backup().is_none(), id))
+            }) {
+                Some((path, need_backup, _)) => spawn_apply(path, need_backup),
+                None => IN_FLIGHT.store(false, Ordering::Release), // 无帧 → 兜底路径随后
             }
             return;
         }
@@ -197,22 +214,73 @@ mod imp {
             IN_FLIGHT.store(false, Ordering::Release);
             return;
         }
-        // 主屏窗口未就绪：限次重试
+        // 封面帧优先（导入时已生成）：零抓帧，即指即得
+        let Some(entry_id) = sm.main_wallpaper_entry_id() else {
+            IN_FLIGHT.store(false, Ordering::Release);
+            retry_or_drop("主屏会话未就绪");
+            return;
+        };
+        if let Some(p) = poster_or_cache(sm, &entry_id) {
+            DUE_MS.store(0, Ordering::Release);
+            RETRIES.store(0, Ordering::Relaxed);
+            let need_backup = sm.lockscreen_backup().is_none();
+            spawn_apply(p, need_backup);
+            return;
+        }
+        // 兜底：封面缺失（旧条目/生成失败）→ 活窗 PrintWindow 抓一帧，
+        // 产物存为该条目的应用缓存，下次直接用
         let Some(hwnd) = sm.main_wallpaper_hwnd() else {
             IN_FLIGHT.store(false, Ordering::Release);
-            if RETRIES.fetch_add(1, Ordering::Relaxed) + 1 >= MAX_RETRY {
-                println!("[lockscreen] 主屏窗口未就绪，本轮放弃（下次指派重来）");
-                DUE_MS.store(0, Ordering::Release);
-                RETRIES.store(0, Ordering::Relaxed);
-            } else {
-                DUE_MS.store(now_ms() + RETRY_DELAY.as_millis() as u64, Ordering::Release);
-            }
+            retry_or_drop("主屏窗口未就绪");
             return;
         };
         DUE_MS.store(0, Ordering::Release);
         RETRIES.store(0, Ordering::Relaxed);
         let need_backup = sm.lockscreen_backup().is_none();
-        spawn_write(hwnd, need_backup);
+        spawn_write(hwnd, &entry_id, need_backup);
+    }
+
+    /// 重试或放弃（IN_FLIGHT 已持有时调用）：未超限则重排下一拍，超限放弃本轮。
+    fn retry_or_drop(reason: &str) -> bool {
+        if RETRIES.fetch_add(1, Ordering::Relaxed) + 1 >= MAX_RETRY {
+            println!("[lockscreen] {reason}，本轮放弃（下次指派重来）");
+            DUE_MS.store(0, Ordering::Release);
+            RETRIES.store(0, Ordering::Relaxed);
+            IN_FLIGHT.store(false, Ordering::Release);
+            false
+        } else {
+            DUE_MS.store(now_ms() + RETRY_DELAY.as_millis() as u64, Ordering::Release);
+            IN_FLIGHT.store(false, Ordering::Release);
+            true
+        }
+    }
+
+    /// 当前主屏壁纸的可用封面：导入生成的 poster → jpg/png 静图主文件直出 →
+    /// 活窗兜底缓存。都无 = None（走兜底抓帧）。
+    fn poster_or_cache(sm: &SessionManager, entry_id: &str) -> Option<PathBuf> {
+        let entry = sm.library().iter().find(|e| e.id == entry_id)?.clone();
+        let home = crate::encoding::thumb_home(&entry);
+        for name in ["poster.jpg", "poster.png"] {
+            let p = Path::new(&home).join(name);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        // jpg/png 静图：主文件即封面（导入时不生成，直接引用，零拷贝）
+        if entry.kind == WallpaperKind::Image {
+            let main =
+                Path::new(&entry.source_dir).join(crate::encoding::entry_main_source(&entry));
+            let ext = main
+                .extension()
+                .and_then(|x| x.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(ext.as_str(), "jpg" | "jpeg" | "png") && main.is_file() {
+                return Some(main);
+            }
+        }
+        let cache = apply_cache_path(entry_id);
+        (cache.is_file()).then_some(cache)
     }
 
     /// 退出路径的阻塞还原（Quit 动作内联调用；WinRT 单次调用毫秒级）。
@@ -225,13 +293,17 @@ mod imp {
         sm.record_lockscreen_backup(None);
     }
 
-    fn spawn_write(hwnd: isize, need_backup: bool) {
+    /// 兜底抓帧：活窗 PrintWindow → PNG 存为该条目的应用缓存 → 贴上锁屏。
+    fn spawn_write(hwnd: isize, entry_id: &str, need_backup: bool) {
+        let out = apply_cache_path(entry_id);
         std::thread::spawn(move || {
-            let out = cache_path();
             com_init(|| {
+                if let Some(parent) = out.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
                 let r = write_once(HWND(hwnd as _), need_backup, &out);
                 println!(
-                    "[lockscreen] 快照写入 {}（{}×{}）",
+                    "[lockscreen] 兜底抓帧 {}（{}×{}）",
                     if r.0 { "成功" } else { "失败" },
                     r.1,
                     r.2
@@ -241,15 +313,15 @@ mod imp {
         });
     }
 
-    /// 即时应用：缓存帧已存在，只调 WinRT 贴上锁屏（无抓帧无编码）。
-    fn spawn_apply(need_backup: bool) {
+    /// 应用现成帧（封面/缓存）到锁屏：只调 WinRT，无抓帧无编码。
+    fn spawn_apply(path: PathBuf, need_backup: bool) {
         std::thread::spawn(move || {
             com_init(|| {
                 // 备份仍须先于首次应用读取（记录「打开前」状态）
                 let backup = if need_backup { read_state() } else { None };
-                match set_image(&cache_path()) {
+                match set_image(&path) {
                     Ok(()) => {
-                        println!("[lockscreen] 缓存帧已应用（即时）");
+                        println!("[lockscreen] 封面已应用（{:?}）", path);
                         if let Some(b) = backup {
                             BACKUP_DONE
                                 .lock()
@@ -257,14 +329,14 @@ mod imp {
                                 .replace(b);
                         }
                     }
-                    Err(e) => println!("[lockscreen] 缓存帧应用失败：{e}"),
+                    Err(e) => println!("[lockscreen] 封面应用失败：{e}"),
                 }
             });
             IN_FLIGHT.store(false, Ordering::Release);
         });
     }
 
-    /// 抓主屏壁纸窗 → PNG → 写锁屏。返回 (成功, 宽, 高)。
+    /// 兜底抓帧本体：活窗 → PNG → 写锁屏。返回 (成功, 宽, 高)。
     fn write_once(hwnd: HWND, need_backup: bool, out: &Path) -> (bool, i32, i32) {
         // 备份必须先于首次写入读取（记录的是「打开前」状态）
         let backup = if need_backup { read_state() } else { None };

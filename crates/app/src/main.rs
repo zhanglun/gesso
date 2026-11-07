@@ -154,6 +154,60 @@ fn spawn_capture_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: Wallp
     .detach();
 }
 
+/// 封面帧生成（§4.8，Windows）：与缩略图同一条主线程串行纪律（并发多 webview
+/// 是崩溃放大器），独立队列不与 640×360 缩略图采集抢窗口。
+#[cfg(target_os = "windows")]
+fn spawn_poster_job(cx: &mut gpui_kit::gpui::AsyncApp, job: capture::PosterJob) {
+    use std::sync::atomic::Ordering;
+    // 同目录去重：导入入队 + 启动补齐可能撞车，重活只留一个
+    if capture::POSTER_QUEUE
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|j| j.dir == job.dir)
+    {
+        return;
+    }
+    capture::POSTER_QUEUE.lock().unwrap().push(job);
+    if capture::POSTER_WORKER.swap(true, Ordering::SeqCst) {
+        return; // 已有工作任务在消化队列
+    }
+    cx.spawn(async move |cx| {
+        loop {
+            let Some(job) = capture::POSTER_QUEUE.lock().unwrap().pop() else {
+                break;
+            };
+            let url = cx.update(|cx| {
+                cx.global::<engine::AppState>()
+                    .sm
+                    .library()
+                    .iter()
+                    // 封面恒按适应（Contain）全帧语义——与缩略图同一契约
+                    .find(|e| encoding::thumb_home(e) == job.dir)
+                    .map(|e| {
+                        session::SessionManager::entry_host_url(e, 60, gesso_core::Fit::Contain)
+                    })
+            });
+            let out = std::path::Path::new(&job.dir).join("poster.jpg");
+            let ok = match url {
+                Some(url) => {
+                    let bg = cx.background_executor().clone();
+                    capture_win::capture_poster(&bg, url, job.kind, &out, job.size).await
+                }
+                None => false,
+            };
+            println!(
+                "[poster] {:?} {} → {}",
+                job.kind,
+                job.dir,
+                if ok { "已生成" } else { "失败" }
+            );
+        }
+        capture::POSTER_WORKER.store(false, Ordering::SeqCst);
+    })
+    .detach();
+}
+
 /// 共享测试锁：所有需要读写进程级环境变量（STEAM_DIR/HOME）的测试必须先持锁。
 /// 这些变量是全局的，并行测试同时 set_var 会互相覆盖导致 flaky（见工程笔记）。
 #[cfg(test)]
@@ -543,6 +597,95 @@ fn map_policy(p: gesso_core::PausePolicy) -> ui::data::SuspendPolicy {
     }
 }
 
+/// 封面帧任务（§4.8，Windows）：需要生成的类型入队；jpg/png 静图直接引用
+/// 主文件（锁屏原生支持），无需生成。
+#[cfg(target_os = "windows")]
+fn poster_job_for(e: &gesso_core::LibraryEntry) -> Option<capture::PosterJob> {
+    if e.kind == WallpaperKind::Image {
+        let src = encoding::entry_main_source(e);
+        let ext = std::path::Path::new(&src)
+            .extension()
+            .and_then(|x| x.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if matches!(ext.as_str(), "jpg" | "jpeg" | "png") {
+            return None;
+        }
+    }
+    Some(capture::PosterJob {
+        dir: encoding::thumb_home(e),
+        kind: e.kind,
+        size: poster_size(),
+    })
+}
+
+/// 封面帧目标尺寸 = 主屏物理分辨率，宽上限 4K（横纵比随主屏）。
+#[cfg(target_os = "windows")]
+fn poster_size() -> (i32, i32) {
+    let monitors = pin::enumerate_monitors();
+    let Some(m) = monitors
+        .iter()
+        .find(|m| m.is_main)
+        .or_else(|| monitors.first())
+    else {
+        return (1920, 1080);
+    };
+    let (w, h) = (m.frame.2.max(1.0) as i32, m.frame.3.max(1.0) as i32);
+    if w <= 3840 {
+        (w, h)
+    } else {
+        let h = (i64::from(h) * 3840 / i64::from(w)) as i32;
+        (3840, h.max(1))
+    }
+}
+
+/// 存量库封面帧补齐（§4.8）：缺封面的条目全部入队，已指派的排前面
+/// （锁屏马上要用），jpg/png 静图（主文件直出）跳过。
+#[cfg(target_os = "windows")]
+fn collect_missing_posters(sm: &session::SessionManager) -> Vec<capture::PosterJob> {
+    let assigned: std::collections::BTreeSet<&str> =
+        sm.config().monitors.values().map(|s| s.as_str()).collect();
+    let mut jobs: Vec<capture::PosterJob> = Vec::new();
+    let mut pending: Vec<&gesso_core::LibraryEntry> = Vec::new();
+    for e in sm.library() {
+        let home = encoding::thumb_home(e);
+        let has = ["poster.jpg", "poster.png"]
+            .iter()
+            .any(|n| std::path::Path::new(&home).join(n).is_file());
+        if has {
+            continue;
+        }
+        if e.kind == WallpaperKind::Image {
+            let src = encoding::entry_main_source(e);
+            let ext = std::path::Path::new(&src)
+                .extension()
+                .and_then(|x| x.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(ext.as_str(), "jpg" | "jpeg" | "png") {
+                continue;
+            }
+        }
+        if assigned.contains(e.id.as_str()) {
+            jobs.push(capture::PosterJob {
+                dir: home,
+                kind: e.kind,
+                size: poster_size(),
+            });
+        } else {
+            pending.push(e);
+        }
+    }
+    for e in pending {
+        jobs.push(capture::PosterJob {
+            dir: encoding::thumb_home(e),
+            kind: e.kind,
+            size: poster_size(),
+        });
+    }
+    jobs
+}
+
 fn kind_art(kind: WallpaperKind) -> ui::data::Art {
     match kind {
         WallpaperKind::Video => ui::data::Art {
@@ -570,6 +713,9 @@ fn kind_art(kind: WallpaperKind) -> ui::data::Art {
 struct ActionOutcome {
     /// 导入后待生成缩略图的条目（Extract/Capture；Direct 不入列）。
     pending_thumbs: Vec<(String, WallpaperKind)>,
+    /// 封面帧生成任务（§4.8，Windows）：导入后入队，主线程串行消化。
+    #[cfg(target_os = "windows")]
+    poster_jobs: Vec<capture::PosterJob>,
     /// 请求激活/重建主管理窗口（需 window/cx，不能在纯动作处理里完成）。
     focus_main: bool,
     /// 请求打开/激活「软件更新」小窗（§4.7 托盘入口；设置页在 UI 线程直接开）。
@@ -737,6 +883,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                 if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
                     out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
                 }
+                #[cfg(target_os = "windows")]
+                if let Some(job) = poster_job_for(&e) {
+                    out.poster_jobs.push(job);
+                }
             } else if let Err(err) = result {
                 println!("[ui] 导入失败：{err:?}");
             }
@@ -748,6 +898,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                     println!("[ui] 已导入远端网页「{}」← {url}", e.title);
                     if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
                         out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
+                    }
+                    #[cfg(target_os = "windows")]
+                    if let Some(job) = poster_job_for(&e) {
+                        out.poster_jobs.push(job);
                     }
                 }
                 Err(err) => println!("[ui] 远端网页导入失败：{err:?}"),
@@ -775,6 +929,8 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::Remove { entry_id } => {
             println!("[engine] 从库移除 {entry_id}");
             sm.remove_entry(&entry_id);
+            #[cfg(target_os = "windows")]
+            lockscreen::discard(&entry_id); // 清该条目的锁屏应用缓存
         }
         engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
             println!("[engine] {monitor_id} fps = {fps}");
@@ -1194,6 +1350,9 @@ fn main() {
                 const TOPOLOGY_MAX_WAIT: Duration = Duration::from_millis(4000);
                 const RECONFIRM_EVERY: u32 = 3; // commit 收敛：settle 突变轮后 ≈450ms
                 let mut tick: u32 = 0;
+                // 存量库封面帧补齐（§4.8）：启动 60s 后一次性后台补齐缺封面的条目
+                const POSTER_BACKFILL_TICK: u32 = 400;
+                let mut poster_backfill_done = false;
                 let mut last_update_gen: u64 = update::generation();
                 // 拓扑纪元消费状态：首/末事件时刻（去抖窗口）。事件驱动的收敛
                 // 触发，替代旧「2s 轮询发现拓扑变化」——轮询既有延迟（错误中间态
@@ -1251,6 +1410,8 @@ fn main() {
                     let engine_actions = engine::drain();
                     let mut refresh_ui = !engine_actions.is_empty();
                     let mut pending_thumbs: Vec<(String, WallpaperKind)> = Vec::new();
+                    #[cfg(target_os = "windows")]
+                    let mut poster_jobs: Vec<capture::PosterJob> = Vec::new();
                     if !engine_actions.is_empty() {
                         let mut focus_main = false;
                         let mut open_update_modal = false;
@@ -1271,6 +1432,8 @@ fn main() {
                                     );
                                 }
                                 pending_thumbs.extend(out.pending_thumbs);
+                                #[cfg(target_os = "windows")]
+                                poster_jobs.extend(out.poster_jobs);
                                 if out.focus_main {
                                     focus_main = true;
                                 }
@@ -1311,6 +1474,27 @@ fn main() {
                                 .mark_started(&dir);
                         });
                         dispatch_thumb(cx, dir, kind);
+                    }
+                    #[cfg(target_os = "windows")]
+                    for job in poster_jobs {
+                        spawn_poster_job(cx, job);
+                    }
+                    #[cfg(target_os = "windows")]
+                    if !poster_backfill_done && tick >= POSTER_BACKFILL_TICK {
+                        poster_backfill_done = true;
+                        let jobs = cx.update(|cx| {
+                            collect_missing_posters(&cx.global::<engine::AppState>().sm)
+                        });
+                        if jobs.is_empty() {
+                            println!("[poster] 存量库无需补齐");
+                        } else {
+                            println!("[poster] 存量库补齐：{} 个条目入队", jobs.len());
+                        }
+                        for job in jobs {
+                            spawn_poster_job(cx, job);
+                        }
+                        // 启动期兜底抓帧可能因显示器重编放弃：封面就位后再排一次
+                        lockscreen::schedule_sync();
                     }
                     tick += 1;
                     if DIAGNOSE_AT.contains(&tick) {

@@ -478,10 +478,16 @@ pub fn emergency_teardown() {
 /// 保证且实测不稳——两者都不足为凭。explorer 重启不影响顶层窗口。
 /// 必须主线程调用（采集任务跑 GPUI 前台执行器）。
 pub(crate) fn create_overlay_window(logical: (i32, i32)) -> Result<HWND> {
-    ensure_pin_env();
     // SAFETY: 查询系统 DPI（PMv2 下 = 主屏 DPI）
     let dpi = unsafe { GetDpiForSystem() } as i32;
-    let (w, h) = ((logical.0.max(1) * dpi) / 96, (logical.1.max(1) * dpi) / 96);
+    let physical = ((logical.0.max(1) * dpi) / 96, (logical.1.max(1) * dpi) / 96);
+    create_overlay_window_physical(physical)
+}
+
+/// 物理像素版：封面帧采集（§4.8）按目标分辨率直建窗口，不做 DPI 换算。
+pub(crate) fn create_overlay_window_physical(physical: (i32, i32)) -> Result<HWND> {
+    ensure_pin_env();
+    let (w, h) = (physical.0.max(1), physical.1.max(1));
     // SAFETY: 主线程；模块句柄查询无特殊前提
     let hwnd = unsafe {
         let hinstance = GetModuleHandleW(PCWSTR::null())

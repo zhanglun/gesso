@@ -60,6 +60,22 @@ pub(crate) static CAPTURE_QUEUE: Mutex<Vec<(String, WallpaperKind)>> = Mutex::ne
 pub(crate) static WORKER_RUNNING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// 封面帧采集任务（§4.8，Windows）：入库时入队，主线程串行消化（同缩略图纪律）。
+#[cfg(target_os = "windows")]
+pub(crate) struct PosterJob {
+    /// 条目缩略图家目录（库查找键，同 CAPTURE_QUEUE 的键语义）
+    pub dir: String,
+    pub kind: WallpaperKind,
+    /// 物理像素目标尺寸（主屏分辨率，上限 4K）
+    pub size: (i32, i32),
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) static POSTER_QUEUE: Mutex<Vec<PosterJob>> = Mutex::new(Vec::new());
+#[cfg(target_os = "windows")]
+pub(crate) static POSTER_WORKER: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(target_os = "macos")]
 struct CaptureWindow {
     /// 字段序 = drop 序：窗口最后释放（本设计中进程级存活，正常路径永不 drop）
