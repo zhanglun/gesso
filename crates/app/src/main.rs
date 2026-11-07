@@ -763,7 +763,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             if ls_was != ls_now {
                 println!("[ui] 锁屏快照同步 = {ls_now}");
                 if ls_now {
-                    lockscreen::schedule_sync();
+                    lockscreen::schedule_sync_immediate();
                 } else {
                     lockscreen::schedule_restore();
                 }

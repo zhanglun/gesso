@@ -40,6 +40,7 @@ mod imp {
     use super::SessionManager;
 
     pub fn schedule_sync() {}
+    pub fn schedule_sync_immediate() {}
     pub fn schedule_restore() {}
     pub fn probe_async() {}
     pub fn available() -> bool {
@@ -104,6 +105,13 @@ mod imp {
     pub fn schedule_sync() {
         RETRIES.store(0, Ordering::Relaxed);
         DUE_MS.store(now_ms() + DEBOUNCE.as_millis() as u64, Ordering::Release);
+    }
+
+    /// 开关打开的即时同步（用户直接动作）：跳过指派用的 3s 防抖，只留 200ms
+    /// 让设置写入/渲染落定——否则打开后立刻锁屏，锁屏还在旧状态等几秒。
+    pub fn schedule_sync_immediate() {
+        RETRIES.store(0, Ordering::Relaxed);
+        DUE_MS.store(now_ms() + 200, Ordering::Release);
     }
 
     pub fn schedule_restore() {
