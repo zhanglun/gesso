@@ -83,6 +83,8 @@ mod imp {
     /// 同步到期时刻（epoch ms；0 = 无待办）。
     static DUE_MS: AtomicU64 = AtomicU64::new(0);
     static RETRIES: AtomicU32 = AtomicU32::new(0);
+    /// 即时应用诉求（开关打开）：贴现成缓存帧，不抓帧。
+    static APPLY_ONLY: AtomicBool = AtomicBool::new(false);
     static RESTORE_PENDING: AtomicBool = AtomicBool::new(false);
     /// 写入/还原串行化：同一时刻至多一个后台任务。
     static IN_FLIGHT: AtomicBool = AtomicBool::new(false);
@@ -107,11 +109,16 @@ mod imp {
         DUE_MS.store(now_ms() + DEBOUNCE.as_millis() as u64, Ordering::Release);
     }
 
-    /// 开关打开的即时同步（用户直接动作）：跳过指派用的 3s 防抖，只留 200ms
-    /// 让设置写入/渲染落定——否则打开后立刻锁屏，锁屏还在旧状态等几秒。
+    /// 开关打开的即时应用（用户直接动作）：贴现成缓存帧，亚秒级生效——
+    /// 抓 4K 帧 + PNG 编码要 1–3s，现场抓会让打开后立刻锁屏的用户等旧状态。
+    /// 随后的 schedule_sync（3s 全量）会补一帧更新鲜的。
     pub fn schedule_sync_immediate() {
-        RETRIES.store(0, Ordering::Relaxed);
-        DUE_MS.store(now_ms() + 200, Ordering::Release);
+        APPLY_ONLY.store(true, Ordering::Release);
+    }
+
+    /// 快照缓存路径：既是要贴上锁屏的图，也是随指派持续维护的帧缓存。
+    fn cache_path() -> PathBuf {
+        crate::protocol::config_dir().join("lockscreen.png")
     }
 
     pub fn schedule_restore() {
@@ -155,7 +162,27 @@ mod imp {
             return;
         }
 
-        // 同步：到期 + 开关仍开 + 能力可用
+        // 即时应用（开关打开）：缓存帧现成 → 直接贴上锁屏（亚秒级，不抓帧）。
+        // 随后 schedule_sync 的 3s 全量刷新会补一帧更新鲜的；无缓存则落全量路径
+        if APPLY_ONLY.swap(false, Ordering::AcqRel) {
+            if IN_FLIGHT.swap(true, Ordering::AcqRel) {
+                APPLY_ONLY.store(true, Ordering::Release); // 在途：诉求保持，下一拍再试
+                return;
+            }
+            if !sm.config().settings.lockscreen_sync || AVAIL.load(Ordering::Acquire) == 2 {
+                IN_FLIGHT.store(false, Ordering::Release);
+                return;
+            }
+            if cache_path().is_file() {
+                let need_backup = sm.lockscreen_backup().is_none();
+                spawn_apply(need_backup);
+            } else {
+                IN_FLIGHT.store(false, Ordering::Release); // 无缓存 → 等 schedule_sync 全量抓帧
+            }
+            return;
+        }
+
+        // 全量同步：到期 + 开关仍开 + 能力可用
         let due = DUE_MS.load(Ordering::Acquire);
         if due == 0 || now_ms() < due {
             return;
@@ -200,7 +227,7 @@ mod imp {
 
     fn spawn_write(hwnd: isize, need_backup: bool) {
         std::thread::spawn(move || {
-            let out: PathBuf = crate::protocol::config_dir().join("lockscreen.png");
+            let out = cache_path();
             com_init(|| {
                 let r = write_once(HWND(hwnd as _), need_backup, &out);
                 println!(
@@ -209,6 +236,29 @@ mod imp {
                     r.1,
                     r.2
                 );
+            });
+            IN_FLIGHT.store(false, Ordering::Release);
+        });
+    }
+
+    /// 即时应用：缓存帧已存在，只调 WinRT 贴上锁屏（无抓帧无编码）。
+    fn spawn_apply(need_backup: bool) {
+        std::thread::spawn(move || {
+            com_init(|| {
+                // 备份仍须先于首次应用读取（记录「打开前」状态）
+                let backup = if need_backup { read_state() } else { None };
+                match set_image(&cache_path()) {
+                    Ok(()) => {
+                        println!("[lockscreen] 缓存帧已应用（即时）");
+                        if let Some(b) = backup {
+                            BACKUP_DONE
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .replace(b);
+                        }
+                    }
+                    Err(e) => println!("[lockscreen] 缓存帧应用失败：{e}"),
+                }
             });
             IN_FLIGHT.store(false, Ordering::Release);
         });

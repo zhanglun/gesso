@@ -763,7 +763,9 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             if ls_was != ls_now {
                 println!("[ui] 锁屏快照同步 = {ls_now}");
                 if ls_now {
+                    // 即时贴缓存帧（亚秒级生效）+ 3s 后全量抓一帧更新鲜的
                     lockscreen::schedule_sync_immediate();
+                    lockscreen::schedule_sync();
                 } else {
                     lockscreen::schedule_restore();
                 }
