@@ -735,6 +735,10 @@ pub fn create(monitor: &MonitorInfo) -> Result<WinWallpaperWindow> {
 }
 
 impl WallpaperWindow for WinWallpaperWindow {
+    fn hwnd_raw(&self) -> Option<isize> {
+        Some(self.hwnd.0 as isize)
+    }
+
     fn load(&mut self, url: &str) {
         // wry 只翻译构建期导航 URL；运行期 load_url 需自行翻译成 WebView2 workaround 形态
         let url = workaround_url(url);

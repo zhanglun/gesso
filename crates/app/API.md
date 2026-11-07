@@ -48,6 +48,13 @@ impl SessionManager {
     /// 设置更新（写内存 + 落盘；设置页全部即时生效）
     pub fn update_settings(&mut self, settings: Settings);
 
+    /// 锁屏还原簿记（§4.8，Windows）：Some = 快照写入前记录的原锁屏状态；
+    /// None = 已还原。由 lockscreen 模块经主循环回灌，UI 不触碰。
+    pub fn lockscreen_backup(&self) -> Option<LockScreenBackup>;
+    pub fn record_lockscreen_backup(&mut self, backup: Option<LockScreenBackup>);
+    /// 主屏壁纸窗原生句柄（锁屏快照 PrintWindow 用；None = 主屏无可见会话）。
+    pub fn main_wallpaper_hwnd(&self) -> Option<isize>;
+
     /// 从库移除条目（local 拷贝目录入回收站；WE/url 只断引用）
     pub fn remove_entry(&mut self, entry_id: &str);
     /// WE 条目导入（we.rs 解析结果零拷贝登记）
@@ -89,6 +96,16 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
   - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `RestoreSystemWallpaper`（托盘「恢复系统壁纸」：释放全部显示器指派并拆除 Gesso 壁纸窗口）（另有引擎内部的 `ThumbsDone`，UI 不入队）
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
+
+## 4.1 锁屏快照子系统（§4.8，Windows 专属）
+
+`crates/app/src/lockscreen.rs`：设置开关 `Settings.lockscreen_sync`（默认关）走
+`UpdateSettings`，引擎在动作处理时对比新旧值触发 `schedule_sync` / `schedule_restore`；
+指派（Assign / CycleMain）自动追加 `schedule_sync`；托盘「恢复系统壁纸」追加
+`schedule_restore`；退出（Quit）内联阻塞还原。防抖 3s、主循环每拍消费、后台线程
+执行（PrintWindow 抓主屏壁纸窗 → PNG → `LockScreen::SetImageFileAsync`）；能力
+探测（WinRT 激活 + 组策略）启动一次，失败则设置页渲染说明行而非开关。UI 只读写
+`GessoState.settings.lockscreen_sync` 投影，不触碰模块全局。
 
 ## 4.1 类型与命令的单一事实源
 

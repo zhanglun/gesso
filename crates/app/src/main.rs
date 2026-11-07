@@ -15,6 +15,7 @@ mod desktop_bridge;
 mod encoding;
 mod engine;
 mod host_cmd;
+mod lockscreen;
 mod pin;
 mod protocol;
 mod session;
@@ -315,6 +316,14 @@ fn bootstrap() -> (session::SessionManager, bool) {
 
     let mut sm = session::SessionManager::new(config, library);
     sm.sync_monitors();
+    // 锁屏快照（§4.8）：能力探测 + 开机若开关已开则补一次快照（后台，主线程零开销）
+    #[cfg(target_os = "windows")]
+    {
+        lockscreen::probe_async();
+        if sm.config().settings.lockscreen_sync {
+            lockscreen::schedule_sync();
+        }
+    }
 
     // 旧版本残留清理：旧版带桌面接管的版本若硬杀退出，桌面可能还设着
     // 桥接帧——一次性恢复原壁纸（零等待）；此后本进程不再写系统桌面。
@@ -371,6 +380,7 @@ fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) ->
             gesso_core::config::Language::En => 2,
         },
         update_check: cs.update_check,
+        lockscreen_sync: cs.lockscreen_sync,
         ..ui::data::Settings::default()
     };
     // 软件更新投影（§4.7；真源 = update 模块全局，随快照单向回灌）
@@ -674,6 +684,8 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         } => {
             println!("[ui] 指派 {entry_id} → {monitor_id}");
             sm.assign(&monitor_id, &entry_id);
+            // 指派收敛后更新锁屏快照（§4.8；防抖在 lockscreen 模块内）
+            lockscreen::schedule_sync();
         }
         engine::EngineAction::PauseAll(p) => {
             println!("[ui] 暂停全部 = {p}");
@@ -696,7 +708,10 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             //（运行时不接管系统桌面，无需恢复动作；重新指派即可再上壁纸）。
             let n = app.sm.release_all();
             #[cfg(target_os = "windows")]
-            pin::windows::restore_desktop();
+            {
+                pin::windows::restore_desktop();
+                lockscreen::schedule_restore(); // 锁屏一并恢复打开前的设置（§4.8）
+            }
             println!("[ui] 恢复系统壁纸：{n} 个壁纸会话已释放，桌面即系统壁纸");
         }
         engine::EngineAction::Import { path } => {
@@ -741,7 +756,18 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::UpdateSettings(settings) => {
             println!("[ui] 设置更新并落盘");
             out.lang_changed = sm.config().settings.language != settings.language;
+            // 锁屏快照开关（§4.8）：开→补一次快照；关→恢复打开前的锁屏设置
+            let ls_was = sm.config().settings.lockscreen_sync;
             sm.update_settings(settings);
+            let ls_now = sm.config().settings.lockscreen_sync;
+            if ls_was != ls_now {
+                println!("[ui] 锁屏快照同步 = {ls_now}");
+                if ls_now {
+                    lockscreen::schedule_sync();
+                } else {
+                    lockscreen::schedule_restore();
+                }
+            }
         }
         engine::EngineAction::SetAutostart(enable) => apply_autostart(enable),
         engine::EngineAction::Remove { entry_id } => {
@@ -781,6 +807,8 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         // process::exit，Drop 全跳过，桌面留黑底）。
         engine::EngineAction::Quit => {
             // 退出只拆壁纸窗（运行时不接管系统桌面，无桌面恢复动作）
+            // 锁屏快照（§4.8）：退出前阻塞还原打开前的锁屏设置（毫秒级，best-effort）
+            lockscreen::restore_best_effort(&mut app.sm);
             app.sm.teardown_for_quit();
             #[cfg(target_os = "windows")]
             pin::windows::restore_desktop();
@@ -1352,6 +1380,12 @@ fn main() {
                             pin::windows::rearm_remount();
                         }
                     }
+                    // 锁屏快照（§4.8）：到期任务消费——主线程只做原子检查，
+                    // 真活儿（PrintWindow 抓帧 + WinRT 写入/还原）在后台线程
+                    cx.update(|cx| {
+                        let sm = &mut cx.global_mut::<engine::AppState>().sm;
+                        lockscreen::tick(sm);
+                    });
                     // 数据桥（≈2s 节拍，错开半拍）：锁屏 + 全屏 + 电源态
                     // → 策略解析 → 自动暂停/降帧；有状态变化才刷新 UI
                     if tick != 0 && tick % AUTOPAUSE_EVERY == AUTOPAUSE_OFFSET {

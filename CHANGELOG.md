@@ -6,6 +6,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 ### Added
 
+- **锁屏快照同步（Windows 专属，设置页「联动（实验）」，默认关）**：打开后，锁屏显示主屏壁纸的静态帧（对齐 Wallpaper Engine「Override lock screen image」；Windows 锁屏只接受静态图，这是 OS 上限）；关闭开关、托盘「恢复系统壁纸」或退出应用时，恢复打开前的锁屏设置（「每日一图」聚焦模式照原样切回）。走官方 `LockScreen` API，指派后防抖 3 秒由后台线程一次性写入，不在任何交互路径，也不写系统桌面；WinRT 缺失或组策略受限的机器经启动能力探测后自动不显示该开关。本机实测全链路通过：4K 快照写入、聚焦模式回切、退出还原。
 - 更新器根据 App 当前语言显示双语发布说明，并兼容旧版静态清单格式。
 
 ### Changed

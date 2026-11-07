@@ -72,6 +72,14 @@ pub struct Texts {
     pub toast_change_hint: &'static str,
     /// 库页横幅取消按钮（「为选屏挑壁纸」流程，复用 URL 导入的「取消」语义）。
     pub btn_pick_cancel: &'static str,
+    // 锁屏快照同步（§4.8，Windows 专属）：仅 Windows 调用点编译（cfg 访问器
+    // 见文件尾），不进 accessors! 宏；字段在 macOS 构建下无读取点，显式豁免。
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub lockscreen_sync_label: &'static str,
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub lockscreen_sync_desc: &'static str,
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub lockscreen_unavailable: &'static str,
 
     // 设置页
     pub group_perf: &'static str,
@@ -317,6 +325,9 @@ pub const ZH: Texts = Texts {
     toast_redetect: "已重新检测显示器",
     toast_change_hint: "在壁纸库双击即指派到该屏",
     btn_pick_cancel: "取消",
+    lockscreen_sync_label: "锁屏快照同步",
+    lockscreen_sync_desc: "打开后锁屏显示壁纸快照；关闭恢复原锁屏设置",
+    lockscreen_unavailable: "此系统不支持设置锁屏图",
 
     group_perf: "性能",
     group_startup: "启动",
@@ -476,6 +487,9 @@ pub const EN: Texts = Texts {
     toast_redetect: "Displays redetected",
     toast_change_hint: "Double-click a wallpaper in the library to assign it to this display",
     btn_pick_cancel: "Cancel",
+    lockscreen_sync_label: "Lock screen snapshot",
+    lockscreen_sync_desc: "Show a snapshot of your wallpaper on the lock screen; turning it off restores your previous lock screen",
+    lockscreen_unavailable: "This system doesn't support setting the lock screen image",
 
     group_perf: "Performance",
     group_startup: "Startup",
@@ -664,6 +678,22 @@ pub fn hint_picking(target: &str) -> String {
     } else {
         format!("正在为{target}选择壁纸 · 双击卡片指派到该屏")
     }
+}
+
+// ── 锁屏快照（§4.8）：仅 Windows 调用点存在，macOS 构建不编译这些访问器 ──
+#[cfg(target_os = "windows")]
+pub fn lockscreen_sync_label() -> &'static str {
+    t().lockscreen_sync_label
+}
+
+#[cfg(target_os = "windows")]
+pub fn lockscreen_sync_desc() -> &'static str {
+    t().lockscreen_sync_desc
+}
+
+#[cfg(target_os = "windows")]
+pub fn lockscreen_unavailable() -> &'static str {
+    t().lockscreen_unavailable
 }
 
 pub fn toast_removed(name: &str) -> String {

@@ -387,7 +387,8 @@ async fn html_frames(
 
 /// 截采集窗口：PrintWindow(PW_RENDERFULLCONTENT) 直出窗口自身合成内容
 /// （被遮挡也有效）；返回失败再走 BitBlt 屏幕区兜底（TOPMOST 恒不被遮挡）。
-fn screenshot_window(hwnd: HWND) -> Option<(Vec<u8>, i32, i32)> {
+/// 锁屏快照（§4.8）复用同一函数抓活的壁纸窗（原生分辨率）。
+pub(crate) fn screenshot_window(hwnd: HWND) -> Option<(Vec<u8>, i32, i32)> {
     unsafe {
         let mut r = RECT::default();
         GetWindowRect(hwnd, &mut r).ok()?;
@@ -456,8 +457,9 @@ unsafe fn dib_pixels(
     Some(buf)
 }
 
-/// RGBA → PNG 原子落盘（png crate 编码；托盘解码同依赖，零新增）
-fn encode_png_rgba(rgba: &[u8], w: u32, h: u32, out: &Path) -> bool {
+/// RGBA → PNG 原子落盘（png crate 编码；托盘解码同依赖，零新增）。
+/// 锁屏快照（§4.8）复用同一编码器。
+pub(crate) fn encode_png_rgba(rgba: &[u8], w: u32, h: u32, out: &Path) -> bool {
     let tmp = out.with_extension("png.tmp");
     let encoded: std::io::Result<()> = (|| {
         let f = std::fs::File::create(&tmp)?;

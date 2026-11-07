@@ -396,6 +396,33 @@ impl Render for SettingsView {
                 cx,
             ));
         }
+        // 锁屏快照同步（§4.8，Windows 专属）：能力探测完成前不渲染（避免闪烁）；
+        // 不可用（WinRT 缺失/组策略）时只渲染说明行——Switch 无置灰态，藏比装死诚实
+        #[cfg(target_os = "windows")]
+        {
+            use super::strings;
+            if crate::lockscreen::available() {
+                linkage.push(set_row(
+                    strings::lockscreen_sync_label(),
+                    Some(strings::lockscreen_sync_desc()),
+                    Switch::new("set-lockscreen")
+                        .checked(s.lockscreen_sync)
+                        .on_click(|checked, window, cx| {
+                            update(window, cx, |g| g.settings.lockscreen_sync = *checked);
+                            persist_settings(cx);
+                        })
+                        .into_any_element(),
+                    cx,
+                ));
+            } else if crate::lockscreen::probed() {
+                linkage.push(set_row(
+                    strings::lockscreen_sync_label(),
+                    Some(strings::lockscreen_unavailable()),
+                    div().into_any_element(),
+                    cx,
+                ));
+            }
+        }
 
         // —— 关于与更新（§4.7）——
         // 版本行右侧 = 版本号 + [检查更新]，同行呈现（常见应用惯例；设计 §4.5 布局）。

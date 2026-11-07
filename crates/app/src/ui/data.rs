@@ -184,6 +184,8 @@ pub struct Settings {
     pub language: u32,
     /// 自动检查更新（真源 = core Settings.update_check）。
     pub update_check: bool,
+    /// 锁屏快照同步（§4.8，Windows 专属；真源 = core Settings.lockscreen_sync）。
+    pub lockscreen_sync: bool,
 }
 
 impl Default for Settings {
@@ -199,6 +201,7 @@ impl Default for Settings {
             weather_key: String::new(),
             language: 0,
             update_check: true,
+            lockscreen_sync: false,
         }
     }
 }
@@ -228,6 +231,7 @@ impl Settings {
                 _ => gesso_core::config::Language::Auto,
             },
             update_check: self.update_check,
+            lockscreen_sync: self.lockscreen_sync,
         }
     }
 }

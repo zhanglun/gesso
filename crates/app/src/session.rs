@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use gesso_core::{
-    transfer, AppConfig, ContentSpec, Fit, LibraryEntry, PausePolicy, SessionEvent, SessionState,
-    WallpaperKind,
+    config::LockScreenBackup, transfer, AppConfig, ContentSpec, Fit, LibraryEntry, PausePolicy,
+    SessionEvent, SessionState, WallpaperKind,
 };
 
 use crate::pin::{self, MonitorFrame, MonitorInfo, WallpaperWindow};
@@ -883,6 +883,29 @@ impl SessionManager {
     /// 设置更新（设置页全部即时生效：写内存 + 落盘，§4.5）
     pub fn update_settings(&mut self, settings: gesso_core::Settings) {
         self.config.settings = settings;
+        let _ = self.save_config();
+    }
+
+    /// 主屏壁纸窗的原生句柄（锁屏快照 PrintWindow 用，§4.8）。
+    /// 主屏无会话 / 窗口隐藏（收敛中）→ None，调用方稍后重试。
+    pub fn main_wallpaper_hwnd(&self) -> Option<isize> {
+        let (_, s) = self
+            .sessions
+            .iter()
+            .find(|(_, s)| s.monitor.is_main && s.visible && s.window.is_some())?;
+        s.window.as_ref().and_then(|w| w.hwnd_raw())
+    }
+
+    /// 锁屏还原簿记（§4.8）：Some = 首次写入前的原锁屏状态；None = 已还原/未覆盖。
+    pub fn lockscreen_backup(&self) -> Option<LockScreenBackup> {
+        self.config.lockscreen_backup.clone()
+    }
+
+    pub fn record_lockscreen_backup(&mut self, backup: Option<LockScreenBackup>) {
+        if self.config.lockscreen_backup == backup {
+            return;
+        }
+        self.config.lockscreen_backup = backup;
         let _ = self.save_config();
     }
 

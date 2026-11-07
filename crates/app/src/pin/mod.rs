@@ -57,6 +57,12 @@ pub trait WallpaperWindow {
         None
     }
 
+    /// 原生窗口句柄（锁屏快照 PrintWindow 用，§4.8；跨线程传递存 isize）。
+    /// None = 平台无此概念（macOS）。
+    fn hwnd_raw(&self) -> Option<isize> {
+        None
+    }
+
     /// 单显示器填充模式活切换（§4.4 填充下拉，2026-10-12）：仅视频原生窗
     /// 实现（macOS = AVLayerVideoGravity；Windows = 渲染线程原子量）；
     /// webview 内容由会话层热重载宿主页，不走这里（默认 no-op）。
