@@ -393,7 +393,8 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       </div>
       <div class="statusbar">
         <span class="num" id="stat-count">8 项 · WE 2</span>
-        <span class="hint">双击设为主显示器 · 拖入文件导入 · 拖拽卡片到「显示器」页指派</span>
+        <span class="hint" id="pick-banner" style="display:none"></span>
+        <span class="hint">双击设为当前目标屏（默认主屏） · 拖入文件导入 · 拖拽卡片到「显示器」页指派</span>
       </div>
     </section>
 
@@ -649,7 +650,8 @@ function renderGrid(){
     el.addEventListener('mouseenter',()=>{const a=anims.find(a=>a.cv.parentElement===el.querySelector('.preview'));if(a&&!w.invalid)a.playing=true;glowMonitor(w.assign);});
     el.addEventListener('mouseleave',()=>{const a=anims.find(a=>a.cv.parentElement===el.querySelector('.preview'));if(a)a.playing=false;glowMonitor(null);});
     el.addEventListener('click',()=>{selectedId=w.id;renderGrid();});
-    el.addEventListener('dblclick',()=>assign(w.id,0));
+    /* 双击 = 指派到当前目标屏（「为选屏挑壁纸」流程 2026-11-07）；无流程 = 主显示器 */
+    el.addEventListener('dblclick',()=>assign(w.id,pickTarget??0));
     el.addEventListener('contextmenu',e=>{e.preventDefault();openCtx(e,w);});
     el.addEventListener('dragstart',e=>{
       e.dataTransfer.setData('text/gesso',w.id);
@@ -680,10 +682,23 @@ function assign(wid,mono){
   LIB.forEach(x=>{if(x.assign===mono)x.assign=null;});
   w.assign=mono;
   MONOS[mono].paused=false;MONOS[mono].pausedBy=null;
+  pickTarget=null;renderPickBanner();
   renderGrid();renderMonitors();renderTray();
   toast(`已将「${w.name}」指派到${MONOS[mono].name}`);
 }
 let selectedMono=0;
+/* 「为选屏挑壁纸」流程（§4.3 2026-11-07）：pickTarget = 目标屏下标或 null。
+   入口：未指派小像点击 / 详情条「选择壁纸」「更换」；双击卡片指派到目标屏，
+   任何指派成功或点取消后流程结束。 */
+let pickTarget=null;
+function renderPickBanner(){
+  const b=document.getElementById('pick-banner');
+  if(pickTarget==null||!MONOS[pickTarget]){b.style.display='none';return;}
+  b.style.display='';
+  b.innerHTML=`正在为${MONOS[pickTarget].name}选择壁纸 · 双击卡片指派到该屏 · <button class="btn text" id="pick-cancel">取消</button>`;
+  document.getElementById('pick-cancel').onclick=()=>{pickTarget=null;renderPickBanner();};
+}
+function setPickTarget(i){pickTarget=i;renderPickBanner();}
 function renderMonitors(){
   document.querySelectorAll('.screen-mini').forEach((f,i)=>{
     const w=LIB.find(x=>x.assign===i);
@@ -735,7 +750,12 @@ function renderDetail(){
   tg.textContent=run?'恢复':'暂停';
 }
 document.querySelectorAll('.screen-mini').forEach(f=>{
-  f.addEventListener('click',()=>{selectedMono=+f.dataset.mono;renderMonitors();});
+  f.addEventListener('click',()=>{
+    selectedMono=+f.dataset.mono;
+    /* 未指派屏：小像即 CTA——记录目标屏并跳库页（§4.3 为选屏挑壁纸） */
+    if(!LIB.find(x=>x.assign===selectedMono)){setPickTarget(selectedMono);switchView('library');}
+    renderMonitors();
+  });
 });
 document.querySelector('.detail-strip [data-toggle]').onclick=()=>{
   const i=selectedMono;MONOS[i].paused=!MONOS[i].paused;
@@ -752,7 +772,11 @@ document.querySelector('.detail-strip .fit').onchange=e=>{
   if(cv){cv.style.objectFit={'填充':'cover','适应':'contain','拉伸':'fill'}[e.target.value]||'cover';}
   renderMonitors();
 };
-document.querySelector('.detail-strip [data-assign]').onclick=()=>{switchView('library');toast('在壁纸库双击即设为主显示器');};
+document.querySelector('.detail-strip [data-assign]').onclick=()=>{
+  /* 选择壁纸/更换 = 为当前选中屏挑壁纸：记录目标屏并跳库页（§4.3 2026-11-07） */
+  setPickTarget(selectedMono);switchView('library');
+  toast(`在壁纸库双击即指派到${MONOS[selectedMono].name}`);
+};
 document.getElementById('btn-redetect').onclick=()=>{document.getElementById('new-mono').classList.add('visible');toast('已重新检测显示器');};
 document.getElementById('go-assign').onclick=()=>switchView('library');
 /* 导入 = 单一菜单入口（点击弹锚定菜单；§4.3 2026-10-07 收敛） */

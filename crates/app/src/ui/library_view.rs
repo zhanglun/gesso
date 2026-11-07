@@ -226,14 +226,21 @@ impl LibraryView {
             })
             .on_click(cx.listener(move |_, click: &ClickEvent, window, cx| {
                 if click.click_count() >= 2 {
-                    // 双击 = 设为主显示器（托盘气泡确认）；经桥写入真会话
-                    let main_idx = state(cx).main_monitor();
-                    match super::app_state::bridge_assign(window, cx, main_idx, &id) {
+                    // 双击 = 指派到当前目标屏（「为选屏挑壁纸」流程，§4.3 2026-11-07）；
+                    // 无流程 = 主显示器（原语义）。bridge_assign 成功即清流程态
+                    let target = state(cx).assign_target_index();
+                    let idx = target.unwrap_or_else(|| state(cx).main_monitor());
+                    match super::app_state::bridge_assign(window, cx, idx, &id) {
                         Ok(name) => {
-                            window.push_notification(
-                                Notification::success(toast_apply_main(&name)),
-                                cx,
-                            );
+                            // 流程内 = 指派到目标屏（按屏名确认）；流程外保持「应用到主显示器」
+                            let note = match target {
+                                Some(_) => Notification::success(toast_assign(
+                                    &name,
+                                    &state(cx).monitor_name(idx),
+                                )),
+                                None => Notification::success(toast_apply_main(&name)),
+                            };
+                            window.push_notification(note, cx);
                         }
                         Err(e) => {
                             window.push_notification(Notification::warning(e), cx);
@@ -409,6 +416,35 @@ impl LibraryView {
                 count_text = format!("{count_text}  ·  {} · {}", item.name, item.meta);
             }
         }
+        // 「为选屏挑壁纸」横幅（§4.3 2026-11-07）：有目标屏时替换默认提示；
+        // 目标屏拔出 → assign_target_index() = None → 自然回落默认提示（自愈）
+        let picking = g
+            .assign_target_index()
+            .map(|idx| super::strings::hint_picking(&g.monitor_name(idx)));
+        let tail: AnyElement = match picking {
+            Some(text) => h_flex()
+                .flex_1()
+                .items_center()
+                .gap_2()
+                .child(Icon::new(IconName::Monitor).size_3().text_color(t.accent))
+                .child(
+                    div()
+                        .text_color(t.accent)
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(text),
+                )
+                .child(
+                    Button::new("btn-cancel-pick")
+                        .label(BTN_PICK_CANCEL())
+                        .text()
+                        .with_size(Size::Small)
+                        .on_click(|_, window, cx| {
+                            update(window, cx, |g| g.assign_target = None);
+                        }),
+                )
+                .into_any_element(),
+            None => div().flex_1().child(HINT_LIBRARY()).into_any_element(),
+        };
         h_flex()
             .flex_none()
             .h(px(28.))
@@ -424,7 +460,7 @@ impl LibraryView {
             .when_some(g.status_error.clone(), |r, err| {
                 r.child(div().text_color(t.danger).child(err))
             })
-            .child(div().flex_1().child(HINT_LIBRARY()))
+            .child(tail)
             .into_any_element()
     }
 

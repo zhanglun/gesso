@@ -70,6 +70,8 @@ pub struct Texts {
     pub btn_go_assign: &'static str,
     pub toast_redetect: &'static str,
     pub toast_change_hint: &'static str,
+    /// 库页横幅取消按钮（「为选屏挑壁纸」流程，复用 URL 导入的「取消」语义）。
+    pub btn_pick_cancel: &'static str,
 
     // 设置页
     pub group_perf: &'static str,
@@ -150,6 +152,7 @@ pub struct Texts {
     pub filter_we_project: &'static str,
     pub err_wallpaper_missing: &'static str,
     pub err_asset_broken: &'static str,
+    pub err_monitor_missing: &'static str,
     pub unknown_display: &'static str,
     pub unnamed: &'static str,
 
@@ -201,7 +204,7 @@ pub const ZH: Texts = Texts {
     filter_all: "全部",
     filter_we: "WE",
 
-    hint_library: "双击设为主显示器 · 拖入文件导入 · 拖拽卡片到「显示器」页指派",
+    hint_library: "双击设为当前目标屏（默认主屏） · 拖入文件导入 · 拖拽卡片到「显示器」页指派",
     empty_library_title: "桌面还没动起来",
     empty_library_desc: "把第一张壁纸拖进来",
     btn_import_file: "导入文件",
@@ -261,6 +264,7 @@ pub const ZH: Texts = Texts {
     filter_we_project: "Wallpaper Engine 项目",
     err_wallpaper_missing: "找不到该壁纸",
     err_asset_broken: "素材失效，无法指派",
+    err_monitor_missing: "未检测到目标显示器，请重新检测显示器后再试",
     unknown_display: "未知显示器",
     unnamed: "未命名",
 
@@ -311,7 +315,8 @@ pub const ZH: Texts = Texts {
     st_unassigned: "未指派",
     btn_go_assign: "去指派",
     toast_redetect: "已重新检测显示器",
-    toast_change_hint: "在壁纸库双击即设为主显示器",
+    toast_change_hint: "在壁纸库双击即指派到该屏",
+    btn_pick_cancel: "取消",
 
     group_perf: "性能",
     group_startup: "启动",
@@ -358,7 +363,7 @@ pub const EN: Texts = Texts {
     filter_all: "All",
     filter_we: "WE",
 
-    hint_library: "Double-click to set on the main display · Drop a file to import · Drag a card to the Displays tab to assign",
+    hint_library: "Double-click to assign to the current target display (main by default) · Drop a file to import · Drag a card to the Displays tab to assign",
     empty_library_title: "Your desktop is still static",
     empty_library_desc: "Drop in your first wallpaper",
     btn_import_file: "Import file",
@@ -417,6 +422,7 @@ pub const EN: Texts = Texts {
     filter_we_project: "Wallpaper Engine project",
     err_wallpaper_missing: "Wallpaper not found",
     err_asset_broken: "Asset unavailable, cannot assign",
+    err_monitor_missing: "Target display not found — re-detect displays and try again",
     unknown_display: "Unknown display",
     unnamed: "Untitled",
 
@@ -468,7 +474,8 @@ pub const EN: Texts = Texts {
     st_unassigned: "Unassigned",
     btn_go_assign: "Assign",
     toast_redetect: "Displays redetected",
-    toast_change_hint: "Double-click a wallpaper in the library to set it on the main display",
+    toast_change_hint: "Double-click a wallpaper in the library to assign it to this display",
+    btn_pick_cancel: "Cancel",
 
     group_perf: "Performance",
     group_startup: "Startup",
@@ -588,6 +595,7 @@ accessors! {
     menu_main_display => MENU_MAIN_DISPLAY, menu_second_display => MENU_SECOND_DISPLAY,
     filter_wallpapers => FILTER_WALLPAPERS, filter_we_project => FILTER_WE_PROJECT,
     err_wallpaper_missing => ERR_WALLPAPER_MISSING, err_asset_broken => ERR_ASSET_BROKEN,
+    err_monitor_missing => ERR_MONITOR_MISSING,
     unknown_display => UNKNOWN_DISPLAY, unnamed => UNNAMED,
     url_import_title => URL_IMPORT_TITLE,
     url_import_desc => URL_IMPORT_DESC, url_import_placeholder => URL_IMPORT_PLACEHOLDER,
@@ -614,6 +622,7 @@ accessors! {
     st_playing => ST_PLAYING, st_paused => ST_PAUSED, st_fullscreen => ST_FULLSCREEN,
     st_battery => ST_BATTERY, st_unassigned => ST_UNASSIGNED,
     btn_go_assign => BTN_GO_ASSIGN, toast_redetect => TOAST_REDETECT, toast_change_hint => TOAST_CHANGE_HINT,
+    btn_pick_cancel => BTN_PICK_CANCEL,
     group_perf => GROUP_PERF, group_startup => GROUP_STARTUP, group_linkage => GROUP_LINKAGE,
     group_experimental => GROUP_EXPERIMENTAL, group_advanced => GROUP_ADVANCED,
     set_fps_cap => SET_FPS_CAP, set_fullscreen => SET_FULLSCREEN,
@@ -645,6 +654,15 @@ pub fn toast_apply_main(name: &str) -> String {
         format!("Applied \"{name}\" to the main display")
     } else {
         format!("已将「{name}」应用到主显示器")
+    }
+}
+
+/// 「为选屏挑壁纸」流程横幅（§4.3 2026-11-07）：库页状态条提示当前目标屏。
+pub fn hint_picking(target: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("Picking a wallpaper for {target} · double-click a card to assign it")
+    } else {
+        format!("正在为{target}选择壁纸 · 双击卡片指派到该屏")
     }
 }
 

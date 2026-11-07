@@ -60,6 +60,9 @@ pub struct GessoState {
     pub update: UpdateView,
     /// 库卡片拖拽进行中（区分卡片拖拽与 OS 文件拖放，供投放覆盖层判定）。
     pub card_dragging: bool,
+    /// 「为选屏挑壁纸」流程的目标屏（§4.3 2026-11-07）：存平台稳定 ID（real_id），
+    /// 不存下标——拓扑变化下标会漂移；指派成功或取消后清空（UI 本地流程态）。
+    pub assign_target: Option<String>,
     /// false = 页面数据来自真会话快照（main.rs 装配）；true = 纯演示数据。
     pub demo: bool,
 }
@@ -85,6 +88,7 @@ impl Default for GessoState {
             status_error: None,
             update: UpdateView::default(),
             card_dragging: false,
+            assign_target: None,
             demo: false,
         }
     }
@@ -171,9 +175,17 @@ impl GessoState {
         self.pending_new_monitor = true;
     }
 
-    /// 主显示器下标（0 = 主；多显示器时即第一块）。
+    /// 主显示器下标（枚举序不保证主屏在前，按 is_main 定位；找不到回落 0）。
     pub fn main_monitor(&self) -> usize {
-        0
+        self.monitors.iter().position(|m| m.is_main).unwrap_or(0)
+    }
+
+    /// 「为选屏挑壁纸」流程的目标屏下标（real_id → 当前枚举序）。
+    /// 屏已拔出 / 列表未含该 ID = None，横幅随之消失（自愈，不清存储——
+    /// 重新接入同 ID 屏后流程仍在）。
+    pub fn assign_target_index(&self) -> Option<usize> {
+        let id = self.assign_target.as_ref()?;
+        self.monitors.iter().position(|m| &m.real_id == id)
     }
 
     /// 找某 id 的显示器名。
@@ -183,6 +195,25 @@ impl GessoState {
             .map(|m| m.name.to_string())
             .unwrap_or_else(|| super::strings::UNKNOWN_DISPLAY().into())
     }
+}
+
+/// 指派动作裁决（纯函数便于测试）：Ok(Some) = 入队引擎动作；Ok(None) =
+/// 演示模式 / 非引擎条目，UI 投影照常但不写引擎；Err = 目标屏缺失等失败原因。
+fn resolve_assign_action(
+    demo: bool,
+    real_item: bool,
+    real_monitor: &str,
+    entry_id: &str,
+) -> Result<Option<(String, String)>, String> {
+    if demo || !real_item {
+        return Ok(None);
+    }
+    if real_monitor.is_empty() {
+        // 目标屏不在当前枚举里（拔出 / 列表未刷新）：如实报错——此前静默
+        // no-op 但 toast 显示成功，是「设了没反应」的假成功来源
+        return Err(crate::ui::strings::ERR_MONITOR_MISSING().into());
+    }
+    Ok(Some((real_monitor.to_string(), entry_id.to_string())))
 }
 
 /// UI 指派（API.md §4）：UI 立即更新投影并触发刷新；引擎写操作经动作队列
@@ -210,13 +241,19 @@ pub fn bridge_assign(
         )
     });
     let name = name.map_err(|e| e.to_string())?;
-    if !demo && real_item.unwrap_or(false) && !real_monitor.is_empty() {
+    if let Some((monitor_id, entry_id)) =
+        resolve_assign_action(demo, real_item.unwrap_or(false), &real_monitor, item_id)?
+    {
         crate::engine::enqueue(crate::engine::EngineAction::Assign {
-            monitor_id: real_monitor,
-            entry_id: item_id.into(),
+            monitor_id,
+            entry_id,
         });
     }
-    update(window, cx, |g| g.selected = Some(item_id.into()));
+    // 指派成功即结束「为选屏挑壁纸」流程（任何指派路径都经此处）
+    update(window, cx, |g| {
+        g.assign_target = None;
+        g.selected = Some(item_id.into());
+    });
     Ok(name)
 }
 
@@ -305,4 +342,158 @@ pub fn import_with_dialog(_window: &mut Window, cx: &mut App) {
             });
         })
         .detach();
+}
+
+/* ---------- 测试（纯状态逻辑，无 GPUI 上下文） ---------- */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::data::{Art, Kind, PlayState};
+    use crate::ui::strings::ERR_MONITOR_MISSING;
+
+    fn mon(real_id: &str, is_main: bool) -> MonitorEntry {
+        MonitorEntry {
+            name: real_id.to_string().into(),
+            real_id: real_id.to_string(),
+            short: real_id.to_string().into(),
+            label: "1920×1080".into(),
+            rect: (0., 0., 1920., 1080.),
+            is_main,
+            wallpaper: None,
+            state: PlayState::Playing,
+            fps: 60,
+            fit: Default::default(),
+        }
+    }
+
+    fn item(id: &str, broken: bool) -> LibraryItem {
+        LibraryItem {
+            thumb_pending: false,
+            id: id.to_string().into(),
+            name: id.to_string().into(),
+            kind: Kind::Photo,
+            we: false,
+            meta: "test".into(),
+            assigned: None,
+            broken,
+            remote: false,
+            real: true,
+            art: Art {
+                from: 0x24345C,
+                to: 0x0E0F13,
+            },
+            thumbs: vec![],
+        }
+    }
+
+    /// 测试状态构造（clippy field_reassign_with_default：紧跟 default 的字段
+    /// 赋值一律走结构体字面量）。
+    fn g_state(monitors: Vec<MonitorEntry>, library: Vec<LibraryItem>) -> GessoState {
+        GessoState {
+            monitors,
+            library,
+            ..Default::default()
+        }
+    }
+
+    /// 主屏定位：is_main 不在枚举首位时也要找对（此前硬编码 0——枚举序
+    /// 不保证主屏在前，双击会指到非主屏）。
+    #[test]
+    fn main_monitor_prefers_is_main_over_order() {
+        let mut g = g_state(
+            vec![mon("win-DISPLAY2", false), mon("win-DISPLAY1", true)],
+            vec![],
+        );
+        assert_eq!(g.main_monitor(), 1);
+        // 无主屏 / 空表回落 0
+        g.monitors = vec![mon("win-DISPLAY2", false)];
+        assert_eq!(g.main_monitor(), 0);
+        g.monitors.clear();
+        assert_eq!(g.main_monitor(), 0);
+    }
+
+    /// 目标屏解析：real_id 命中 → 下标；拔出 / 空表 / 未设 → None（自愈，
+    /// 库页横幅随之消失；重新接入同 ID 屏后流程仍在——存储不被清除）。
+    #[test]
+    fn assign_target_index_resolves_and_self_heals() {
+        let mut g = g_state(
+            vec![mon("edid-bnq802e", true), mon("edid-deld06f", false)],
+            vec![],
+        );
+        g.assign_target = Some("edid-deld06f".into());
+        assert_eq!(g.assign_target_index(), Some(1));
+        g.assign_target = Some("edid-gone".into());
+        assert_eq!(g.assign_target_index(), None);
+        g.assign_target = None;
+        assert_eq!(g.assign_target_index(), None);
+        g.monitors.clear();
+        g.assign_target = Some("edid-bnq802e".into());
+        assert_eq!(g.assign_target_index(), None);
+    }
+
+    /// 指派投影（§3.6 set_wallpaper 语义）：目标屏落壁纸并恢复播放；目标屏
+    /// 旧条目在 library 侧断开（卡片角标真源）；缺失 / 失效素材拒绝且不污染
+    /// 投影。显示器投影的旧屏 wallpaper 由快照回灌自愈（assign 不动它）。
+    #[test]
+    fn assign_updates_projection_and_rejects_bad_items() {
+        let mut g = g_state(
+            vec![mon("m1", true), mon("m2", false)],
+            vec![item("w1", false), item("w2", true)],
+        );
+        g.monitors[1].state = PlayState::UserPaused;
+
+        // 指派到 m2：w1 角标 → m2，m2 投影接管并恢复播放
+        assert_eq!(g.assign(1, "w1").unwrap(), "w1");
+        assert_eq!(g.library[0].assigned, Some(1));
+        assert_eq!(g.monitors[1].wallpaper, Some("w1".into()));
+        assert_eq!(g.monitors[1].state, PlayState::Playing);
+
+        // 换壁纸：目标屏旧条目在 library 侧断开
+        g.library.push(item("w3", false));
+        assert_eq!(g.assign(1, "w3").unwrap(), "w3");
+        assert_eq!(g.library[0].assigned, None);
+        assert_eq!(g.library[2].assigned, Some(1));
+        assert_eq!(g.monitors[1].wallpaper, Some("w3".into()));
+
+        // 缺失 / 失效拒绝，投影与角标保持原状
+        assert!(g.assign(0, "missing").is_err());
+        assert!(g.assign(0, "w2").is_err());
+        assert_eq!(g.monitors[0].wallpaper, None);
+        assert_eq!(g.library[2].assigned, Some(1));
+    }
+
+    /// 挑壁纸流程全链（状态级复现 UI 行为）：设目标屏 → 解析下标 → 指派到
+    /// 该屏。回归点：修复前双击恒指 main_monitor()（硬编码 0），副屏永不可达。
+    #[test]
+    fn picking_flow_targets_the_selected_screen() {
+        let mut g = g_state(
+            vec![mon("edid-bnq802e", true), mon("edid-deld06f", false)],
+            vec![item("w1", false)],
+        );
+        g.assign_target = Some("edid-deld06f".into());
+        let idx = g.assign_target_index().expect("目标屏应可解析");
+        assert_ne!(idx, g.main_monitor(), "流程内双击应指派到副屏而非主屏");
+        g.assign(idx, "w1").unwrap();
+        assert_eq!(g.monitors[idx].wallpaper, Some("w1".into()));
+    }
+
+    /// 指派动作裁决：演示 / 非引擎条目不入队；目标屏缺失如实报错（此前
+    /// 静默 no-op + 假成功 toast，是「设了没反应」的另一来源）；正常路径
+    /// 产出 (monitor_id, entry_id) 引擎动作。
+    #[test]
+    fn resolve_assign_action_gates_and_errors() {
+        assert!(resolve_assign_action(true, true, "m1", "w1")
+            .unwrap()
+            .is_none());
+        assert!(resolve_assign_action(false, false, "m1", "w1")
+            .unwrap()
+            .is_none());
+        let err = resolve_assign_action(false, true, "", "w1").unwrap_err();
+        assert_eq!(err, ERR_MONITOR_MISSING());
+        assert_eq!(
+            resolve_assign_action(false, true, "edid-deld06f", "w1").unwrap(),
+            Some(("edid-deld06f".into(), "w1".into()))
+        );
+    }
 }

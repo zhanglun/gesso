@@ -500,6 +500,7 @@ fn merge_snapshot(g: &mut GessoState, next: GessoState) {
         import_counter,
         hovered,
         hover_frame,
+        assign_target,
         ..
     } = g;
     let local = (
@@ -510,6 +511,7 @@ fn merge_snapshot(g: &mut GessoState, next: GessoState) {
         *import_counter,
         hovered.clone(),
         *hover_frame,
+        assign_target.clone(),
     );
     *g = next;
     g.active_tab = local.0;
@@ -519,6 +521,7 @@ fn merge_snapshot(g: &mut GessoState, next: GessoState) {
     g.import_counter = local.4;
     g.hovered = local.5;
     g.hover_frame = local.6;
+    g.assign_target = local.7;
     g.demo = false;
 }
 

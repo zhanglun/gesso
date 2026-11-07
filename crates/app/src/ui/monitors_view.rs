@@ -483,7 +483,11 @@ impl MonitorsView {
                         .get(s)
                         .is_some_and(|m| m.wallpaper.is_some())
                 }) {
-                    // 未指派屏：小像即 CTA，直接跳库页
+                    // 未指派屏：小像即 CTA——记录目标屏并跳库页（§4.3「为选屏挑壁纸」，
+                    // 库页双击将指派到该屏；横幅与取消见 library_view 状态条）
+                    if let Some(real_id) = state(cx).monitors.get(i).map(|m| m.real_id.clone()) {
+                        update(window, cx, |g| g.assign_target = Some(real_id));
+                    }
                     super::shell::switch_tab(window, cx, super::shell::Tab::Library);
                 }
             }))
@@ -723,6 +727,10 @@ impl MonitorsView {
         // 更换：跳库页并带上当前壁纸作为上下文
         let change_ctx = m.wallpaper.clone();
         let toggle_real_id = m.real_id.clone();
+        // 「为选屏挑壁纸」流程（§4.3 2026-11-07）：更换/选择壁纸都先记录目标屏，
+        // 库页双击即指派到该屏（横幅与取消见 library_view 状态条）
+        let change_real_id = m.real_id.clone();
+        let pick_real_id = m.real_id.clone();
         // 填充下拉（§4.4 2026-10-12）：仅视频/图片类可调；shader/网页画布语义
         // 由内容作者控制 → 置灰（配置仍保留，切换指派后语义恢复）
         let fit_select = self.fit_selects.get(sel).map(|s| {
@@ -819,6 +827,7 @@ impl MonitorsView {
                                 .on_click(cx.listener(move |_, _, window, cx| {
                                     update(window, cx, |g| {
                                         g.selected = change_ctx.clone();
+                                        g.assign_target = Some(change_real_id.clone());
                                     });
                                     super::shell::switch_tab(
                                         window,
@@ -856,14 +865,17 @@ impl MonitorsView {
                 }
             })
             .when_none(&item, {
-                // 未指派：只有「选择壁纸」主按钮
-                |strip| {
+                // 未指派：只有「选择壁纸」主按钮（记录目标屏并跳库页，§4.3 为选屏挑壁纸）
+                move |strip| {
                     strip.child(
                         Button::new("btn-pick")
                             .label(ST_SELECT_WALLPAPER())
                             .primary()
                             .with_size(KitSize::Small)
-                            .on_click(|_, window, cx| {
+                            .on_click(move |_, window, cx| {
+                                update(window, cx, |g| {
+                                    g.assign_target = Some(pick_real_id.clone())
+                                });
                                 super::shell::switch_tab(window, cx, super::shell::Tab::Library);
                             }),
                     )
