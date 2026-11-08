@@ -231,8 +231,11 @@ const CAP_SETUP_JS: &str = r##"window.__cap = (function () {
   v.crossOrigin = "anonymous"; v.muted = true; v.playsInline = true; v.preload = "auto";
   if (spec && spec.source) v.src = spec.source;
   const cvs = document.createElement("canvas"); cvs.width = __W__; cvs.height = __H__;
+  // willReadFrequently 强制软件画布：GPU 画布上 drawImage(视频) 后 toDataURL
+  // 会回读到黑缓冲（New Zealand 实测：getImageData 有内容、toDataURL 全黑），
+  // 软件画布让绘制/读取/编码走同一条内存路径
   return {
-    v: v, cvs: cvs, ctx: cvs.getContext("2d"),
+    v: v, cvs: cvs, ctx: cvs.getContext("2d", { willReadFrequently: true }),
     meta: function () {
       return (v.readyState >= 2 && isFinite(v.duration) && v.duration > 0.1) ? String(v.duration) : "";
     },
@@ -243,7 +246,20 @@ const CAP_SETUP_JS: &str = r##"window.__cap = (function () {
       const dw = (v.videoWidth || __W__) * s, dh = (v.videoHeight || __H__) * s;
       this.ctx.fillStyle = "#000"; this.ctx.fillRect(0, 0, __W__, __H__);
       this.ctx.drawImage(v, (__W__ - dw) / 2, (__H__ - dh) / 2, dw, dh);
-      return cvs.toDataURL("__MIME____Q__");
+      // 全黑检测：drawImage 没渲染出来时画布只剩黑色底填充——采样判定，
+      // 全黑返回标记（Rust 侧判失败重试），黑帧不再被固化（New Zealand 实测）
+      // 只采 RGB（alpha 恒 255，混通道采样会把全黑误判成有内容——New Zealand 实测）
+      const d = this.ctx.getImageData(0, 0, __W__, __H__).data;
+      let mn = 255, mx = 0;
+      for (let i = 0; i < d.length; i += 16) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        if (r < mn) mn = r; if (r > mx) mx = r;
+        if (g < mn) mn = g; if (g > mx) mx = g;
+        if (b < mn) mn = b; if (b > mx) mx = b;
+      }
+      // 全黑 = 视频帧未呈现（高分辨率视频 seek 后解码滞后）：Rust 侧重定位重抓
+      if (mx - mn <= 8) return "BLACK:" + mn + "-" + mx;
+      return "OK|" + cvs.toDataURL("__MIME____Q__");
     }
   };
 })(); 'ok'"##;
@@ -299,17 +315,38 @@ async fn video_frames(
         if out.exists() {
             continue;
         }
-        let _ = eval_cb(cap, bg, &format!("__cap.seek({t}); 'ok'")).await;
-        bg.timer(FRAME_SETTLE).await;
-        if !poll_true(cap, bg, "__cap.settled()", Duration::from_secs(2)).await {
-            println!("[thumbs] 第 {i} 帧 seek 超时，跳过");
-            continue;
-        }
-        let Some(data) = eval_cb(cap, bg, "__cap.grab()").await else {
-            continue;
-        };
-        if write_dataurl(&data, &out) {
-            written += 1;
+        // 高分辨率视频 seek 后帧呈现滞后（8K 实测）：全黑则重定位重抓，
+        // 最多 4 次（首次 140ms，其后 500ms 逐次等待解码跟上）
+        for attempt in 0..4u32 {
+            let _ = eval_cb(cap, bg, &format!("__cap.seek({t}); 'ok'")).await;
+            let settle = if attempt == 0 {
+                FRAME_SETTLE
+            } else {
+                Duration::from_millis(500)
+            };
+            bg.timer(settle).await;
+            if !poll_true(cap, bg, "__cap.settled()", Duration::from_secs(2)).await {
+                println!("[thumbs] 第 {i} 帧 seek 超时，跳过");
+                break;
+            }
+            let Some(data) = eval_cb(cap, bg, "__cap.grab()").await else {
+                continue;
+            };
+            let (tag, payload) = match data.split_once('|') {
+                Some((t2, u)) => (t2.to_string(), u.to_string()),
+                None => (data.clone(), data),
+            };
+            if tag.starts_with("BLACK") {
+                println!(
+                    "[thumbs] 第 {i} 帧全黑（第 {} 次尝试），帧未呈现，重试",
+                    attempt + 1
+                );
+                continue;
+            }
+            if write_dataurl(&payload, &out) {
+                written += 1;
+            }
+            break;
         }
     }
     written
@@ -571,16 +608,36 @@ async fn poster_video(
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(0.0);
     let t = if duration > 1.0 { duration * 0.1 } else { 0.0 };
-    let _ = eval_cb(cap, bg, &format!("__cap.seek({t}); 'ok'")).await;
-    bg.timer(FRAME_SETTLE).await;
-    if !poll_true(cap, bg, "__cap.settled()", Duration::from_secs(2)).await {
-        println!("[poster] seek 超时");
-        return false;
+    for attempt in 0..4u32 {
+        let _ = eval_cb(cap, bg, &format!("__cap.seek({t}); 'ok'")).await;
+        let settle = if attempt == 0 {
+            FRAME_SETTLE
+        } else {
+            Duration::from_millis(500)
+        };
+        bg.timer(settle).await;
+        if !poll_true(cap, bg, "__cap.settled()", Duration::from_secs(2)).await {
+            println!("[poster] seek 超时");
+            return false;
+        }
+        let Some(data) = eval_cb(cap, bg, "__cap.grab()").await else {
+            continue;
+        };
+        let (tag, payload) = match data.split_once('|') {
+            Some((t2, u)) => (t2.to_string(), u.to_string()),
+            None => (data.clone(), data),
+        };
+        if tag.starts_with("BLACK") {
+            println!(
+                "[poster] 全黑帧（第 {} 次尝试），帧未呈现，重试",
+                attempt + 1
+            );
+            continue;
+        }
+        return write_dataurl(&payload, out);
     }
-    match eval_cb(cap, bg, "__cap.grab()").await {
-        Some(data) => write_dataurl(&data, out),
-        None => false,
-    }
+    println!("[poster] 4 次尝试均未呈现有效帧");
+    false
 }
 
 /// shader：宿主页就绪后直接 toDataURL JPEG。

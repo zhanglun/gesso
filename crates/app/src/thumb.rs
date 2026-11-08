@@ -92,9 +92,21 @@ pub fn preview_frames(source_dir: &str, kind: WallpaperKind) -> Vec<String> {
                 }
             }
         }
-        return Vec::new();
+    } else {
+        let frames = existing_frames(source_dir);
+        if !frames.is_empty() {
+            return frames;
+        }
     }
-    existing_frames(source_dir)
+    // 抽帧未就绪/全失败时回落封面帧（§4.8）：高分辨率视频在浏览器解码偶发
+    // 不渲染（New Zealand 实测），封面帧是入库时抓到的真实画面
+    for name in ["poster.jpg", "poster.png"] {
+        let p = Path::new(source_dir).join(name);
+        if p.is_file() {
+            return vec![p.display().to_string()];
+        }
+    }
+    Vec::new()
 }
 
 /// 采样时刻表（纯逻辑）：第 i 帧取 t = i / SAMPLE_FPS；不足 2 秒的短视频按
