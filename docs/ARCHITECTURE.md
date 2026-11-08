@@ -78,7 +78,7 @@ LibraryEntry
 ```
 Idle ──Assign──▶ Loading ──Loaded──▶ Playing ⇄ PausedUser
                     │                   ⇅
-                    └─LoadFailed─▶ Error   Autopause (fullscreen / battery)
+                    └─LoadFailed─▶ Error   Autopause (locked / fullscreen / battery)
 Error ──Reselect──▶ Idle     any ──Quit──▶ Stopped
 ```
 

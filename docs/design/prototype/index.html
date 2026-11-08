@@ -394,7 +394,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       <div class="statusbar">
         <span class="num" id="stat-count">8 项 · WE 2</span>
         <span class="hint" id="pick-banner" style="display:none"></span>
-        <span class="hint">双击设为当前目标屏（默认主屏） · 拖入文件导入 · 拖拽卡片到「显示器」页指派</span>
+        <span class="hint">双击卡片设为壁纸 · 拖入文件导入</span>
       </div>
     </section>
 
@@ -402,11 +402,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <section class="view" id="view-monitors">
       <div class="mono-page">
         <div class="desk" id="desk">
-          <div class="desk-head">
-            <span class="hint">悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制</span>
-            <button class="btn secondary" id="btn-redetect" style="height:28px">
+          <div class="desk-head" style="justify-content:flex-end">
+            <button class="btn secondary" id="btn-redetect" style="height:28px" title="显示器接上或拔掉后，这里没跟着更新？点一下重新识别">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7a5 5 0 1 1 1.6 3.7M2 11V7.6h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              重新检测
+              重新检测显示器
             </button>
           </div>
           <div class="screen-mini" id="mf-0" data-mono="0"
@@ -421,16 +420,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
             <div class="chip" id="mc-1"></div>
             <div class="scrim"><span class="t">副显示器</span><span class="sub num">1920×1080</span></div>
           </div>
-          <div class="notice" id="new-mono">
-            <span class="warn">⚠</span>
-            检测到新显示器「DELL U2723QE」
-            <button class="btn text" id="go-assign">去指派</button>
-          </div>
         </div>
         <div class="detail-strip">
           <div class="who">
             <div class="l1"><span id="ds-name">主显示器</span><span class="badge" id="ds-badge">主屏</span><span class="num" id="ds-res" style="font-size:12px;font-weight:400;color:var(--text-2)">1512×982</span></div>
-            <div class="l2">优先使用硬件标识 · 配置随显示器保留，重新接入自动恢复</div>
           </div>
           <div class="st num" id="ds-st" style="margin-left:4px"></div>
           <div class="acts">
@@ -779,8 +772,7 @@ document.querySelector('.detail-strip [data-assign]').onclick=()=>{
   setPickTarget(selectedMono);switchView('library');
   toast(`在壁纸库双击即指派到${MONOS[selectedMono].name}`);
 };
-document.getElementById('btn-redetect').onclick=()=>{document.getElementById('new-mono').classList.add('visible');toast('已重新检测显示器');};
-document.getElementById('go-assign').onclick=()=>switchView('library');
+document.getElementById('btn-redetect').onclick=()=>{toast('已重新检测显示器');};
 /* 导入 = 单一菜单入口（点击弹锚定菜单；§4.3 2026-10-07 收敛） */
 const btnImport=document.getElementById('btn-import');
 btnImport.onclick=e=>{
