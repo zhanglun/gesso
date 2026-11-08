@@ -6,8 +6,7 @@
 //! 控件不可用，是本次改版动因）。
 //! OWN-WORLD——只用 DESIGN.md token；层级靠真实投影与留白表达，不做彩色 halo。
 //! STORY——一眼看清哪块屏、在哪、放什么、什么状态；操作在底部详情条完成。
-//! FIRST VIEWPORT——满版沙盘（顶栏：悬停提示 + 重新检测）+ 居中等比主屏 + 详情条；
-//! 新显示器横幅浮于画布顶部。
+//! FIRST VIEWPORT——满版沙盘（右上角浮一枚「重新检测显示器」）+ 居中等比主屏 + 详情条。
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -21,10 +20,10 @@ use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _, WindowExt as _};
 use gpui_kit::component::Size as KitSize;
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    canvas, div, linear_color_stop, linear_gradient, point, px, quad, relative, rgb, size,
-    AnyElement, AppContext as _, BorderStyle, BorrowAppContext as _, Bounds, Context, Entity,
-    FontWeight, InteractiveElement as _, IntoElement, ObjectFit, ParentElement, Pixels, Render,
-    SharedString, Size, StatefulInteractiveElement as _, Styled, Window,
+    canvas, div, linear_color_stop, linear_gradient, point, px, quad, rgb, size,
+    AnyElement, AppContext as _, BorderStyle, BorrowAppContext as _, BoxShadow, Bounds, Context,
+    Entity, FontWeight, InteractiveElement as _, IntoElement, ObjectFit, ParentElement, Pixels,
+    Render, SharedString, Size, StatefulInteractiveElement as _, Styled, Window,
 };
 
 use super::app_state::{state, update, CardDrag, GessoState};
@@ -41,8 +40,6 @@ const PAGE_PAD: f32 = 14.;
 const PAGE_GAP: f32 = 10.;
 /// 详情条固定高度。
 const STRIP_H: f32 = 64.;
-/// 画布顶部信息条高度（提示 + 重新检测）。
-const DESK_HEAD_H: f32 = 44.;
 /// 沙盘内容四边留白。
 const DESK_PAD: f32 = 24.;
 /// 小像缩放上限（单屏不至于顶满画布）。
@@ -52,6 +49,16 @@ const DOT_STEP: f32 = 22.;
 /// 小像内容圆角 = 容器圆角 10 − 边框 2（这版 gpui 的 overflow_hidden
 /// 只做矩形裁剪，内容须自圆角——widgets::preview 同款解法）。
 const MINI_INNER_R: f32 = 8.;
+
+/// 悬停投影抬升（原型 .screen-mini:hover：0 18px 40px 28% + 0 3px 8px 14%）。
+/// 此前 md→lg 两档在桌面上几乎不可辨，hover 等于没反馈（v1.1 反馈）。
+fn hover_lift() -> Vec<BoxShadow> {
+    vec![
+        BoxShadow::new(px(0.), px(18.), gpui_kit::gpui::black().opacity(0.28))
+            .blur_radius(px(40.)),
+        BoxShadow::new(px(0.), px(3.), gpui_kit::gpui::black().opacity(0.14)).blur_radius(px(8.)),
+    ]
+}
 
 /// 小像几何：沙盘坐标系内的落位与宽高比（placements 对每块屏的产出）。
 struct MiniGeom {
@@ -203,34 +210,23 @@ impl MonitorsView {
         linear_gradient(180., linear_color_stop(from, 0.), linear_color_stop(to, 1.))
     }
 
-    fn toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let t = tokens(cx);
-        let redetect = Button::new("btn-redetect")
+    /// 画布右上角浮动的「重新检测显示器」（Small 次级 + tooltip 说明何时用）。
+    /// 此前独占 44px 画布头部——文案删掉后整条只剩一枚按钮，空旷突兀；
+    /// 浮动化后小像拿回完整画布。标签带宾语：「重新检测」曾让人看不出在检测什么。
+    fn redetect_button() -> Button {
+        Button::new("btn-redetect")
             .label(BTN_REDETECT())
             .secondary()
-            .with_size(KitSize::Small) // 画布角落的次级动作，Small 与详情条控件同档（v1.1 反馈：Medium 头重脚轻）
+            .with_size(KitSize::Small) // 与详情条控件同档（v1.1 反馈：Medium 头重脚轻）
             .icon(Icon::new(IconName::RefreshCw))
+            .tooltip(TIP_REDETECT())
             .on_click(|_, window, cx| {
-                // 重新检测：走引擎动作队列（sync_monitors 幂等；API.md §1/§4）
+                // 重新检测：走引擎动作队列（sync_monitors 幂等；API.md §1/§4）。
+                // 只出一条 toast——此前还顺带点亮「检测到新显示器」演示横幅，
+                // 用户看到的是两个通知先后闪现（2026-11-08 移除该横幅）
                 crate::engine::enqueue(crate::engine::EngineAction::SyncMonitors);
-                update(window, cx, |g| g.redetect());
                 window.push_notification(Notification::info(TOAST_REDETECT()), cx);
-            });
-        h_flex()
-            .flex_none()
-            .h(px(DESK_HEAD_H))
-            .px(px(14.))
-            .gap(px(10.))
-            .items_center()
-            .child(
-                div()
-                    .flex_1()
-                    .text_size(px(12.))
-                    .text_color(t.text2)
-                    .child(MONITOR_HOVER_NOTE()),
-            )
-            .child(redetect)
-            .into_any_element()
+            })
     }
 
     /// 屏幕小像内的壁纸面层：**跟随该屏填充模式**（与实际壁纸渲染同语义，
@@ -406,11 +402,20 @@ impl MonitorsView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = tokens(cx);
-        let glow = state(cx)
+        // 库卡指认（signature 双向指认）：悬停库卡片 = 瞬时点亮（鼠标离开卡片即清，
+        // 跨页不可见）；**点选**库卡片 = 持久点亮——切到本页仍能看到「我选的壁纸在
+        // 哪块屏上」（2026-11-08：用户点选卡片后切页 expecting 对应屏点亮，悬停态
+        // 撑不起跨页场景，选中态才可跨页看见）
+        let glow_hover = state(cx)
             .hovered
             .as_ref()
             .zip(m.wallpaper.as_ref())
             .is_some_and(|(h, w)| h == w);
+        let glow_pick = state(cx)
+            .selected
+            .as_ref()
+            .zip(m.wallpaper.as_ref())
+            .is_some_and(|(s, w)| s == w);
         let item = m
             .wallpaper
             .as_ref()
@@ -418,13 +423,14 @@ impl MonitorsView {
             .cloned();
         let assigned = item.is_some();
         // 描边只在显式点选时出现——默认跟随主屏不描边（持续蓝框 = 视觉噪音）。
-        // 描边语义只有两个：glow（库卡悬停 → 对应小像，按壁纸 ID 跨页指认）与
-        // 选中；小像自身 hover = 仅投影抬升（原型 .screen-mini:hover 契约），
-        // 状态源是本视图的 mini_hover（按屏索引）——此前小像 hover 把壁纸 ID
-        // 写进 g.hovered（glow 的字段），同壁纸指派多屏时 hover 一块全部点亮、
-        // 点击换选后旧屏描边不退（v1.1 反馈）
+        // 描边语义只有两个：指认（库卡悬停/选中 → 对应小像，按壁纸 ID 跨页指认）
+        // 与点选；小像自身 hover = 仅中性提亮 + 投影抬升（原型 .screen-mini:hover
+        // 契约），状态源是本视图的 mini_hover（按屏索引）——此前小像 hover 把壁纸
+        // ID 写进 g.hovered（指认的字段），同壁纸指派多屏时 hover 一块、全部同壁纸
+        // 小像一起描边，且点击换选后旧屏描边不退（v1.1 反馈）。
         let is_selected = self.selected == Some(i);
         let is_hovered = self.mini_hover == Some(i);
+        let is_lit = is_selected || glow_hover || glow_pick;
 
         // 状态胶囊（§5 状态矩阵投影；与托盘角标一致）
         let (st_icon, st_label, dimmed) = match (&item, m.state) {
@@ -448,13 +454,19 @@ impl MonitorsView {
             .rounded(px(10.))
             .overflow_hidden()
             .border_2()
-            .border_color(if glow || is_selected {
+            .border_color(if is_lit {
                 t.accent
+            } else if is_hovered {
+                // 悬停反馈 = 中性描边压到近前景色（text-2 曾弱到用户感知不到，
+                // 2026-11-08 实测后升级；accent 描边只属于点选与库卡指认两个语义）
+                t.text1
             } else {
                 t.hairline2
             })
             .when(assigned, |d| d.shadow_md())
-            .when(glow || is_hovered, |d| d.shadow_lg())
+            // 悬停/悬停指认 = 原型级投影抬升；选中指认 = 仅描边（常驻强投影太重）。
+            // 未指派屏不抬升（见 shadow_none）
+            .when(glow_hover || (is_hovered && assigned), |d| d.shadow(hover_lift()))
             .when(!assigned, |d| d.border_dashed().bg(t.panel).shadow_none())
             .drag_over::<CardDrag>(move |s, _, _, _| {
                 s.border_color(dz_accent).border_dashed().bg(dz_accent_soft)
@@ -530,7 +542,7 @@ impl MonitorsView {
             .into_any_element()
     }
 
-    /// 沙盘：desk 渐变底 + 点阵 + 顶栏 + 等比小像 + 新显示器横幅 / 空态。
+    /// 沙盘：desk 渐变底 + 点阵 + 等比小像 + 右上角重新检测 / 空态。
     fn desk(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let t = tokens(cx);
         let monitors = state(cx).monitors.clone();
@@ -554,10 +566,10 @@ impl MonitorsView {
             let bw = (max_x - min_x).max(1.);
             let bh = (max_y - min_y).max(1.);
             let avail_w = (desk.width.as_f32() - DESK_PAD * 2.).max(80.);
-            let avail_h = (desk.height.as_f32() - DESK_HEAD_H - DESK_PAD * 2.).max(60.);
+            let avail_h = (desk.height.as_f32() - DESK_PAD * 2.).max(60.);
             let scale = ((avail_w / bw).min(avail_h / bh)).min(MAX_SCALE);
             let off_x = DESK_PAD + (avail_w - bw * scale) / 2.;
-            let off_y = DESK_HEAD_H + DESK_PAD + (avail_h - bh * scale) / 2.;
+            let off_y = DESK_PAD + (avail_h - bh * scale) / 2.;
             monitors
                 .iter()
                 .map(|m| {
@@ -632,36 +644,15 @@ impl MonitorsView {
                 // 内缩一个圆角半径：quad 绘制不受容器圆角裁剪
                 div().absolute().inset(px(12.)).child(dots),
             )
-            .child(self.toolbar(cx))
             .children(minis)
-            // 新显示器横幅（浮于画布顶，不挤压内容）
-            .children(state(cx).pending_new_monitor.then(|| {
-                h_flex()
+            // 重新检测浮在画布右上角（放在小像之后 = 顶层，不占布局高度）
+            .child(
+                div()
                     .absolute()
-                    .top(px(DESK_HEAD_H + 8.))
-                    .left(relative(0.5))
-                    .items_center()
-                    .gap_2()
-                    .px(px(14.))
-                    .py(px(7.))
-                    .rounded(px(8.))
-                    .bg(t.accent_soft)
-                    .shadow_md()
-                    .text_size(px(12.))
-                    .text_color(t.text1)
-                    .child(Icon::new(IconName::TriangleAlert).size_4())
-                    .child(super::strings::notice_new_monitor("DELL U2723QE"))
-                    .child(
-                        Button::new("go-assign")
-                            .label(BTN_GO_ASSIGN())
-                            .text()
-                            .with_size(KitSize::Small)
-                            .on_click(|_, window, cx| {
-                                super::shell::switch_tab(window, cx, super::shell::Tab::Library);
-                            }),
-                    )
-                    .into_any_element()
-            }))
+                    .top(px(10.))
+                    .right(px(10.))
+                    .child(Self::redetect_button()),
+            )
             // 空态：未检测到显示器
             .when(monitors.is_empty(), |d| {
                 d.child(
@@ -688,7 +679,6 @@ impl MonitorsView {
                                     crate::engine::enqueue(
                                         crate::engine::EngineAction::SyncMonitors,
                                     );
-                                    update(window, cx, |g| g.redetect());
                                     window.push_notification(
                                         Notification::info(TOAST_REDETECT()),
                                         cx,
@@ -765,35 +755,26 @@ impl MonitorsView {
             .border_color(t.hairline)
             .bg(t.surface)
             .child(
-                // 身份块：短名 + 主屏角标 + 分辨率 / EDID 备注
-                v_flex()
-                    .gap(px(3.))
+                // 身份块：短名 + 主屏角标 + 分辨率（单行；EDID 备注行已删——
+                // 用户反馈冗余，配置保留/自动恢复是沉默行为，不需要常驻说明）
+                h_flex()
                     .min_w_0()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_size(px(14.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(t.text1)
-                                    .child(m.name.to_string()),
-                            )
-                            .child(badge(m.short.as_ref(), m.is_main, cx))
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .font_features(tabular())
-                                    .text_color(t.text2)
-                                    .child(m.label.to_string()),
-                            ),
-                    )
+                    .items_center()
+                    .gap_2()
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(14.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.text1)
+                            .child(m.name.to_string()),
+                    )
+                    .child(badge(m.short.as_ref(), m.is_main, cx))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_features(tabular())
                             .text_color(t.text2)
-                            .child(EDID_NOTE_SHORT()),
+                            .child(m.label.to_string()),
                     ),
             )
             .child(

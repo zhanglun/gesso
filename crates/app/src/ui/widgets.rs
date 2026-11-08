@@ -21,6 +21,7 @@ pub fn tabular() -> FontFeatures {
 }
 
 /// 角标（§3：10-11px 大写，hairline 描边胶囊；WE 角标 accent 描边）。
+/// flex_none = 原型 .badge{flex:none}：挤在截断的长名旁时不被压扁、描边完整。
 pub fn badge(label: &str, accent: bool, cx: &App) -> gpui_kit::gpui::AnyElement {
     let t = tokens(cx);
     let (fg, border) = if accent {
@@ -29,6 +30,7 @@ pub fn badge(label: &str, accent: bool, cx: &App) -> gpui_kit::gpui::AnyElement 
         (t.text2, t.hairline)
     };
     div()
+        .flex_none()
         .px_1()
         .text_size(px(10.))
         .line_height(px(16.))
@@ -253,10 +255,13 @@ pub fn set_row(
 
 /// Select 的行内槽位。kit 的 Select 根节点是 `size_full`：放进定高行（min_h +
 /// items_center）会撑满整行高，而触发器在其内部贴顶排布，控件整体不再随行居中
-/// （§4.5 表单行标签与控件错位）。槽位宽度撑满剩余行宽、高度塌缩到触发器自身，
-/// 行级 items_center 对槽位整体居中。
+/// （§4.5 表单行标签与控件错位）。槽位高度塌缩到触发器自身，行级 items_center
+/// 对槽位整体居中。
+/// 宽度 = 自然宽（w_auto，2026-11-08）：kit Select 自身无默认宽度（根节点
+/// size_full），kit 自家设置表单同样不约束宽；此前 `w_full` 以整行宽为 flex
+/// 基准，下拉被拉伸到约半窗宽、与左侧标签各占一半，看着像 bug。
 pub fn select_slot(control: gpui_kit::gpui::AnyElement) -> gpui_kit::gpui::AnyElement {
-    div().w_full().child(control).into_any_element()
+    div().w_auto().child(control).into_any_element()
 }
 
 /// 空状态插画位（简线风格：虚线圆角框 + 图标）。

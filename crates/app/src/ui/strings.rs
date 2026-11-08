@@ -55,10 +55,9 @@ pub struct Texts {
 
     // 显示器页
     pub btn_redetect: &'static str,
-    pub monitor_hover_note: &'static str,
+    pub tip_redetect: &'static str,
     pub st_select_wallpaper: &'static str,
     pub monitors_empty_title: &'static str,
-    pub edid_note_short: &'static str,
     pub btn_change: &'static str,
     pub btn_pause: &'static str,
     pub btn_resume: &'static str,
@@ -67,7 +66,6 @@ pub struct Texts {
     pub st_fullscreen: &'static str,
     pub st_battery: &'static str,
     pub st_unassigned: &'static str,
-    pub btn_go_assign: &'static str,
     pub toast_redetect: &'static str,
     pub toast_change_hint: &'static str,
     /// 库页横幅取消按钮（「为选屏挑壁纸」流程，复用 URL 导入的「取消」语义）。
@@ -212,7 +210,7 @@ pub const ZH: Texts = Texts {
     filter_all: "全部",
     filter_we: "WE",
 
-    hint_library: "双击设为当前目标屏（默认主屏） · 拖入文件导入 · 拖拽卡片到「显示器」页指派",
+    hint_library: "双击卡片设为壁纸 · 拖入文件导入",
     empty_library_title: "桌面还没动起来",
     empty_library_desc: "把第一张壁纸拖进来",
     btn_import_file: "导入文件",
@@ -308,11 +306,10 @@ pub const ZH: Texts = Texts {
     update_copied: "已复制",
     update_btn_retry: "重试",
 
-    btn_redetect: "重新检测",
-    monitor_hover_note: "悬停库卡片时，对应显示器会亮起 · 点击屏选中，下方控制",
+    btn_redetect: "重新检测显示器",
+    tip_redetect: "显示器接上或拔掉后，这里没跟着更新？点一下重新识别",
     st_select_wallpaper: "选择壁纸",
     monitors_empty_title: "未检测到显示器",
-    edid_note_short: "优先使用硬件标识 · 配置随显示器保留，重新接入自动恢复",
     btn_change: "更换",
     btn_pause: "暂停",
     btn_resume: "恢复",
@@ -321,7 +318,6 @@ pub const ZH: Texts = Texts {
     st_fullscreen: "全屏应用中",
     st_battery: "电池省电",
     st_unassigned: "未指派",
-    btn_go_assign: "去指派",
     toast_redetect: "已重新检测显示器",
     toast_change_hint: "在壁纸库双击即指派到该屏",
     btn_pick_cancel: "取消",
@@ -374,7 +370,7 @@ pub const EN: Texts = Texts {
     filter_all: "All",
     filter_we: "WE",
 
-    hint_library: "Double-click to assign to the current target display (main by default) · Drop a file to import · Drag a card to the Displays tab to assign",
+    hint_library: "Double-click to set as wallpaper · Drop files to import",
     empty_library_title: "Your desktop is still static",
     empty_library_desc: "Drop in your first wallpaper",
     btn_import_file: "Import file",
@@ -470,11 +466,10 @@ pub const EN: Texts = Texts {
     update_btn_retry: "Retry",
 
 
-    btn_redetect: "Redetect",
-    monitor_hover_note: "Hovering a library card highlights its display · Click a display to select and control it below",
+    btn_redetect: "Rescan displays",
+    tip_redetect: "Display connected or removed but not showing up here? Rescan",
     st_select_wallpaper: "Choose wallpaper",
     monitors_empty_title: "No displays detected",
-    edid_note_short: "Hardware ID when available · restores on reconnect",
     btn_change: "Change",
     btn_pause: "Pause",
     btn_resume: "Resume",
@@ -483,7 +478,6 @@ pub const EN: Texts = Texts {
     st_fullscreen: "Fullscreen app active",
     st_battery: "Battery saver",
     st_unassigned: "Unassigned",
-    btn_go_assign: "Assign",
     toast_redetect: "Displays redetected",
     toast_change_hint: "Double-click a wallpaper in the library to assign it to this display",
     btn_pick_cancel: "Cancel",
@@ -629,13 +623,13 @@ accessors! {
     update_btn_install => UPD_BTN_INSTALL, update_btn_reveal => UPD_BTN_REVEAL,
     update_btn_close => UPD_BTN_CLOSE, update_btn_retry => UPD_BTN_RETRY,
     update_copy_error => UPD_COPY_ERROR, update_copied => UPD_COPIED,
-    btn_redetect => BTN_REDETECT, monitor_hover_note => MONITOR_HOVER_NOTE,
+    btn_redetect => BTN_REDETECT, tip_redetect => TIP_REDETECT,
     st_select_wallpaper => ST_SELECT_WALLPAPER, monitors_empty_title => MONITORS_EMPTY_TITLE,
-    edid_note_short => EDID_NOTE_SHORT, btn_change => BTN_CHANGE,
+    btn_change => BTN_CHANGE,
     btn_pause => BTN_PAUSE, btn_resume => BTN_RESUME,
     st_playing => ST_PLAYING, st_paused => ST_PAUSED, st_fullscreen => ST_FULLSCREEN,
     st_battery => ST_BATTERY, st_unassigned => ST_UNASSIGNED,
-    btn_go_assign => BTN_GO_ASSIGN, toast_redetect => TOAST_REDETECT, toast_change_hint => TOAST_CHANGE_HINT,
+    toast_redetect => TOAST_REDETECT, toast_change_hint => TOAST_CHANGE_HINT,
     btn_pick_cancel => BTN_PICK_CANCEL,
     group_perf => GROUP_PERF, group_startup => GROUP_STARTUP, group_linkage => GROUP_LINKAGE,
     group_experimental => GROUP_EXPERIMENTAL, group_advanced => GROUP_ADVANCED,
@@ -807,14 +801,6 @@ pub fn toast_url_imported(title: &str) -> String {
         format!("Queued web page \"{title}\" — importing")
     } else {
         format!("已加入「{title}」，正在导入")
-    }
-}
-
-pub fn notice_new_monitor(name: &str) -> String {
-    if LANG.load(Ordering::Relaxed) == 1 {
-        format!("New display detected: {name}")
-    } else {
-        format!("检测到新显示器「{name}」")
     }
 }
 

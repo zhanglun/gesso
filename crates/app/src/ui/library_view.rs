@@ -196,6 +196,7 @@ impl LibraryView {
         };
 
         let badges = h_flex()
+            .flex_none()
             .gap_1()
             .child(badge(item.kind.label(), false, cx))
             .when(item.we, |r| r.child(badge(BADGE_WE(), true, cx)))
@@ -331,7 +332,10 @@ impl LibraryView {
                     .flex()
                     .flex_col()
                     .justify_center()
-                    .gap_1()
+                    // 原型 .info gap:1px——gpui 默认行高是 φ×字号，行内自带余量，
+                    // gap 再给 4px 会把固定 56px 的信息条压得两行互挤（tag 顶边框
+                    // 曾被名称行的 overflow_hidden 裁掉）
+                    .gap(px(1.))
                     .child(
                         div()
                             .absolute()
@@ -343,9 +347,10 @@ impl LibraryView {
                             .bg(indicator_color),
                     )
                     .child(
+                        // 不设 overflow_hidden（原型 .row1 同）：截断职责在名称自己的
+                        // truncate 上，行级裁剪会把 tag 的 1px 描边一起吃掉
                         h_flex()
                             .gap(px(6.))
-                            .overflow_hidden()
                             .child(
                                 div()
                                     .flex_1()
@@ -392,10 +397,13 @@ impl LibraryView {
             .id("library-grid")
             .flex_1()
             .overflow_y_scroll()
-            .py_4()
+            .pt_4()
             .px(px(14.))
             .min_h_0()
-            .child(div().flex().flex_wrap().gap(px(14.)).children(cards))
+            // 底距放在内容层而非滚动容器：滚到底时容器自身的 padding-bottom
+            // 可能不在滚动范围内，末行会直接贴住状态条；内容层内边距随内容
+            // 滚动恒可见（大小与左右 14 一致）
+            .child(div().flex().flex_wrap().gap(px(14.)).pb(px(14.)).children(cards))
             // 拖入文件 = 同一导入路径（§4.3 交互表；gpui 把 FileDrop 翻译成 ExternalPaths 载荷）
             .drag_over::<gpui_kit::gpui::ExternalPaths>(move |s, _, _, _| {
                 s.border_color(grid_accent).rounded(px(8.))
@@ -558,21 +566,19 @@ impl Render for LibraryView {
         let statusbar = self.statusbar(cx);
         let overlay = self.drag_overlay(cx);
         v_flex()
+            // 覆盖层锚点：拖卡片时的全屏投放区盖住整页（含工具条/状态条）
+            .relative()
             .size_full()
+            // min_h_0 必须有：size_full = 壳层全高（含顶栏），靠 flex 收缩回到剩余
+            // 空间；而收缩下限 = min-content，会被滚动网格的内容高度撑过窗口高
+            //（实测：状态条被顶出窗口、末行贴窗口底），min_h_0 解除收缩限制——
+            // 显示器/设置页同理
+            .min_h_0()
             .text_color(t.text1)
             .child(toolbar)
-            .child(
-                // .flex() 必须有：滚动容器的 flex_1/min_h_0 只在 flex 父级里生效，
-                // 普通块级父级下高度被内容撑开 → 永不产生溢出（库页不能滚动的根因）
-                div()
-                    .flex_1()
-                    .flex()
-                    .relative()
-                    .min_h_0()
-                    .child(grid)
-                    .when_some(overlay, |d, o| d.child(o)),
-            )
+            .child(grid)
             .child(statusbar)
+            .when_some(overlay, |d, o| d.child(o))
     }
 }
 

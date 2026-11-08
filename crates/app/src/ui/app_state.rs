@@ -50,8 +50,6 @@ pub struct GessoState {
     pub hover_frame: usize,
     /// 悬停预载阶段：帧序列尚未全部就绪，卡片显示 spinner 覆盖层
     pub hover_preloading: bool,
-    /// 「检测到新显示器」提示条可见性。
-    pub pending_new_monitor: bool,
     /// 顶栏手动主题切换后的模式提示（None = 跟随系统）。
     pub import_counter: usize,
     /// 状态条红字（不支持类型等原因说明，§4.3 拖入文件交互）。
@@ -83,7 +81,6 @@ impl Default for GessoState {
             hovered: None,
             hover_frame: 0,
             hover_preloading: false,
-            pending_new_monitor: false,
             import_counter: 0,
             status_error: None,
             update: UpdateView::default(),
@@ -106,9 +103,12 @@ pub fn update(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut GessoState)
 
 impl GessoState {
     /// 筛选 + 搜索后的库条目下标（标题/标签模糊匹配，即时过滤）。
+    /// 展示序 = 插入时间倒序：清单 insert 恒为尾部追加（插入序 = 时间序），
+    /// 反转后最新入库的卡片排最前，导入后第一眼可见。
     pub fn visible_items(&self) -> Vec<usize> {
         let q = self.query.to_lowercase();
-        self.library
+        let mut idx: Vec<usize> = self
+            .library
             .iter()
             .enumerate()
             .filter(|(_, w)| {
@@ -123,7 +123,9 @@ impl GessoState {
                 kind_ok && query_ok
             })
             .map(|(i, _)| i)
-            .collect()
+            .collect();
+        idx.reverse();
+        idx
     }
 
     /// 指派（§3.6 set_wallpaper 语义）：该屏旧壁纸置为未指派；失效素材拒绝指派。
@@ -168,11 +170,6 @@ impl GessoState {
                 PlayState::UserPaused
             };
         }
-    }
-
-    /// 重新检测（演示：揭示「检测到新显示器」提示条）。
-    pub fn redetect(&mut self) {
-        self.pending_new_monitor = true;
     }
 
     /// 主显示器下标（枚举序不保证主屏在前，按 is_main 定位；找不到回落 0）。
@@ -476,6 +473,21 @@ mod tests {
         assert_ne!(idx, g.main_monitor(), "流程内双击应指派到副屏而非主屏");
         g.assign(idx, "w1").unwrap();
         assert_eq!(g.monitors[idx].wallpaper, Some("w1".into()));
+    }
+
+    /// 展示序 = 插入时间倒序：库 Vec 按清单插入序存放（尾部追加 = 时间正序），
+    /// visible_items 反转后最新入库排最前（2026-11-08 用户要求）。
+    #[test]
+    fn visible_items_lists_newest_first() {
+        let g = g_state(
+            vec![],
+            vec![item("old", false), item("mid", false), item("new", false)],
+        );
+        assert_eq!(g.visible_items(), vec![2, 1, 0]);
+        // 移除不打乱相对序
+        let mut g = g;
+        g.remove("mid");
+        assert_eq!(g.visible_items(), vec![1, 0]);
     }
 
     /// 指派动作裁决：演示 / 非引擎条目不入队；目标屏缺失如实报错（此前
