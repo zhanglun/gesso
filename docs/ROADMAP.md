@@ -8,7 +8,7 @@
 - ✅ Windows 壁纸窗口：WorkerW 挂载、Explorer 重启自愈、PMv2 DPI 和原生视频呈现已落地。
 - ✅ 内容类型：视频、静态/动图图片、Shader、HTML，以及用户主动导入的 WE `video` / `web` 项目。
 - ✅ 运行时：事件驱动显示器重配收敛、全屏/电源/锁屏/空闲策略、光标/时间桥、填充模式和应用内更新。
-- ✅ 锁屏快照同步（Windows 专属）：设置页「联动（实验）」opt-in，官方 LockScreen API，封面帧入库时预生成；macOS 无公开 API，整条链路编译期 no-op（见设计规格 §4.8 与技术方案 §9）。
+- ✅ 锁屏快照同步（Windows 专属）：设置页「联动（实验）」opt-in，官方 LockScreen API，封面帧入库时预生成；macOS 无公开 API，整条链路编译期 no-op（见设计规格 §4.8 与技术方案 §9；macOS 候选路线已调查，见技术方案 §10）。
 - ✅ 桌面过渡：运行时不写系统桌面；几何过时窗口由 Gesso 自己的 AppKit 静帧过渡窗覆盖；旧版系统桌面桥接帧只在启动时清理。
 - ✅ 发布：`v0.1.3` 已通过 GitHub Actions 生成 macOS DMG、Windows 安装包、便携包和校验文件；更新器本地化修复与 Windows 代理修复在后续维护提交中继续验证。
 
