@@ -674,18 +674,15 @@ pub fn hint_picking(target: &str) -> String {
     }
 }
 
-// ── 锁屏快照（§4.8）：仅 Windows 调用点存在，macOS 构建不编译这些访问器 ──
-#[cfg(target_os = "windows")]
+// ── 锁屏快照（§4.8/§4.8.1）：双平台共用 ──
 pub fn lockscreen_sync_label() -> &'static str {
     t().lockscreen_sync_label
 }
 
-#[cfg(target_os = "windows")]
 pub fn lockscreen_sync_desc() -> &'static str {
     t().lockscreen_sync_desc
 }
 
-#[cfg(target_os = "windows")]
 pub fn lockscreen_unavailable() -> &'static str {
     t().lockscreen_unavailable
 }

@@ -399,9 +399,8 @@ impl Render for SettingsView {
                 cx,
             ));
         }
-        // 锁屏快照同步（§4.8，Windows 专属）：能力探测完成前不渲染（避免闪烁）；
-        // 不可用（WinRT 缺失/组策略）时只渲染说明行——Switch 无置灰态，藏比装死诚实
-        #[cfg(target_os = "windows")]
+        // 锁屏快照同步（§4.8/§4.8.1，双平台）：能力探测完成前不渲染（避免闪烁）；
+        // 不可用时只渲染说明行——Switch 无置灰态，藏比装死诚实
         {
             use super::strings;
             if crate::lockscreen::available() {

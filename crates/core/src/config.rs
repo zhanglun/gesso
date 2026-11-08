@@ -26,8 +26,9 @@ pub struct Settings {
     pub language: Language,
     /// 自动检查更新（启动后与每 24h 静默检查 GitHub Releases；手动检查不受此开关约束）。
     pub update_check: bool,
-    /// 锁屏快照同步（§4.8，Windows 专属，默认关）：打开后锁屏显示主屏壁纸静态帧，
-    /// 关闭/恢复系统壁纸/退出时恢复打开前的锁屏设置。
+    /// 锁屏快照同步（§4.8，默认关）：打开后锁屏显示主屏壁纸封面帧
+    /// （Windows 写锁屏表面 / macOS 写桌面壁纸层），
+    /// 关闭/恢复系统壁纸/退出时恢复打开前的状态。
     pub lockscreen_sync: bool,
 }
 
@@ -88,10 +89,14 @@ pub struct AppConfig {
     /// 判定。不放进 [`Settings`]——设置页「重置全部设置」与 UpdateSettings 均
     /// 只写 settings 子结构，不应让首启指派重放。
     pub initialized: bool,
-    /// 锁屏快照还原簿记（§4.8）：首次写入快照前记录的「打开前锁屏状态」。
+    /// 锁屏快照还原簿记（§4.8，Windows）：首次写入快照前记录的「打开前锁屏状态」。
     /// None = 尚未覆盖过（无需还原）；Some = 关闭/释放/退出时按此恢复。
     /// 不放进 [`Settings`]——重置设置不应弄丢还原凭据。
     pub lockscreen_backup: Option<LockScreenBackup>,
+    /// macOS 桌面壁纸还原簿记（§4.8.1）：首次把封面帧写上桌面壁纸层之前记录的
+    /// 原壁纸。语义同 [`Config::lockscreen_backup`]，平台不同簿记形态不同
+    /// （Windows 记锁屏模式+图片路径；macOS 记壁纸 URL+呈现选项）。
+    pub mac_lockscreen_backup: Option<MacLockScreenBackup>,
 }
 
 /// 打开快照模式前的锁屏状态（还原凭据，§4.8）。
@@ -101,6 +106,19 @@ pub struct LockScreenBackup {
     pub rotating: bool,
     /// 打开前的锁屏图片本地路径（聚焦模式下记录的是系统回退底图）。
     pub image_path: String,
+}
+
+/// macOS 打开快照模式前的桌面壁纸状态（还原凭据，§4.8.1）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MacLockScreenBackup {
+    /// 原桌面壁纸的 file:// URL（`NSWorkspace.desktopImageURL`）。
+    pub image_url: String,
+    /// 原缩放选项（`NSImageScaling` rawValue）；None = 未读到（还原时用默认）。
+    pub scaling: Option<i64>,
+    /// 原裁剪选项（allowClipping）。
+    pub allow_clipping: Option<bool>,
+    /// 原底色（calibrated RGB + alpha 四分量）；None = 未读到。
+    pub fill_color: Option<[f64; 4]>,
 }
 
 pub type MonitorFpsMap = BTreeMap<String, u8>;

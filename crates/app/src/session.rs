@@ -8,7 +8,8 @@
 use std::collections::BTreeMap;
 
 use gesso_core::{
-    config::LockScreenBackup, transfer, AppConfig, ContentSpec, Fit, LibraryEntry, PausePolicy,
+    config::{LockScreenBackup, MacLockScreenBackup}, transfer, AppConfig, ContentSpec, Fit,
+    LibraryEntry, PausePolicy,
     SessionEvent, SessionState, WallpaperKind,
 };
 
@@ -886,8 +887,9 @@ impl SessionManager {
         let _ = self.save_config();
     }
 
-    /// 主屏壁纸窗的原生句柄（锁屏快照 PrintWindow 兜底用，§4.8）。
+    /// 主屏壁纸窗的原生句柄（锁屏快照 PrintWindow 兜底用，§4.8，Windows）。
     /// 主屏无会话 / 窗口隐藏（收敛中）→ None，调用方稍后重试。
+    #[allow(dead_code)] // macOS 构建不触达（同 lockscreen_backup 的平台面豁免）
     pub fn main_wallpaper_hwnd(&self) -> Option<isize> {
         let (_, s) = self
             .sessions
@@ -905,16 +907,33 @@ impl SessionManager {
             .map(|(_, s)| s.entry_id.clone())
     }
 
-    /// 锁屏还原簿记（§4.8）：Some = 首次写入前的原锁屏状态；None = 已还原/未覆盖。
+    /// 锁屏还原簿记（§4.8，Windows）：Some = 首次写入前的原锁屏状态；None = 已还原/未覆盖。
+    /// 主屏壁纸句柄同为 Windows 侧锁屏兜底所用——macOS 构建不触达，豁免 dead_code
+    /// （平台面而非死代码，同 WallpaperWindow trait 的处理）。
+    #[allow(dead_code)]
     pub fn lockscreen_backup(&self) -> Option<LockScreenBackup> {
         self.config.lockscreen_backup.clone()
     }
 
+    #[allow(dead_code)] // macOS 构建不触达（同上，平台面豁免）
     pub fn record_lockscreen_backup(&mut self, backup: Option<LockScreenBackup>) {
         if self.config.lockscreen_backup == backup {
             return;
         }
         self.config.lockscreen_backup = backup;
+        let _ = self.save_config();
+    }
+
+    /// macOS 桌面壁纸还原簿记（§4.8.1）：语义同 [`Self::lockscreen_backup`]。
+    pub fn mac_lockscreen_backup(&self) -> Option<MacLockScreenBackup> {
+        self.config.mac_lockscreen_backup.clone()
+    }
+
+    pub fn record_mac_lockscreen_backup(&mut self, backup: Option<MacLockScreenBackup>) {
+        if self.config.mac_lockscreen_backup == backup {
+            return;
+        }
+        self.config.mac_lockscreen_backup = backup;
         let _ = self.save_config();
     }
 

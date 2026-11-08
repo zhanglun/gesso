@@ -131,10 +131,26 @@ pub fn extract_frames(source_dir: &str) -> ThumbOutcome {
 /// 原子写：先 .tmp 再 rename，`existing_frames` 的连续性判定不会数进半截文件。
 #[cfg(target_os = "macos")]
 pub fn write_png(image: &objc2::rc::Retained<objc2_core_graphics::CGImage>, path: &Path) -> bool {
-    let Some(uti) = ffi::cf_string("public.png") else {
+    write_image(image, path, "public.png", "png.tmp")
+}
+
+/// 封面帧写 JPEG（§4.8.1）：与 [`write_png`] 同管线，UTI 换 `public.jpeg`。
+#[cfg(target_os = "macos")]
+pub fn write_jpeg(image: &objc2::rc::Retained<objc2_core_graphics::CGImage>, path: &Path) -> bool {
+    write_image(image, path, "public.jpeg", "jpg.tmp")
+}
+
+#[cfg(target_os = "macos")]
+fn write_image(
+    image: &objc2::rc::Retained<objc2_core_graphics::CGImage>,
+    path: &Path,
+    uti_str: &str,
+    tmp_ext: &str,
+) -> bool {
+    let Some(uti) = ffi::cf_string(uti_str) else {
         return false;
     };
-    let tmp = path.with_extension("png.tmp");
+    let tmp = path.with_extension(tmp_ext);
     let ok = ffi::write_png_to_file(image, &tmp, uti);
     ffi::cf_release(uti);
     if ok && std::fs::rename(&tmp, path).is_ok() {

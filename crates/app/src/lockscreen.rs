@@ -1,24 +1,30 @@
-//! 锁屏快照同步（设计规格 §4.8 / 技术方案 §9）：Windows 专属，opt-in，默认关。
+//! 锁屏快照同步（设计规格 §4.8/§4.8.1 / 技术方案 §9/§10）：opt-in，默认关。
 //!
 //! 打开后，锁屏显示当前壁纸的「封面帧」——入库时按主屏分辨率生成的固定帧
-//! （`thumb_home/poster.jpg|.png`；jpg/png 静图直接引用主文件），经官方
-//! `Windows.System.UserProfile.LockScreen` API 贴上锁屏。即指即得，零抓帧。
-//! 兜底：旧条目/封面缺失时，活窗 PrintWindow 抓一帧（存为该条目的应用缓存
-//! `config_dir/lockscreen/<entry_id>.png`，下次直接用）。关闭开关 / 托盘
-//! 「恢复系统壁纸」/ 退出时，恢复打开前的锁屏设置（模式 + 图片路径，记在
-//! `config.lockscreen_backup`）。
+//! （`thumb_home/poster.jpg|.png`；jpg/png 静图直接引用主文件）。即指即得，
+//! 零抓帧。
+//!
+//! - **Windows**：官方 `Windows.System.UserProfile.LockScreen` API 写独立锁屏
+//!   表面。兜底：旧条目/封面缺失时，活窗 PrintWindow 抓一帧（存为该条目的
+//!   应用缓存 `config_dir/lockscreen/<entry_id>.png`，下次直接用）。真活儿在
+//!   专职后台线程（WinRT 阻塞等待），主循环 tick 只做纳秒级原子检查 + 回灌。
+//! - **macOS（§4.8.1 路线 B）**：锁屏跟随桌面壁纸，把封面帧写上**被钉窗盖住的
+//!   桌面壁纸层**（官方 `NSWorkspace` API，一次性低频写；实测 1–3s 生效）。
+//!   NSWorkspace 是主线程 API 且单次调用毫秒级 IPC——全部内联在主循环 tick
+//!   执行，无后台线程。无活窗兜底抓帧（封面缺失等存量补齐，重试窗口 30s）。
+//!
+//! 关闭开关 / 托盘「恢复系统壁纸」/ 退出时，恢复打开前的状态（Windows 记
+//! 锁屏模式+图片路径；macOS 记原壁纸 URL+呈现选项，分列 `config.json` 两簿记）。
 //!
 //! 纪律（与 2026-10-13 桌面桥接被砍的结构对照）：
-//! - 一次性后台写，**不进任何交互路径**（写入由主循环 150ms 拍消费到期任务，
-//!   真活儿在专职后台线程；主线程只做纳秒级的原子检查）；
-//! - **不写系统桌面**——锁屏图是独立 OS 表面；
-//! - 能力（WinRT 缺失 / 组策略）启动探测一次，失败即静默停用；运行期单次写
-//!   入失败只落日志，下次指派照常（无状态机）。
-//!
-//! macOS 全为 no-op：锁屏跟随桌面壁纸，而桌面壁纸代理正是桌面桥接被砍的病根。
+//! - 一次性后台写，**不进任何交互路径**（防抖 1s + 写入前复查开关）；
+//! - Windows 不写系统桌面——锁屏图是独立 OS 表面；macOS 写的桌面层被钉窗
+//!   盖住、四路还原（ROADMAP「明确不做」豁免注记）；
+//! - 能力启动探测一次，失败即静默停用；运行期单次写入失败只落日志，下次
+//!   指派照常（无状态机）。
 
-// 跨平台 Clippy 的死代码豁免同 74996ee 先例（macOS 侧公共签名保留为 no-op）。
-#![cfg_attr(not(target_os = "windows"), allow(dead_code))]
+// 非 Windows/非 macOS 平台的公共签名保留为 no-op（死代码豁免同 74996ee 先例）。
+#![cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -37,9 +43,322 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-// ── macOS / 非 Windows：全部 no-op ─────────────────────────────────────
+// ── macOS 实现（§4.8.1 路线 B）：封面帧写桌面壁纸层，主线程内联 ──────────
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+mod imp {
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
+
+    use gesso_core::WallpaperKind;
+    use gesso_core::config::MacLockScreenBackup;
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::{
+        NSColor, NSScreen, NSWorkspace, NSWorkspaceDesktopImageAllowClippingKey,
+        NSWorkspaceDesktopImageFillColorKey, NSWorkspaceDesktopImageScalingKey,
+    };
+    use objc2_foundation::{NSDictionary, MainThreadMarker, NSNumber, NSString, NSURL};
+
+    use super::{now_ms, DEBOUNCE, MAX_RETRY, RETRY_DELAY};
+    use crate::session::SessionManager;
+
+    /// 壁纸呈现选项字典（键类型 = NSString 别名，值混型）。
+    type OptionsDict = NSDictionary<NSString, AnyObject>;
+
+    /// 同步到期时刻（epoch ms；0 = 无待办）。
+    static DUE_MS: AtomicU64 = AtomicU64::new(0);
+    static RETRIES: AtomicU32 = AtomicU32::new(0);
+    /// 即时应用诉求（开关打开）：贴现成封面帧，不抓帧。
+    static APPLY_ONLY: AtomicBool = AtomicBool::new(false);
+    static RESTORE_PENDING: AtomicBool = AtomicBool::new(false);
+    /// 能力探测：0 = 未探测，1 = 可用，2 = 不可用（开关置灰依据）。
+    static AVAIL: AtomicU8 = AtomicU8::new(0);
+
+    pub fn available() -> bool {
+        AVAIL.load(Ordering::Acquire) == 1
+    }
+
+    /// 探测是否已完成（未完成期间设置页不渲染开关行，避免闪烁）。
+    pub fn probed() -> bool {
+        AVAIL.load(Ordering::Acquire) != 0
+    }
+
+    /// 启动探测（主线程，bootstrap 调用）：NSWorkspace 桌面读写全系统可用，
+    /// 读一次桌面 URL 即完成——无需 Windows 侧的后台类激活测试。
+    pub fn probe_async() {
+        let ok = MainThreadMarker::new()
+            .and_then(|_| desktop_image_url())
+            .is_some();
+        AVAIL.store(if ok { 1 } else { 2 }, Ordering::Release);
+        println!("[lockscreen] 能力探测：{ok}");
+    }
+
+    pub fn schedule_sync() {
+        RETRIES.store(0, Ordering::Relaxed);
+        DUE_MS.store(now_ms() + DEBOUNCE.as_millis() as u64, Ordering::Release);
+    }
+
+    /// 开关打开的即时应用（用户直接动作）：封面现成 → 直接贴上，亚秒级生效。
+    pub fn schedule_sync_immediate() {
+        APPLY_ONLY.store(true, Ordering::Release);
+    }
+
+    pub fn schedule_restore() {
+        RESTORE_PENDING.store(true, Ordering::Release);
+    }
+
+    /// 条目移除：macOS 封面帧在条目自身目录（随条目一并删除），无独立应用缓存。
+    pub fn discard(_entry_id: &str) {}
+
+    /// 主循环每拍调用（主线程）。NSWorkspace 读写必须在主线程，而单次调用是
+    /// 毫秒级 IPC（写入经壁纸代理异步生效，实测 1–3s）——直接内联执行，无需
+    /// Windows 侧的后台线程 + 簿记回灌结构。
+    pub fn tick(sm: &mut SessionManager) {
+        // 还原优先（用户关闭开关 / 释放）
+        if RESTORE_PENDING.swap(false, Ordering::AcqRel) {
+            run_restore(sm);
+            return;
+        }
+        // 即时应用（开关打开）
+        if APPLY_ONLY.swap(false, Ordering::AcqRel) {
+            if !sm.config().settings.lockscreen_sync {
+                return;
+            }
+            if !apply_poster(sm) {
+                // 封面缺失：兜底路径（防抖全量同步，main 侧同时排了队）随后重试
+                println!("[lockscreen] 即时应用未就绪（封面缺失/会话未就绪）");
+            }
+            return;
+        }
+        // 防抖全量同步：到期 + 开关仍开 + 能力可用
+        let due = DUE_MS.load(Ordering::Acquire);
+        if due == 0 || now_ms() < due {
+            return;
+        }
+        if !sm.config().settings.lockscreen_sync || !available() {
+            DUE_MS.store(0, Ordering::Release);
+            RETRIES.store(0, Ordering::Relaxed);
+            return;
+        }
+        if apply_poster(sm) {
+            DUE_MS.store(0, Ordering::Release);
+            RETRIES.store(0, Ordering::Relaxed);
+        } else {
+            retry_or_drop();
+        }
+    }
+
+    /// 重试或放弃：未超限则重排下一拍，超限放弃本轮（下次指派重来）。
+    fn retry_or_drop() {
+        if RETRIES.fetch_add(1, Ordering::Relaxed) + 1 >= MAX_RETRY {
+            println!("[lockscreen] 封面持续未就绪，本轮放弃（下次指派重来）");
+            DUE_MS.store(0, Ordering::Release);
+            RETRIES.store(0, Ordering::Relaxed);
+        } else {
+            DUE_MS.store(now_ms() + RETRY_DELAY.as_millis() as u64, Ordering::Release);
+        }
+    }
+
+    /// 当前主屏壁纸的可用封面：导入生成的 poster → jpg/png 静图主文件直出。
+    /// 都无 = None（等存量补齐；macOS 无 Windows 侧的活窗兜底抓帧）。
+    fn poster_path(sm: &SessionManager, entry_id: &str) -> Option<PathBuf> {
+        let entry = sm.library().iter().find(|e| e.id == entry_id)?.clone();
+        let home = crate::encoding::thumb_home(&entry);
+        for name in ["poster.jpg", "poster.png"] {
+            let p = Path::new(&home).join(name);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        // jpg/png 静图：主文件即封面（导入时不生成，直接引用，零拷贝）
+        if entry.kind == WallpaperKind::Image {
+            let main =
+                Path::new(&entry.source_dir).join(crate::encoding::entry_main_source(&entry));
+            let ext = main
+                .extension()
+                .and_then(|x| x.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(ext.as_str(), "jpg" | "jpeg" | "png") && main.is_file() {
+                return Some(main);
+            }
+        }
+        None
+    }
+
+    /// 应用封面到桌面壁纸层（锁屏跟随）。首次写入前读取并记录原壁纸簿记。
+    fn apply_poster(sm: &mut SessionManager) -> bool {
+        let Some(entry_id) = sm.main_wallpaper_entry_id() else {
+            return false; // 主屏会话未就绪
+        };
+        let Some(poster) = poster_path(sm, &entry_id) else {
+            return false; // 封面缺失（存量补齐中/生成失败）
+        };
+        // 簇记必须先于首次写入读取（记录的是「打开前」状态）
+        if sm.mac_lockscreen_backup().is_none() {
+            match read_desktop_state() {
+                Some(b) => {
+                    println!("[lockscreen] 备份簿记落盘（{}）", b.image_url);
+                    sm.record_mac_lockscreen_backup(Some(b));
+                }
+                None => println!("[lockscreen] 原壁纸状态读取失败，跳过簿记（仍写入）"),
+            }
+        }
+        if set_desktop_image(&poster) {
+            println!("[lockscreen] 封面已应用（{}）", poster.display());
+            true
+        } else {
+            println!("[lockscreen] 封面应用失败：{}", poster.display());
+            false
+        }
+    }
+
+    /// 退出路径的还原（Quit 动作内联调用；主线程，毫秒级）。
+    pub fn restore_best_effort(sm: &mut SessionManager) {
+        if sm.mac_lockscreen_backup().is_none() {
+            return;
+        }
+        println!("[lockscreen] 退出还原（best-effort）");
+        run_restore(sm);
+    }
+
+    /// 恢复打开前的桌面壁纸（URL + 呈现选项照原样写回），清簿记。
+    fn run_restore(sm: &mut SessionManager) {
+        DUE_MS.store(0, Ordering::Release);
+        RETRIES.store(0, Ordering::Relaxed);
+        let Some(b) = sm.mac_lockscreen_backup() else {
+            return; // 无簿记 = 未覆盖过，无需还原
+        };
+        if set_desktop_url(&b) {
+            println!("[lockscreen] 已恢复打开前的桌面壁纸");
+        } else {
+            println!("[lockscreen] 原壁纸写回失败（{}）", b.image_url);
+        }
+        sm.record_mac_lockscreen_backup(None);
+    }
+
+    // ── NSWorkspace 原子操作（全部主线程）────────────────────────────────
+
+    /// 当前主屏桌面壁纸状态（URL + 呈现选项）。读不到 = None（不做备份）。
+    fn read_desktop_state() -> Option<MacLockScreenBackup> {
+        let mtm = MainThreadMarker::new()?;
+        let screen = main_screen(&mtm)?;
+        let ws = NSWorkspace::sharedWorkspace();
+        let url = ws.desktopImageURLForScreen(&screen)?;
+        let options = ws.desktopImageOptionsForScreen(&screen);
+        // 选项逐项提取（dict 值为混型 AnyObject，键常量已知直接取）
+        let get_num = |key: &'static NSString| -> Option<i64> {
+            let obj = options.as_ref()?.objectForKey(key)?;
+            let num: Retained<NSNumber> = obj.downcast().ok()?;
+            Some(num.as_isize() as i64)
+        };
+        let get_bool = |key: &'static NSString| -> Option<bool> {
+            let obj = options.as_ref()?.objectForKey(key)?;
+            let num: Retained<NSNumber> = obj.downcast().ok()?;
+            Some(num.as_bool())
+        };
+        let fill_color = options.as_ref().and_then(|d| {
+            let obj = d.objectForKey(unsafe { NSWorkspaceDesktopImageFillColorKey })?;
+            let color: Retained<NSColor> = obj.downcast().ok()?;
+            let (r, g, bl, a) = (
+                color.redComponent(),
+                color.greenComponent(),
+                color.blueComponent(),
+                color.alphaComponent(),
+            );
+            Some([r, g, bl, a])
+        });
+        Some(MacLockScreenBackup {
+            image_url: url.absoluteString()?.to_string(),
+            scaling: get_num(unsafe { NSWorkspaceDesktopImageScalingKey }),
+            allow_clipping: get_bool(unsafe { NSWorkspaceDesktopImageAllowClippingKey }),
+            fill_color,
+        })
+    }
+
+    /// 应用本地文件到桌面壁纸层（默认选项——与 spike 实测一致，OS 落自己的呈现默认）。
+    fn set_desktop_image(path: &Path) -> bool {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_string_lossy().as_ref()));
+        apply_desktop_url(&url, None)
+    }
+
+    /// 按簿记写回原壁纸（含原缩放/裁剪/底色选项）。
+    fn set_desktop_url(b: &MacLockScreenBackup) -> bool {
+        let Some(url) = NSURL::URLWithString(&NSString::from_str(&b.image_url)) else {
+            return false;
+        };
+        apply_desktop_url(&url, Some(b))
+    }
+
+    /// 写桌面壁纸本体：backup = None 用默认呈现；Some(簿记) 按原选项写回。
+    fn apply_desktop_url(url: &NSURL, backup: Option<&MacLockScreenBackup>) -> bool {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return false;
+        };
+        let Some(screen) = main_screen(&mtm) else {
+            return false;
+        };
+        let ws = NSWorkspace::sharedWorkspace();
+        // options 参数非可空：无簿记时传空 dict（= 默认呈现，与 spike 传 [:] 一致）
+        let options: Retained<OptionsDict> =
+            backup.map(build_options_dict).unwrap_or_default();
+        let result = unsafe {
+            ws.setDesktopImageURL_forScreen_options_error(url, &screen, &options)
+        };
+        if let Err(e) = &result {
+            println!(
+                "[lockscreen] NSWorkspace 错误：{}",
+                e.localizedDescription()
+            );
+        }
+        result.is_ok()
+    }
+
+    /// 按簿记重建呈现选项 dict（键 = NSWorkspace 官方常量；各项 None 时跳过，
+    /// OS 落默认）。NSNumber/NSColor 沿 into_super 链上转为字典的值类型。
+    fn build_options_dict(b: &MacLockScreenBackup) -> Retained<OptionsDict> {
+        let mut keys: Vec<&'static NSString> = Vec::new();
+        let mut objs: Vec<Retained<AnyObject>> = Vec::new();
+        if let Some(scaling) = b.scaling {
+            keys.push(unsafe { NSWorkspaceDesktopImageScalingKey });
+            objs.push(NSNumber::new_isize(scaling as isize).into_super().into());
+        }
+        if let Some(clipping) = b.allow_clipping {
+            keys.push(unsafe { NSWorkspaceDesktopImageAllowClippingKey });
+            objs.push(NSNumber::new_bool(clipping).into_super().into());
+        }
+        if let Some([r, g, bl, a]) = b.fill_color {
+            keys.push(unsafe { NSWorkspaceDesktopImageFillColorKey });
+            objs.push(
+                NSColor::colorWithCalibratedRed_green_blue_alpha(r, g, bl, a)
+                    .into_super()
+                    .into(),
+            );
+        }
+        let val_refs: Vec<&AnyObject> = objs.iter().map(|o| &**o).collect();
+        NSDictionary::from_slices(&keys, &val_refs)
+    }
+
+    fn main_screen(mtm: &MainThreadMarker) -> Option<Retained<NSScreen>> {
+        NSScreen::mainScreen(*mtm)
+    }
+
+    fn desktop_image_url() -> Option<String> {
+        let mtm = MainThreadMarker::new()?;
+        let screen = main_screen(&mtm)?;
+        let ws = NSWorkspace::sharedWorkspace();
+        let url = ws.desktopImageURLForScreen(&screen)?;
+        Some(url.absoluteString()?.to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub use imp::*;
+
+// ── 其他平台：全部 no-op ────────────────────────────────────────────────
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 mod imp {
     use super::SessionManager;
 
@@ -55,7 +374,7 @@ mod imp {
     pub fn restore_best_effort(_sm: &mut SessionManager) {}
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub use imp::*;
 
 // ── Windows 实现 ───────────────────────────────────────────────────────

@@ -154,9 +154,8 @@ fn spawn_capture_job(cx: &mut gpui_kit::gpui::AsyncApp, dir: String, kind: Wallp
     .detach();
 }
 
-/// 封面帧生成（§4.8，Windows）：与缩略图同一条主线程串行纪律（并发多 webview
+/// 封面帧生成（§4.8/§4.8.1）：与缩略图同一条主线程串行纪律（并发多 webview
 /// 是崩溃放大器），独立队列不与 640×360 缩略图采集抢窗口。
-#[cfg(target_os = "windows")]
 fn spawn_poster_job(cx: &mut gpui_kit::gpui::AsyncApp, job: capture::PosterJob) {
     use std::sync::atomic::Ordering;
     // 同目录去重：导入入队 + 启动补齐可能撞车，重活只留一个
@@ -192,7 +191,8 @@ fn spawn_poster_job(cx: &mut gpui_kit::gpui::AsyncApp, job: capture::PosterJob) 
             let ok = match url {
                 Some(url) => {
                     let bg = cx.background_executor().clone();
-                    capture_win::capture_poster(&bg, url, job.kind, &out, job.size).await
+                    capture::capture_poster(bg, url, job.source_dir.clone(), job.kind, &out, job.size)
+                        .await
                 }
                 None => false,
             };
@@ -370,13 +370,15 @@ fn bootstrap() -> (session::SessionManager, bool) {
 
     let mut sm = session::SessionManager::new(config, library);
     sm.sync_monitors();
-    // 锁屏快照（§4.8）：能力探测 + 开机若开关已开则补一次快照（后台，主线程零开销）
-    #[cfg(target_os = "windows")]
-    {
-        lockscreen::probe_async();
-        if sm.config().settings.lockscreen_sync {
-            lockscreen::schedule_sync();
-        }
+    // 锁屏快照（§4.8/§4.8.1）：能力探测 + 按开关状态补排任务（防抖在模块内）。
+    // macOS 附加启动清理：上次异常退出可能在桌面壁纸层残留封面帧——开关已关
+    // 则按簿记恢复原壁纸（开关仍开则随后的正常同步覆盖，无需清理）。
+    lockscreen::probe_async();
+    if sm.config().settings.lockscreen_sync {
+        lockscreen::schedule_sync();
+    } else if sm.mac_lockscreen_backup().is_some() {
+        println!("[boot] 检测到残留锁屏快照簿记，恢复原壁纸");
+        lockscreen::schedule_restore();
     }
 
     // 旧版本残留清理：旧版带桌面接管的版本若硬杀退出，桌面可能还设着
@@ -597,9 +599,8 @@ fn map_policy(p: gesso_core::PausePolicy) -> ui::data::SuspendPolicy {
     }
 }
 
-/// 封面帧任务（§4.8，Windows）：需要生成的类型入队；jpg/png 静图直接引用
+/// 封面帧任务（§4.8/§4.8.1）：需要生成的类型入队；jpg/png 静图直接引用
 /// 主文件（锁屏原生支持），无需生成。
-#[cfg(target_os = "windows")]
 fn poster_job_for(e: &gesso_core::LibraryEntry) -> Option<capture::PosterJob> {
     if e.kind == WallpaperKind::Image {
         let src = encoding::entry_main_source(e);
@@ -614,6 +615,7 @@ fn poster_job_for(e: &gesso_core::LibraryEntry) -> Option<capture::PosterJob> {
     }
     Some(capture::PosterJob {
         dir: encoding::thumb_home(e),
+        source_dir: e.source_dir.clone(),
         kind: e.kind,
         size: poster_size(),
     })
@@ -639,9 +641,30 @@ fn poster_size() -> (i32, i32) {
     }
 }
 
+/// macOS：frame 是 AppKit 点，乘 backingScale 得物理像素（上限 4K 同 Windows）。
+#[cfg(target_os = "macos")]
+fn poster_size() -> (i32, i32) {
+    use objc2_foundation::MainThreadMarker;
+    let Some(mtm) = MainThreadMarker::new() else {
+        return (1920, 1080);
+    };
+    let Some(screen) = objc2_app_kit::NSScreen::mainScreen(mtm) else {
+        return (1920, 1080);
+    };
+    let frame = screen.frame();
+    let scale = screen.backingScaleFactor();
+    let (w, h) = (frame.size.width * scale, frame.size.height * scale);
+    let (w, h) = (w.max(1.0) as i32, h.max(1.0) as i32);
+    if w <= 3840 {
+        (w, h)
+    } else {
+        let h = (i64::from(h) * 3840 / i64::from(w)) as i32;
+        (3840, h.max(1))
+    }
+}
+
 /// 存量库封面帧补齐（§4.8）：缺封面的条目全部入队，已指派的排前面
 /// （锁屏马上要用），jpg/png 静图（主文件直出）跳过。
-#[cfg(target_os = "windows")]
 fn collect_missing_posters(sm: &session::SessionManager) -> Vec<capture::PosterJob> {
     let assigned: std::collections::BTreeSet<&str> =
         sm.config().monitors.values().map(|s| s.as_str()).collect();
@@ -669,6 +692,7 @@ fn collect_missing_posters(sm: &session::SessionManager) -> Vec<capture::PosterJ
         if assigned.contains(e.id.as_str()) {
             jobs.push(capture::PosterJob {
                 dir: home,
+                source_dir: e.source_dir.clone(),
                 kind: e.kind,
                 size: poster_size(),
             });
@@ -679,6 +703,7 @@ fn collect_missing_posters(sm: &session::SessionManager) -> Vec<capture::PosterJ
     for e in pending {
         jobs.push(capture::PosterJob {
             dir: encoding::thumb_home(e),
+            source_dir: e.source_dir.clone(),
             kind: e.kind,
             size: poster_size(),
         });
@@ -713,8 +738,7 @@ fn kind_art(kind: WallpaperKind) -> ui::data::Art {
 struct ActionOutcome {
     /// 导入后待生成缩略图的条目（Extract/Capture；Direct 不入列）。
     pending_thumbs: Vec<(String, WallpaperKind)>,
-    /// 封面帧生成任务（§4.8，Windows）：导入后入队，主线程串行消化。
-    #[cfg(target_os = "windows")]
+    /// 封面帧生成任务（§4.8/§4.8.1）：导入后入队，主线程串行消化。
     poster_jobs: Vec<capture::PosterJob>,
     /// 请求激活/重建主管理窗口（需 window/cx，不能在纯动作处理里完成）。
     focus_main: bool,
@@ -854,10 +878,9 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             //（运行时不接管系统桌面，无需恢复动作；重新指派即可再上壁纸）。
             let n = app.sm.release_all();
             #[cfg(target_os = "windows")]
-            {
-                pin::windows::restore_desktop();
-                lockscreen::schedule_restore(); // 锁屏一并恢复打开前的设置（§4.8）
-            }
+            pin::windows::restore_desktop();
+            // 锁屏一并恢复打开前的设置（§4.8/§4.8.1，双平台）
+            lockscreen::schedule_restore();
             println!("[ui] 恢复系统壁纸：{n} 个壁纸会话已释放，桌面即系统壁纸");
         }
         engine::EngineAction::Import { path } => {
@@ -883,7 +906,6 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                 if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
                     out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
                 }
-                #[cfg(target_os = "windows")]
                 if let Some(job) = poster_job_for(&e) {
                     out.poster_jobs.push(job);
                 }
@@ -899,7 +921,6 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
                     if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
                         out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
                     }
-                    #[cfg(target_os = "windows")]
                     if let Some(job) = poster_job_for(&e) {
                         out.poster_jobs.push(job);
                     }
@@ -929,8 +950,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         engine::EngineAction::Remove { entry_id } => {
             println!("[engine] 从库移除 {entry_id}");
             sm.remove_entry(&entry_id);
-            #[cfg(target_os = "windows")]
-            lockscreen::discard(&entry_id); // 清该条目的锁屏应用缓存
+            lockscreen::discard(&entry_id); // 清该条目的锁屏应用缓存（§4.8/§4.8.1）
         }
         engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
             println!("[engine] {monitor_id} fps = {fps}");
@@ -1410,7 +1430,6 @@ fn main() {
                     let engine_actions = engine::drain();
                     let mut refresh_ui = !engine_actions.is_empty();
                     let mut pending_thumbs: Vec<(String, WallpaperKind)> = Vec::new();
-                    #[cfg(target_os = "windows")]
                     let mut poster_jobs: Vec<capture::PosterJob> = Vec::new();
                     if !engine_actions.is_empty() {
                         let mut focus_main = false;
@@ -1432,7 +1451,6 @@ fn main() {
                                     );
                                 }
                                 pending_thumbs.extend(out.pending_thumbs);
-                                #[cfg(target_os = "windows")]
                                 poster_jobs.extend(out.poster_jobs);
                                 if out.focus_main {
                                     focus_main = true;
@@ -1475,11 +1493,9 @@ fn main() {
                         });
                         dispatch_thumb(cx, dir, kind);
                     }
-                    #[cfg(target_os = "windows")]
                     for job in poster_jobs {
                         spawn_poster_job(cx, job);
                     }
-                    #[cfg(target_os = "windows")]
                     if !poster_backfill_done && tick >= POSTER_BACKFILL_TICK {
                         poster_backfill_done = true;
                         let jobs = cx.update(|cx| {
