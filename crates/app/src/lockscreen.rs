@@ -122,7 +122,7 @@ mod imp {
         }
         // 即时应用（开关打开）
         if APPLY_ONLY.swap(false, Ordering::AcqRel) {
-            if !sm.config().settings.lockscreen_sync {
+            if !sm.config().settings.lockscreen_sync || !available() {
                 return;
             }
             if !apply_poster(sm) {
@@ -195,14 +195,18 @@ mod imp {
         let Some(poster) = poster_path(sm, &entry_id) else {
             return false; // 封面缺失（存量补齐中/生成失败）
         };
-        // 簇记必须先于首次写入读取（记录的是「打开前」状态）
+        // 簿记必须先于首次写入读取（记录的是「打开前」状态）；读不到就不写——
+        // 无还原凭据的写入 = 异常时无法收回的残留
         if sm.mac_lockscreen_backup().is_none() {
             match read_desktop_state() {
                 Some(b) => {
                     println!("[lockscreen] 备份簿记落盘（{}）", b.image_url);
                     sm.record_mac_lockscreen_backup(Some(b));
                 }
-                None => println!("[lockscreen] 原壁纸状态读取失败，跳过簿记（仍写入）"),
+                None => {
+                    println!("[lockscreen] 原壁纸状态读取失败，本轮不写入（稍后重试）");
+                    return false;
+                }
             }
         }
         if set_desktop_image(&poster) {
@@ -223,7 +227,8 @@ mod imp {
         run_restore(sm);
     }
 
-    /// 恢复打开前的桌面壁纸（URL + 呈现选项照原样写回），清簿记。
+    /// 恢复打开前的桌面壁纸（URL + 呈现选项照原样写回）。写回成功才清簿记——
+    /// 失败保留凭据，下次启动清理 / 下次还原重试（自愈）。
     fn run_restore(sm: &mut SessionManager) {
         DUE_MS.store(0, Ordering::Release);
         RETRIES.store(0, Ordering::Relaxed);
@@ -232,10 +237,10 @@ mod imp {
         };
         if set_desktop_url(&b) {
             println!("[lockscreen] 已恢复打开前的桌面壁纸");
+            sm.record_mac_lockscreen_backup(None);
         } else {
-            println!("[lockscreen] 原壁纸写回失败（{}）", b.image_url);
+            println!("[lockscreen] 原壁纸写回失败（{}），保留簿记待重试", b.image_url);
         }
-        sm.record_mac_lockscreen_backup(None);
     }
 
     // ── NSWorkspace 原子操作（全部主线程）────────────────────────────────

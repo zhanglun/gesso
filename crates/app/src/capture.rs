@@ -322,17 +322,33 @@ async fn poster_from_web(
         println!("[poster] 封面采集必须在主线程");
         return false;
     };
+    // 复用常驻采集窗（改尺寸 → 采集 → 还原尺寸 → 归还），**不做一次性建毁**：
+    // 快照 completion 超时后仍可能迟到，关闭窗口会让迟到的回调摸已释放层——
+    // 正是本模块纪律第 2 条记录的 SIGSEGV 模式；常驻窗永不关闭，天然免疫。
+    let cap = take_window(mtm);
     // 物理/2 逻辑尺寸：retina 快照 2x = 目标物理分辨率
-    let cap = build_capture_window(
-        mtm,
-        (size.0.max(1) as f64) / 2.0,
-        (size.1.max(1) as f64) / 2.0,
-    );
+    let w = (size.0.max(1) as f64) / 2.0;
+    let h = (size.1.max(1) as f64) / 2.0;
+    resize_capture_window(&cap, w, h);
     let ok = poster_capture_with(&cap, bg, url, out).await;
-    // 建毁：CaptureWindow 字段序 = 释放序（webview 先于 window）；快照 completion
-    // 已在上面收割（或超时放弃），无悬挂回调摸已释放对象的风险
-    drop(cap);
+    // 回中立页（同 capture_entry：宿主页 RAF/WebGL 循环不自停，常驻窗不能留活页）
+    let _ = cap.webview.load_url("about:blank");
+    resize_capture_window(&cap, CAP_W, CAP_H); // 缩略图任务按常量尺寸工作
+    put_window(cap);
     ok
+}
+
+/// 调整常驻采集窗与 webview 的逻辑尺寸（封面帧与缩略图共用一窗的换挡）。
+#[cfg(target_os = "macos")]
+fn resize_capture_window(cap: &CaptureWindow, w: f64, h: f64) {
+    cap.window.setFrame_display(
+        NSRect::new(objc2_foundation::NSPoint::new(0.0, 0.0), objc2_foundation::NSSize::new(w, h)),
+        true,
+    );
+    let _ = cap.webview.set_bounds(lb_wry::Rect {
+        size: lb_wry::dpi::Size::Logical(lb_wry::dpi::LogicalSize::new(w, h)),
+        position: lb_wry::dpi::Position::Logical(lb_wry::dpi::LogicalPosition::new(0., 0.)),
+    });
 }
 
 #[cfg(target_os = "macos")]
