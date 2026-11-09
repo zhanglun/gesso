@@ -1117,6 +1117,8 @@ fn signal_first_instance(suffix: &str) {
 
 /// 激活/重建主管理窗口（FocusMainWindow 副作用的兑现）。
 fn focus_or_reopen_main(cx: &mut gpui_kit::gpui::App) {
+    #[cfg(target_os = "macos")]
+    main_window_follow_active_space();
     let existing = MAIN_WINDOW.lock().ok().and_then(|g| *g);
     let mut activated = false;
     if let Some(h) = existing {
@@ -1162,6 +1164,22 @@ fn activate_main_window(handle: gpui_kit::AnyWindowHandle, cx: &mut gpui_kit::gp
             });
         },
     );
+}
+
+/// macOS：管理窗口跟随当前桌面（Space）。GPUI 不暴露 NSWindow，这里按窗口
+/// 标题从 NSApplication 枚举设置 MoveToActiveSpace——托盘「管理窗口…」激活时
+/// 窗口弹到用户此刻所在的桌面，而不是把用户拽到窗口所在的桌面。
+#[cfg(target_os = "macos")]
+fn main_window_follow_active_space() {
+    use objc2_app_kit::{NSApplication, NSWindowCollectionBehavior};
+    let Some(mtm) = objc2_foundation::MainThreadMarker::new() else {
+        return; // 非主线程（理论不达：托盘动作都在主线程）
+    };
+    for w in NSApplication::sharedApplication(mtm).windows().iter() {
+        if w.title().to_string() == "Gesso" {
+            w.setCollectionBehavior(NSWindowCollectionBehavior::MoveToActiveSpace);
+        }
+    }
 }
 
 fn apply_autostart(enable: bool) {
