@@ -55,10 +55,13 @@ mod imp {
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{
-        NSColor, NSScreen, NSWorkspace, NSWorkspaceDesktopImageAllowClippingKey,
-        NSWorkspaceDesktopImageFillColorKey, NSWorkspaceDesktopImageScalingKey,
+        NSColor, NSScreen, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
+        NSWorkspaceDesktopImageAllowClippingKey, NSWorkspaceDesktopImageFillColorKey,
+        NSWorkspaceDesktopImageScalingKey,
     };
-    use objc2_foundation::{NSDictionary, MainThreadMarker, NSNumber, NSString, NSURL};
+    use objc2_foundation::{
+        NSDictionary, MainThreadMarker, NSNotification, NSNumber, NSString, NSURL,
+    };
 
     use super::{now_ms, DEBOUNCE, MAX_RETRY, RETRY_DELAY};
     use crate::session::SessionManager;
@@ -72,6 +75,8 @@ mod imp {
     /// 即时应用诉求（开关打开）：贴现成封面帧，不抓帧。
     static APPLY_ONLY: AtomicBool = AtomicBool::new(false);
     static RESTORE_PENDING: AtomicBool = AtomicBool::new(false);
+    /// 桌面（Space）切换标志：通知块置位，tick 消费（通知可能在非主线程投递）。
+    static SPACE_CHANGED: AtomicBool = AtomicBool::new(false);
     /// 能力探测：0 = 未探测，1 = 可用，2 = 不可用（开关置灰依据）。
     static AVAIL: AtomicU8 = AtomicU8::new(0);
 
@@ -92,6 +97,27 @@ mod imp {
             .is_some();
         AVAIL.store(if ok { 1 } else { 2 }, Ordering::Release);
         println!("[lockscreen] 能力探测：{ok}");
+        install_space_watcher();
+    }
+
+    /// 监听桌面切换（NSWorkspace 官方通知）。macOS 壁纸按桌面各存一份：开关
+    /// 开着 → 每次切换给新桌面补封面帧（锁屏跟随）；开关关着但有簿记 → 清扫
+    /// 残留。观察者与进程同寿命（token 故意泄漏，无需注销路径）。
+    fn install_space_watcher() {
+        use block2::RcBlock;
+        let block = RcBlock::new(|_: std::ptr::NonNull<NSNotification>| {
+            SPACE_CHANGED.store(true, Ordering::Release);
+        });
+        let center = NSWorkspace::sharedWorkspace().notificationCenter();
+        let token = unsafe {
+            center.addObserverForName_object_queue_usingBlock(
+                Some(NSWorkspaceActiveSpaceDidChangeNotification),
+                None,
+                None, // 在投递线程直接执行（块内只置原子标志）
+                &block,
+            )
+        };
+        std::mem::forget(token);
     }
 
     pub fn schedule_sync() {
@@ -128,6 +154,15 @@ mod imp {
             if !apply_poster(sm) {
                 // 封面缺失：兜底路径（防抖全量同步，main 侧同时排了队）随后重试
                 println!("[lockscreen] 即时应用未就绪（封面缺失/会话未就绪）");
+            }
+            return;
+        }
+        // 桌面切换：开着 → 新桌面补封面帧（防抖）；关着但有簿记 → 清扫残留
+        if SPACE_CHANGED.swap(false, Ordering::AcqRel) {
+            if sm.config().settings.lockscreen_sync && available() {
+                schedule_sync();
+            } else if sm.mac_lockscreen_backup().is_some() {
+                run_restore(sm);
             }
             return;
         }
@@ -187,7 +222,23 @@ mod imp {
         None
     }
 
-    /// 应用封面到桌面壁纸层（锁屏跟随）。首次写入前读取并记录原壁纸簿记。
+    /// 把写入过的封面帧 URL 追加进簿记（去重）：还原时按这份清单换桌面逐个
+    /// 清扫。必须在写入成功后调用。
+    fn append_applied(sm: &mut SessionManager, poster: &Path) {
+        let mut b = match sm.mac_lockscreen_backup() {
+            Some(b) => b,
+            None => return, // 无簿记（理论不达：apply_poster 已先落簿记）
+        };
+        let url = file_url_string(poster);
+        if url.is_empty() || b.applied.contains(&url) {
+            return;
+        }
+        b.applied.push(url);
+        sm.record_mac_lockscreen_backup(Some(b));
+    }
+
+    /// 应用封面到桌面壁纸层（锁屏跟随）。首次写入前读取并记录原壁纸簿记；
+    /// 目标桌面已盖着同一张封面帧时跳过写入（桌面切换/重复指派不发无谓写入）。
     fn apply_poster(sm: &mut SessionManager) -> bool {
         let Some(entry_id) = sm.main_wallpaper_entry_id() else {
             return false; // 主屏会话未就绪
@@ -195,10 +246,11 @@ mod imp {
         let Some(poster) = poster_path(sm, &entry_id) else {
             return false; // 封面缺失（存量补齐中/生成失败）
         };
-        // 簿记必须先于首次写入读取（记录的是「打开前」状态）；读不到就不写——
-        // 无还原凭据的写入 = 异常时无法收回的残留
+        // 读当前桌面状态：首次写入落簿记（记录的是「打开前」状态，读不到就不写
+        // ——无还原凭据的写入 = 异常时无法收回的残留）；已有簿记则用于覆盖检测
+        let cur = read_desktop_state();
         if sm.mac_lockscreen_backup().is_none() {
-            match read_desktop_state() {
+            match cur {
                 Some(b) => {
                     println!("[lockscreen] 备份簿记落盘（{}）", b.image_url);
                     sm.record_mac_lockscreen_backup(Some(b));
@@ -208,9 +260,14 @@ mod imp {
                     return false;
                 }
             }
+        } else if cur.as_ref().map(|c| c.image_url.as_str())
+            == Some(file_url_string(&poster).as_str())
+        {
+            return true; // 已覆盖，跳过
         }
         if set_desktop_image(&poster) {
             println!("[lockscreen] 封面已应用（{}）", poster.display());
+            append_applied(sm, &poster);
             true
         } else {
             println!("[lockscreen] 封面应用失败：{}", poster.display());
@@ -218,7 +275,8 @@ mod imp {
         }
     }
 
-    /// 退出路径的还原（Quit 动作内联调用；主线程，毫秒级）。
+    /// 退出路径的还原（Quit 动作内联调用；主线程，毫秒级）。只还原当前桌面；
+    /// 清单未清空时保留簿记，下次启动的簿记清理继续扫其余桌面。
     pub fn restore_best_effort(sm: &mut SessionManager) {
         if sm.mac_lockscreen_backup().is_none() {
             return;
@@ -227,17 +285,35 @@ mod imp {
         run_restore(sm);
     }
 
-    /// 恢复打开前的桌面壁纸（URL + 呈现选项照原样写回）。写回成功才清簿记——
-    /// 失败保留凭据，下次启动清理 / 下次还原重试（自愈）。
+    /// 恢复打开前的桌面壁纸（URL + 呈现选项照原样写回）。只还原**被覆盖过的
+    /// 桌面**：当前桌面 URL 命中簿记「已写清单」才写回，写回后从清单划掉，
+    /// 清单空了才清簿记——清单非空时保留，桌面切换时逐桌面清扫（§4.8.1）。
+    /// 写回失败保留凭据，下次切换 / 下次启动重试（自愈）。
     fn run_restore(sm: &mut SessionManager) {
         DUE_MS.store(0, Ordering::Release);
         RETRIES.store(0, Ordering::Relaxed);
-        let Some(b) = sm.mac_lockscreen_backup() else {
+        let Some(mut b) = sm.mac_lockscreen_backup() else {
             return; // 无簿记 = 未覆盖过，无需还原
         };
+        let Some(pos) = read_desktop_state()
+            .and_then(|cur| b.applied.iter().position(|u| *u == cur.image_url))
+        else {
+            if !b.applied.is_empty() {
+                println!(
+                    "[lockscreen] 当前桌面无残留（簿记保留 {} 项，切桌面时继续清）",
+                    b.applied.len()
+                );
+            }
+            return;
+        };
         if set_desktop_url(&b) {
-            println!("[lockscreen] 已恢复打开前的桌面壁纸");
-            sm.record_mac_lockscreen_backup(None);
+            b.applied.remove(pos);
+            let done = b.applied.is_empty();
+            println!(
+                "[lockscreen] 已恢复该桌面的原壁纸{}",
+                if done { "（簿记清空）" } else { "（其余桌面切换时继续清扫）" }
+            );
+            sm.record_mac_lockscreen_backup(if done { None } else { Some(b) });
         } else {
             println!("[lockscreen] 原壁纸写回失败（{}），保留簿记待重试", b.image_url);
         }
@@ -279,7 +355,14 @@ mod imp {
             scaling: get_num(unsafe { NSWorkspaceDesktopImageScalingKey }),
             allow_clipping: get_bool(unsafe { NSWorkspaceDesktopImageAllowClippingKey }),
             fill_color,
+            applied: Vec::new(),
         })
+    }
+
+    /// 本地文件 → file:// URL 字符串（与 desktopImageURL 读回形态一致，簿记比对用）。
+    fn file_url_string(path: &Path) -> String {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_string_lossy().as_ref()));
+        url.absoluteString().map(|s| s.to_string()).unwrap_or_default()
     }
 
     /// 应用本地文件到桌面壁纸层（默认选项——与 spike 实测一致，OS 落自己的呈现默认）。

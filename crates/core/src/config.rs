@@ -119,6 +119,10 @@ pub struct MacLockScreenBackup {
     pub allow_clipping: Option<bool>,
     /// 原底色（calibrated RGB + alpha 四分量）；None = 未读到。
     pub fill_color: Option<[f64; 4]>,
+    /// 本轮覆盖已写入的桌面壁纸 file:// URL 清单（去重追加）。macOS 壁纸按
+    /// 桌面（Space）各存一份，还原按这份清单换桌面逐个写回清扫；空 = 没写过。
+    #[serde(default)]
+    pub applied: Vec<String>,
 }
 
 pub type MonitorFpsMap = BTreeMap<String, u8>;

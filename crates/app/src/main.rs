@@ -854,7 +854,9 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
         } => {
             println!("[ui] 指派 {entry_id} → {monitor_id}");
             sm.assign(&monitor_id, &entry_id);
-            // 指派收敛后更新锁屏快照（§4.8；防抖在 lockscreen 模块内）
+            // 锁屏快照（§4.8）：封面帧入库时已就绪，指派是用户主动动作 →
+            // 立即贴现成帧（亚秒级）；防抖全量同步兜底重复指派/收敛中的变化
+            lockscreen::schedule_sync_immediate();
             lockscreen::schedule_sync();
         }
         engine::EngineAction::PauseAll(p) => {
@@ -951,6 +953,11 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             println!("[engine] 从库移除 {entry_id}");
             sm.remove_entry(&entry_id);
             lockscreen::discard(&entry_id); // 清该条目的锁屏应用缓存（§4.8/§4.8.1）
+            // macOS：移除的是主屏壁纸（或移除后主屏已无壁纸）→ 桌面层封面帧按簿记还原（§4.8.1 四路还原）
+            #[cfg(target_os = "macos")]
+            if sm.main_wallpaper_entry_id().is_none_or(|id| id == entry_id) {
+                lockscreen::schedule_restore();
+            }
         }
         engine::EngineAction::SetMonitorFps { monitor_id, fps } => {
             println!("[engine] {monitor_id} fps = {fps}");
