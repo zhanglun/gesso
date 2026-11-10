@@ -925,10 +925,14 @@ impl SessionManager {
     }
 
     /// macOS 桌面壁纸还原簿记（§4.8.1）：语义同 [`Self::lockscreen_backup`]。
+    /// 调用方全部在 macOS 门控代码内，Windows 编译下是死代码（同
+    /// lockscreen_backup 的平台面豁免惯例）。
+    #[allow(dead_code)]
     pub fn mac_lockscreen_backup(&self) -> Option<MacLockScreenBackup> {
         self.config.mac_lockscreen_backup.clone()
     }
 
+    #[allow(dead_code)]
     pub fn record_mac_lockscreen_backup(&mut self, backup: Option<MacLockScreenBackup>) {
         if self.config.mac_lockscreen_backup == backup {
             return;
