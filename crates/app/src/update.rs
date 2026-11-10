@@ -653,6 +653,88 @@ pub fn pick_asset(assets: &[(String, u64, String)]) -> Option<(String, u64, Stri
     best.map(|(_, i)| assets[i].clone())
 }
 
+/* ---------- release notes markdown 子集（§4.7 2026-11-10） ---------- */
+
+/// 行内片段：`**粗体**` 成对切分，其余为普通文本。子集之外的行内标记
+/// （链接/表格等）整体按纯文本降级，不做进一步解析。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MdSpan {
+    Text(String),
+    Bold(String),
+}
+
+/// 块级元素：只支持发布说明模板实际用到的四种形态（§4.7 渲染规则）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MdBlock {
+    Heading { level: u8, spans: Vec<MdSpan> },
+    ListItem { spans: Vec<MdSpan> },
+    Paragraph { spans: Vec<MdSpan> },
+}
+
+/// release notes markdown 子集解析：`##`/`###` 标题、`-` 无序列表、段落、
+/// 行内 `**粗体**`。逐行独立解析（发布说明没有跨行语法）；未闭合的 `**`
+/// 连同标记按字面保留。空行只作分隔，不产生空块。
+pub fn parse_markdown_notes(text: &str) -> Vec<MdBlock> {
+    let mut blocks = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim_end();
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("### ") {
+            blocks.push(MdBlock::Heading {
+                level: 3,
+                spans: parse_inline(rest),
+            });
+        } else if let Some(rest) = line.strip_prefix("## ") {
+            blocks.push(MdBlock::Heading {
+                level: 2,
+                spans: parse_inline(rest),
+            });
+        } else if let Some(rest) = line.strip_prefix("- ") {
+            blocks.push(MdBlock::ListItem {
+                spans: parse_inline(rest),
+            });
+        } else {
+            blocks.push(MdBlock::Paragraph {
+                spans: parse_inline(line),
+            });
+        }
+    }
+    blocks
+}
+
+/// 行内解析：按 `**` 成对切分为 Text/Bold；尾部未闭合的 `**` 按字面文本收尾。
+fn parse_inline(line: &str) -> Vec<MdSpan> {
+    let mut spans = Vec::new();
+    let mut rest = line;
+    while let Some(start) = rest.find("**") {
+        if start > 0 {
+            spans.push(MdSpan::Text(rest[..start].to_string()));
+        }
+        let after = &rest[start + 2..];
+        match after.find("**") {
+            Some(end) => {
+                if end > 0 {
+                    spans.push(MdSpan::Bold(after[..end].to_string()));
+                }
+                rest = &after[end + 2..];
+            }
+            None => {
+                spans.push(MdSpan::Text(format!("**{after}")));
+                rest = "";
+            }
+        }
+    }
+    if !rest.is_empty() {
+        spans.push(MdSpan::Text(rest.to_string()));
+    }
+    if spans.is_empty() {
+        spans.push(MdSpan::Text(String::new()));
+    }
+    spans
+}
+
 /* ---------- 通知与交付 ---------- */
 
 /// 系统通知（best-effort，§4.7 通知第 1 层）：失败只留日志，不阻塞其余通知层。
@@ -985,6 +1067,79 @@ mod tests {
         }));
         assert_eq!(consume_available_toast().as_deref(), Some("0.3.0"));
         set(UpdateState::Idle);
+    }
+
+    #[test]
+    fn markdown_notes_subset_parse() {
+        let notes =
+            "## 主要变化\n\n- 新增**锁屏快照同步**（实验）\n- 修复副屏指派\n### 修复\n段落一行";
+        let blocks = parse_markdown_notes(notes);
+        assert_eq!(
+            blocks,
+            vec![
+                MdBlock::Heading {
+                    level: 2,
+                    spans: vec![MdSpan::Text("主要变化".into())]
+                },
+                MdBlock::ListItem {
+                    spans: vec![
+                        MdSpan::Text("新增".into()),
+                        MdSpan::Bold("锁屏快照同步".into()),
+                        MdSpan::Text("（实验）".into()),
+                    ]
+                },
+                MdBlock::ListItem {
+                    spans: vec![MdSpan::Text("修复副屏指派".into())]
+                },
+                MdBlock::Heading {
+                    level: 3,
+                    spans: vec![MdSpan::Text("修复".into())]
+                },
+                MdBlock::Paragraph {
+                    spans: vec![MdSpan::Text("段落一行".into())]
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_notes_degrades_unknown_marks() {
+        // 未闭合的 ** 按字面保留；子集外标记（链接/表格）整体按纯文本
+        let blocks = parse_markdown_notes("- 未闭合 **粗体\n| a | b |\n[链接](https://x)");
+        assert_eq!(
+            blocks,
+            vec![
+                MdBlock::ListItem {
+                    spans: vec![
+                        MdSpan::Text("未闭合 ".into()),
+                        MdSpan::Text("**粗体".into()),
+                    ]
+                },
+                MdBlock::Paragraph {
+                    spans: vec![MdSpan::Text("| a | b |".into())]
+                },
+                MdBlock::Paragraph {
+                    spans: vec![MdSpan::Text("[链接](https://x)".into())]
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_notes_empty_and_blank_lines() {
+        assert!(parse_markdown_notes("").is_empty());
+        assert!(parse_markdown_notes("\n\n  \n").is_empty());
+        assert_eq!(
+            parse_markdown_notes("a\n\nb"),
+            vec![
+                MdBlock::Paragraph {
+                    spans: vec![MdSpan::Text("a".into())]
+                },
+                MdBlock::Paragraph {
+                    spans: vec![MdSpan::Text("b".into())]
+                },
+            ]
+        );
     }
 
     #[test]

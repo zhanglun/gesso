@@ -13,16 +13,18 @@ use gpui_kit::component::progress::{Progress, ProgressCircle};
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _, Size};
 use gpui_kit::gpui::{
     div, px, size, AnyElement, App, AppContext as _, Bounds, ClipboardItem, Context, FocusHandle,
-    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, TitlebarOptions, Window, WindowBounds,
-    WindowOptions,
+    Focusable, Font, FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Pixels,
+    Render, SharedString, Size as WinSize, StatefulInteractiveElement as _, Styled, StyledText,
+    TextRun, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_kit::AnyWindowHandle;
+
+use crate::update::{MdBlock, MdSpan};
 
 use super::app_state::state;
 use super::data::UpdatePhase;
 use super::strings::*;
-use super::theme::tokens;
+use super::theme::{tokens, Tokens};
 
 /// 小窗句柄（已开则激活，避免叠窗；窗口被用户关闭后 GPUI 移除句柄 → 重建）。
 static UPDATE_WINDOW: Mutex<Option<AnyWindowHandle>> = Mutex::new(None);
@@ -31,12 +33,27 @@ pub struct UpdateModal {
     focus: FocusHandle,
     /// 「复制错误详情」点击后的短暂反馈态（1.6s 自动退回，同设置页重置确认的模式）
     copied: bool,
+    /// 上一次渲染时的更新阶段：变化才触发窗高调整，避免每帧 resize。
+    shown_phase: Option<UpdatePhase>,
 }
 
 impl Focusable for UpdateModal {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus.clone()
     }
+}
+
+/// 各状态的紧凑窗高（§4.7 2026-11-10）：正文两三行的态 ≈200px，
+/// 带 notes/错误面板的态更宽裕；宽度恒 460。
+fn phase_window_size(phase: UpdatePhase) -> WinSize<Pixels> {
+    let h = match phase {
+        UpdatePhase::Idle | UpdatePhase::Checking | UpdatePhase::UpToDate => px(190.),
+        UpdatePhase::Downloading => px(210.),
+        UpdatePhase::Ready => px(220.),
+        UpdatePhase::Available => px(300.),
+        UpdatePhase::Failed => px(260.),
+    };
+    size(px(460.), h)
 }
 
 /// 打开（或激活已打开的）更新小窗。托盘与设置页共用入口。
@@ -48,10 +65,12 @@ pub fn open(cx: &mut App) {
             return;
         }
     }
+    // 初建即按当前状态定高（Available/Ready 可跨窗存活，重开不总是 Idle）。
+    let phase = state(cx).update.phase;
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
             None,
-            size(px(460.), px(280.)),
+            phase_window_size(phase),
             cx,
         ))),
         titlebar: Some(TitlebarOptions {
@@ -70,6 +89,7 @@ pub fn open(cx: &mut App) {
             UpdateModal {
                 focus: cx.focus_handle(),
                 copied: false,
+                shown_phase: Some(phase),
             }
         })
     }) {
@@ -105,9 +125,17 @@ fn close(window: &mut Window) {
 }
 
 impl Render for UpdateModal {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = tokens(cx);
         let u = state(cx).update.clone();
+
+        // 状态切换时收紧/放开窗高（§4.7 2026-11-10）：defer 到本轮渲染后再 resize，
+        // 不在 framing 中途改窗口尺寸。
+        if self.shown_phase != Some(u.phase) {
+            self.shown_phase = Some(u.phase);
+            let target = phase_window_size(u.phase);
+            window.defer(cx, move |window, _| window.resize(target));
+        }
 
         let title = div()
             .text_size(px(15.))
@@ -153,18 +181,27 @@ impl Render for UpdateModal {
                         .child(update_found_title(&u.version))
                         .into_any_element(),
                 );
-                // release notes：限高滚动（NOTES：overflow_y_scroll 必须在 .id() 之后）
+                // release notes：markdown 子集渲染（§4.7 2026-11-10），flex_1 占满
+                // 剩余高度、限高滚动（NOTES：overflow_y_scroll 必须在 .id() 之后）
                 body.push(
                     div()
                         .id("upd-notes")
-                        .h(px(96.))
+                        .flex_1()
+                        .min_h(px(64.))
                         .overflow_y_scroll()
                         .text_size(px(12.))
                         .text_color(t.text2)
                         .child(if u.notes.is_empty() {
-                            SharedString::from(UPD_NOTES_EMPTY())
+                            div()
+                                .child(SharedString::from(UPD_NOTES_EMPTY()))
+                                .into_any_element()
                         } else {
-                            u.notes.clone()
+                            let font = window.text_style().font();
+                            let blocks = crate::update::parse_markdown_notes(&u.notes);
+                            v_flex()
+                                .gap_1()
+                                .children(md_blocks(&blocks, &font, &t))
+                                .into_any_element()
                         })
                         .into_any_element(),
                 );
@@ -389,17 +426,90 @@ impl Render for UpdateModal {
             }
         }
 
-        v_flex()
+        // Available 态的 notes 区已用 flex_1 占满剩余空间，不再需要底部弹性占位。
+        let mut layout = v_flex()
             .size_full()
             .bg(t.surface)
             .text_color(t.text1)
             .p(px(20.))
             .gap_3()
             .child(title)
-            .children(body)
-            .child(div().flex_1())
-            .child(h_flex().justify_end().gap_2().children(footer))
+            .children(body);
+        if u.phase != UpdatePhase::Available {
+            layout = layout.child(div().flex_1());
+        }
+        layout.child(h_flex().justify_end().gap_2().children(footer))
     }
+}
+
+/* ---------- release notes markdown 子集渲染（§4.7 2026-11-10） ---------- */
+
+fn md_blocks(blocks: &[MdBlock], font: &Font, t: &Tokens) -> Vec<AnyElement> {
+    blocks
+        .iter()
+        .map(|b| match b {
+            MdBlock::Heading { level, spans } => {
+                let size = if *level >= 3 { px(12.5) } else { px(13.5) };
+                div()
+                    .text_size(size)
+                    .text_color(t.text1)
+                    .child(md_line(spans, font, FontWeight::SEMIBOLD, t.text1))
+                    .into_any_element()
+            }
+            // 列表项：项目符号独立成格，正文在自身格内换行——换行自然悬挂对齐
+            MdBlock::ListItem { spans } => h_flex()
+                .pl(px(6.))
+                .gap_1()
+                .child(div().text_size(px(12.)).text_color(t.text2).child("•"))
+                .child(md_line(spans, font, FontWeight::NORMAL, t.text2))
+                .into_any_element(),
+            MdBlock::Paragraph { spans } => div()
+                .text_size(px(12.))
+                .text_color(t.text2)
+                .child(md_line(spans, font, FontWeight::NORMAL, t.text2))
+                .into_any_element(),
+        })
+        .collect()
+}
+
+/// 一行的片段 → 元素。有粗体片段走 `StyledText` + `TextRun` 逐段覆写字重
+/// （runs 的字体/颜色以字节长度分段；粗体片段自身不参与断行——发布说明的
+/// 粗体都是短词，可接受）；纯文本走普通 div，与既有文本管线一致。
+fn md_line(spans: &[MdSpan], font: &Font, base_weight: FontWeight, color: Hsla) -> AnyElement {
+    let joined: String = spans
+        .iter()
+        .map(|s| match s {
+            MdSpan::Text(s) | MdSpan::Bold(s) => s.as_str(),
+        })
+        .collect();
+    let has_bold = spans.iter().any(|s| matches!(s, MdSpan::Bold(_)));
+    if !has_bold {
+        return div()
+            .text_color(color)
+            .child(SharedString::from(joined))
+            .into_any_element();
+    }
+    let mut runs = Vec::new();
+    for span in spans {
+        let (s, bold) = match span {
+            MdSpan::Text(s) => (s, false),
+            MdSpan::Bold(s) => (s, true),
+        };
+        let mut f = font.clone();
+        f.weight = if bold { FontWeight::BOLD } else { base_weight };
+        runs.push(TextRun {
+            len: s.len(),
+            font: f,
+            color,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        });
+    }
+    div()
+        .text_color(color)
+        .child(StyledText::new(SharedString::from(joined)).with_runs(runs))
+        .into_any_element()
 }
 
 fn close_button() -> gpui_kit::gpui::AnyElement {
