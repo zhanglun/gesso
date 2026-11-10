@@ -844,9 +844,28 @@ fn build_tray(autostart_on: bool) -> tray_icon::TrayIcon {
     #[cfg(not(target_os = "macos"))]
     {
         tray_builder = tray_builder.with_icon(icon);
+        // Windows 左键单击直达主窗口、右键才弹菜单（§4.1 2026-11-10 修订；
+        // 点击事件经 install_tray_click_handler 路由）。macOS 菜单栏图标无右键
+        // 概念，保持默认单击弹菜单
+        tray_builder = tray_builder.with_menu_on_left_click(false);
     }
-    // 左/右键都弹菜单（§4.1，2026-10-03 决策：纯菜单形态）
     tray_builder.build().expect("托盘")
+}
+
+/// Windows 托盘左键单击 → 打开/激活管理主窗口（§4.1 2026-11-10 修订：
+/// 与菜单「管理窗口…」同一动作）。一次性注册；忽略 Down 态只认释放（Up）。
+#[cfg(target_os = "windows")]
+fn install_tray_click_handler() {
+    tray_icon::TrayIconEvent::set_event_handler(Some(|event: tray_icon::TrayIconEvent| {
+        if let tray_icon::TrayIconEvent::Click {
+            button: tray_icon::MouseButton::Left,
+            button_state: tray_icon::MouseButtonState::Up,
+            ..
+        } = event
+        {
+            engine::enqueue(engine::EngineAction::FocusMainWindow);
+        }
+    }));
 }
 
 /// 执行一条引擎动作：只改引擎状态 + 返回需延后的副作用。
@@ -1388,10 +1407,12 @@ fn main() {
                 &cx.global::<engine::AppState>().thumbs,
             ));
 
-            // 托盘（§4.1/§4.2）：左键 = 快速面板；右键 = 菜单。
-            // 事件处理器全局按 id 路由，一次注册即可；语言切换后主循环
-            // 用同一 build_tray 重建菜单（id 不变，处理逻辑无需重挂）。
+            // 托盘（§4.1/§4.2）：Windows 左键 = 直达主窗口、右键 = 菜单；
+            // macOS 单击 = 菜单。事件处理器全局按 id 路由，一次注册即可；
+            // 语言切换后主循环用同一 build_tray 重建菜单（id 不变，处理逻辑无需重挂）。
             install_tray_menu_handler();
+            #[cfg(target_os = "windows")]
+            install_tray_click_handler();
             let tray: &'static tray_icon::TrayIcon = Box::leak(Box::new(build_tray(autostart_on)));
 
             cx.spawn(async move |cx| {
