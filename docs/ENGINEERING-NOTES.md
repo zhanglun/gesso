@@ -13,7 +13,7 @@
 4. **提交前必须 `cargo check -p gesso-app` 通过**。UI 代码曾因从未编译积累 115 个错误。
 5. **类型知识与主资源发现只在单一事实源**：类型↔扩展名↔MIME↔缩略图策略查 `gesso_core::content`；主资源文件名走 `encoding::main_asset_name`，导入/失效判定/宿主页 spec 共用。四处各写一份“类型→扩展名”映射，就会出现“能导入但被判失效”或“宿主页请求错文件名”。
 6. **平台 FFI 的所有权不裸写**。ObjC 一律走 objc2 生成绑定（所有权编码在类型里：init/copy 家族 → `Retained<T>`，autoreleased 返回值由绑定内部 `objc_retainAutoreleasedReturnValue` 处理）；手写 extern 只留给纯 C API（CF 的 +1/CFRelease 对称即可，如 ImageIO `CGImageDestination`）。后台线程做 ObjC/AVFoundation 整段包 `objc2::rc::autoreleasepool`，并且只跑在有重试上限 + 在途去重的调度器后面（`thumb.rs` + `engine::ThumbScheduler` 是范本）。
-7. **判「此路不通」前先搜反例**。技术调查里某条路线判「不可行/死路」，证据必须是「有人试过且失败」（开源实证/实测），「没搜到怎么做」只能算「待查」，结论要标证据等级（实测/开源实证/检索未得）。2026-11-08 锁屏调查仅凭「Apple 无公开文档」把壁纸扩展判死路，漏掉了已公开半年的 Phosphene/Aerial 反例，误导后续决策（2026-11-09 复查修正，技术方案 §10.2）。
+7. **判「此路不通」前先搜反例**。技术调查里某条路线判「不可行/死路」，证据必须是「有人试过且失败」（开源实证/实测），「没搜到怎么做」只能算「待查」，结论要标证据等级（实测/开源实证/检索未得）。2026-11-08 锁屏调查仅凭「Apple 无公开文档」把壁纸扩展判死路，漏掉了已公开半年的 Phosphene/Aerial 反例，误导后续决策（2026-11-09 复查修正，调查详情存档 docs/archive/锁屏方案调查与路线A-M1-2026-11.md）。
 
 ## 2. 当前平台纪律
 

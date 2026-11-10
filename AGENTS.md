@@ -14,6 +14,7 @@ Gesso：跨平台（Windows/macOS）动态壁纸引擎——视频/动图/Shader
 3. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** —— 分层、窗口模型、贴壁参数、状态机。
 4. **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 当前进度与已知缺口。
 5. **[docs/design/](docs/design/)** —— 当前交互规格、视觉 token、可点击原型、技术方案和图表源；辅助图表不是改代码前必读材料。
+6. **[docs/archive/](docs/archive/)** —— 历史方案、旧版记录与可行性实验存档，不再作为事实源；除排查历史决策外不主动查阅。
 6. **[docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)** —— 发布操作清单与流水记录（产物不签名/不公证，流程已自动化）。
 
 ## 硬性规则（历史事故的浓缩，全文见工程笔记 §1–§2）
@@ -44,6 +45,7 @@ crates/core     纯领域逻辑（ContentSpec/配置/库/状态机/content 内�
 crates/app      应用：
   ├─ pin/         平台贴壁层（macOS: AppKit；Windows: Win32 + WorkerW 挂载）——唯一允许碰原生窗口的模块
   ├─ session.rs   会话管理器（唯一编排者）
+  ├─ lockscreen.rs 锁屏快照同步（Windows LockScreen API / macOS NSWorkspace 低频写；多桌面跟随与逐桌面还原；路线 A 视频扩展已搁置——见技术方案 §10）
   ├─ capture.rs   缩略图采集（macOS WKWebView 快照；Windows 走 capture_win.rs：webview 抽帧 + PrintWindow）
   ├─ build.rs     Windows exe 图标资源内嵌（winresource，ID 1；托盘/任务栏图标规格见 docs/design/DESIGN.md 品牌图形）
   ├─ thumb.rs     视频抽帧 + 缩略图策略调度

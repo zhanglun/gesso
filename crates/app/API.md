@@ -48,10 +48,14 @@ impl SessionManager {
     /// 设置更新（写内存 + 落盘；设置页全部即时生效）
     pub fn update_settings(&mut self, settings: Settings);
 
-    /// 锁屏还原簿记（§4.8，Windows）：Some = 快照写入前记录的原锁屏状态；
+    /// 锁屏还原簿记（§4.8/§4.8.1）：Some = 快照写入前记录的原状态
+    /// （Windows：模式+图片路径；macOS：原壁纸 URL+呈现选项+已写桌面清单）；
     /// None = 已还原。由 lockscreen 模块经主循环回灌，UI 不触碰。
     pub fn lockscreen_backup(&self) -> Option<LockScreenBackup>;
     pub fn record_lockscreen_backup(&mut self, backup: Option<LockScreenBackup>);
+    /// macOS 桌面壁纸还原簿记（原壁纸 URL/选项 + 已写桌面清单）
+    pub fn mac_lockscreen_backup(&self) -> Option<MacLockScreenBackup>;
+    pub fn record_mac_lockscreen_backup(&mut self, backup: Option<MacLockScreenBackup>);
     /// 主屏壁纸窗原生句柄（锁屏快照 PrintWindow 用；None = 主屏无可见会话）。
     pub fn main_wallpaper_hwnd(&self) -> Option<isize>;
 
@@ -97,15 +101,18 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
   - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `RestoreSystemWallpaper`（托盘「恢复系统壁纸」：释放全部显示器指派并拆除 Gesso 壁纸窗口）（另有引擎内部的 `ThumbsDone`，UI 不入队）
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
 
-## 4.1 锁屏快照子系统（§4.8，Windows 专属）
+## 4.1 锁屏快照子系统（§4.8/§4.8.1，双平台）
 
 `crates/app/src/lockscreen.rs`：设置开关 `Settings.lockscreen_sync`（默认关）走
-`UpdateSettings`，引擎在动作处理时对比新旧值触发 `schedule_sync` / `schedule_restore`；
-指派（Assign / CycleMain）自动追加 `schedule_sync`；托盘「恢复系统壁纸」追加
-`schedule_restore`；退出（Quit）内联阻塞还原。防抖 3s、主循环每拍消费、后台线程
-执行（PrintWindow 抓主屏壁纸窗 → PNG → `LockScreen::SetImageFileAsync`）；能力
-探测（WinRT 激活 + 组策略）启动一次，失败则设置页渲染说明行而非开关。UI 只读写
-`GessoState.settings.lockscreen_sync` 投影，不触碰模块全局。
+`UpdateSettings`，引擎在动作处理时对比新旧值触发即时应用 + `schedule_sync` /
+`schedule_restore`；指派（Assign）触发即时应用 + `schedule_sync`；多桌面切换
+（macOS）自动补写；托盘「恢复系统壁纸」追加 `schedule_restore`；退出（Quit）
+内联阻塞还原。防抖 1s、主循环每拍消费；Windows 在后台线程执行（PrintWindow
+抓主屏壁纸窗 → PNG → `LockScreen::SetImageFileAsync`）；macOS 主线程内联
+`NSWorkspace` 写入（多桌面切换自动补写，还原按簿记「已写清单」逐桌面清扫）。
+能力探测启动一次，失败则设置页渲染说明行而非开关。UI 只读写
+`GessoState.settings.lockscreen_sync` 投影，不触碰模块全局。路线 A（视频扩展，
+macOS 26+）已搁置，骨架在 `crates/app/swift/`（GESSO_APPX=1 才构建）。
 
 ## 4.1 类型与命令的单一事实源
 
