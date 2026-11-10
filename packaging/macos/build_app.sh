@@ -53,6 +53,17 @@ cp -R crates/app/assets/samples "$APP/Contents/Resources/assets/samples"
 # 链接器对裸二进制的 linker-signed 签名不覆盖 bundle 结构（Info.plist/Resources），
 # Gatekeeper 会以“签名结构无效”直接拒绝启动（表现为双击无反应/提示已损坏）。
 # 重签后走标准未公证流程：首次右键→打开即可。
+# 路线 A M1（技术方案 §10.6）：GESSO_APPX=1 时编译并嵌入壁纸扩展；默认关，
+# M3 验收后改默认开（半成品扩展若被用户从系统设置选中，桌面/锁屏是错误状态）。
+if [[ "${GESSO_APPX:-0}" == "1" ]]; then
+    packaging/macos/build_appx.sh "$APP"
+fi
+
+# LaunchServices 重注册：bundle 每次重组装（inode/签名变化），代理会缓存旧
+# 扩展路径（Phosphene 踩坑：重装后壁纸卡死/灰屏），重注册兜底。
+LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+"$LSREG" -f "$APP" >/dev/null
+
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP" || { echo "codesign verify 失败" >&2; exit 1; }
 
