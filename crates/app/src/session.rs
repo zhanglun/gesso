@@ -8,9 +8,9 @@
 use std::collections::BTreeMap;
 
 use gesso_core::{
-    config::{LockScreenBackup, MacLockScreenBackup}, transfer, AppConfig, ContentSpec, Fit,
-    LibraryEntry, PausePolicy,
-    SessionEvent, SessionState, WallpaperKind,
+    config::{LockScreenBackup, MacLockScreenBackup},
+    transfer, AppConfig, ContentSpec, Fit, LibraryEntry, PausePolicy, SessionEvent, SessionState,
+    WallpaperKind,
 };
 
 use crate::pin::{self, MonitorFrame, MonitorInfo, WallpaperWindow};

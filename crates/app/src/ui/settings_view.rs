@@ -212,22 +212,19 @@ impl SettingsView {
         let t = tokens(cx);
         v_flex()
             .child(
-                div()
-                    .px(px(18.))
-                    .py(px(14.))
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_size(px(13.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(t.text1)
-                                    .mb_1()
-                                    .child(title),
-                            )
-                            .children(rows),
-                    ),
+                div().px(px(18.)).py(px(14.)).child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.text1)
+                                .mb_1()
+                                .child(title),
+                        )
+                        .children(rows),
+                ),
             )
             // 分组分割线：不占满宽，左右与分组内容对齐各留 18px（§4.5 2026-11-08）
             .child(div().mx(px(18.)).h(px(1.)).bg(t.hairline))
@@ -562,7 +559,8 @@ impl Render for SettingsView {
             .flex_1()
             .overflow_y_scroll()
             .min_h_0()
-            .py_2()            .text_color(t.text1)
+            .py_2()
+            .text_color(t.text1)
             .child(self.group(div().child(GROUP_PERF()).into_any_element(), perf, cx))
             .child(self.group(
                 div().child(GROUP_STARTUP()).into_any_element(),

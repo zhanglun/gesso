@@ -131,7 +131,10 @@ fn build_capture_window(mtm: MainThreadMarker, w: f64, h: f64) -> CaptureWindow 
     window.setAlphaValue(0.02);
     window.setLevel(crate::pin::macos::PIN_LEVEL + 1);
     window.setFrame_display(
-        NSRect::new(objc2_foundation::NSPoint::new(0.0, 0.0), objc2_foundation::NSSize::new(w, h)),
+        NSRect::new(
+            objc2_foundation::NSPoint::new(0.0, 0.0),
+            objc2_foundation::NSSize::new(w, h),
+        ),
         true,
     );
     window.orderFrontRegardless();
@@ -297,7 +300,10 @@ fn poster_from_video(source_dir: &str, out: &Path, size: (i32, i32)) -> bool {
             // 同 extract_frames：后台有限次同步调用，deprecated 形态最简且正确
             #[allow(deprecated)]
             match unsafe {
-                gen.copyCGImageAtTime_actualTime_error(CMTime::with_seconds(0.0, 600), std::ptr::null_mut())
+                gen.copyCGImageAtTime_actualTime_error(
+                    CMTime::with_seconds(0.0, 600),
+                    std::ptr::null_mut(),
+                )
             } {
                 Ok(image) => image,
                 Err(e) => {
@@ -342,7 +348,10 @@ async fn poster_from_web(
 #[cfg(target_os = "macos")]
 fn resize_capture_window(cap: &CaptureWindow, w: f64, h: f64) {
     cap.window.setFrame_display(
-        NSRect::new(objc2_foundation::NSPoint::new(0.0, 0.0), objc2_foundation::NSSize::new(w, h)),
+        NSRect::new(
+            objc2_foundation::NSPoint::new(0.0, 0.0),
+            objc2_foundation::NSSize::new(w, h),
+        ),
         true,
     );
     let _ = cap.webview.set_bounds(lb_wry::Rect {
@@ -394,9 +403,9 @@ async fn poster_capture_with(
     let Some(image) = image else {
         return false;
     };
-    let Some(cg) = (unsafe {
-        image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
-    }) else {
+    let Some(cg) =
+        (unsafe { image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None) })
+    else {
         return false;
     };
     thumb::write_jpeg(&cg, out)

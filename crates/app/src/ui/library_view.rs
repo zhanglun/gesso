@@ -403,7 +403,14 @@ impl LibraryView {
             // 底距放在内容层而非滚动容器：滚到底时容器自身的 padding-bottom
             // 可能不在滚动范围内，末行会直接贴住状态条；内容层内边距随内容
             // 滚动恒可见（大小与左右 14 一致）
-            .child(div().flex().flex_wrap().gap(px(14.)).pb(px(14.)).children(cards))
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(14.))
+                    .pb(px(14.))
+                    .children(cards),
+            )
             // 拖入文件 = 同一导入路径（§4.3 交互表；gpui 把 FileDrop 翻译成 ExternalPaths 载荷）
             .drag_over::<gpui_kit::gpui::ExternalPaths>(move |s, _, _, _| {
                 s.border_color(grid_accent).rounded(px(8.))

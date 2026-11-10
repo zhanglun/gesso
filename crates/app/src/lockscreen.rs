@@ -50,8 +50,8 @@ mod imp {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 
-    use gesso_core::WallpaperKind;
     use gesso_core::config::MacLockScreenBackup;
+    use gesso_core::WallpaperKind;
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{
@@ -60,7 +60,7 @@ mod imp {
         NSWorkspaceDesktopImageScalingKey,
     };
     use objc2_foundation::{
-        NSDictionary, MainThreadMarker, NSNotification, NSNumber, NSString, NSURL,
+        MainThreadMarker, NSDictionary, NSNotification, NSNumber, NSString, NSURL,
     };
 
     use super::{now_ms, DEBOUNCE, MAX_RETRY, RETRY_DELAY};
@@ -295,8 +295,8 @@ mod imp {
         let Some(mut b) = sm.mac_lockscreen_backup() else {
             return; // 无簿记 = 未覆盖过，无需还原
         };
-        let Some(pos) = read_desktop_state()
-            .and_then(|cur| b.applied.iter().position(|u| *u == cur.image_url))
+        let Some(pos) =
+            read_desktop_state().and_then(|cur| b.applied.iter().position(|u| *u == cur.image_url))
         else {
             if !b.applied.is_empty() {
                 println!(
@@ -311,11 +311,18 @@ mod imp {
             let done = b.applied.is_empty();
             println!(
                 "[lockscreen] 已恢复该桌面的原壁纸{}",
-                if done { "（簿记清空）" } else { "（其余桌面切换时继续清扫）" }
+                if done {
+                    "（簿记清空）"
+                } else {
+                    "（其余桌面切换时继续清扫）"
+                }
             );
             sm.record_mac_lockscreen_backup(if done { None } else { Some(b) });
         } else {
-            println!("[lockscreen] 原壁纸写回失败（{}），保留簿记待重试", b.image_url);
+            println!(
+                "[lockscreen] 原壁纸写回失败（{}），保留簿记待重试",
+                b.image_url
+            );
         }
     }
 
@@ -362,7 +369,9 @@ mod imp {
     /// 本地文件 → file:// URL 字符串（与 desktopImageURL 读回形态一致，簿记比对用）。
     fn file_url_string(path: &Path) -> String {
         let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_string_lossy().as_ref()));
-        url.absoluteString().map(|s| s.to_string()).unwrap_or_default()
+        url.absoluteString()
+            .map(|s| s.to_string())
+            .unwrap_or_default()
     }
 
     /// 应用本地文件到桌面壁纸层（默认选项——与 spike 实测一致，OS 落自己的呈现默认）。
@@ -389,11 +398,9 @@ mod imp {
         };
         let ws = NSWorkspace::sharedWorkspace();
         // options 参数非可空：无簿记时传空 dict（= 默认呈现，与 spike 传 [:] 一致）
-        let options: Retained<OptionsDict> =
-            backup.map(build_options_dict).unwrap_or_default();
-        let result = unsafe {
-            ws.setDesktopImageURL_forScreen_options_error(url, &screen, &options)
-        };
+        let options: Retained<OptionsDict> = backup.map(build_options_dict).unwrap_or_default();
+        let result =
+            unsafe { ws.setDesktopImageURL_forScreen_options_error(url, &screen, &options) };
         if let Err(e) = &result {
             println!(
                 "[lockscreen] NSWorkspace 错误：{}",

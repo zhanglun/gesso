@@ -191,8 +191,15 @@ fn spawn_poster_job(cx: &mut gpui_kit::gpui::AsyncApp, job: capture::PosterJob) 
             let ok = match url {
                 Some(url) => {
                     let bg = cx.background_executor().clone();
-                    capture::capture_poster(bg, url, job.source_dir.clone(), job.kind, &out, job.size)
-                        .await
+                    capture::capture_poster(
+                        bg,
+                        url,
+                        job.source_dir.clone(),
+                        job.kind,
+                        &out,
+                        job.size,
+                    )
+                    .await
                 }
                 None => false,
             };
@@ -953,7 +960,7 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             println!("[engine] 从库移除 {entry_id}");
             sm.remove_entry(&entry_id);
             lockscreen::discard(&entry_id); // 清该条目的锁屏应用缓存（§4.8/§4.8.1）
-            // macOS：移除的是主屏壁纸（或移除后主屏已无壁纸）→ 桌面层封面帧按簿记还原（§4.8.1 四路还原）
+                                            // macOS：移除的是主屏壁纸（或移除后主屏已无壁纸）→ 桌面层封面帧按簿记还原（§4.8.1 四路还原）
             #[cfg(target_os = "macos")]
             if sm.main_wallpaper_entry_id().is_none_or(|id| id == entry_id) {
                 lockscreen::schedule_restore();

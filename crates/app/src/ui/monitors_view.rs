@@ -20,10 +20,10 @@ use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _, WindowExt as _};
 use gpui_kit::component::Size as KitSize;
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    canvas, div, linear_color_stop, linear_gradient, point, px, quad, rgb, size,
-    AnyElement, AppContext as _, BorderStyle, BorrowAppContext as _, BoxShadow, Bounds, Context,
-    Entity, FontWeight, InteractiveElement as _, IntoElement, ObjectFit, ParentElement, Pixels,
-    Render, SharedString, Size, StatefulInteractiveElement as _, Styled, Window,
+    canvas, div, linear_color_stop, linear_gradient, point, px, quad, rgb, size, AnyElement,
+    AppContext as _, BorderStyle, BorrowAppContext as _, Bounds, BoxShadow, Context, Entity,
+    FontWeight, InteractiveElement as _, IntoElement, ObjectFit, ParentElement, Pixels, Render,
+    SharedString, Size, StatefulInteractiveElement as _, Styled, Window,
 };
 
 use super::app_state::{state, update, CardDrag, GessoState};
@@ -54,8 +54,7 @@ const MINI_INNER_R: f32 = 8.;
 /// 此前 md→lg 两档在桌面上几乎不可辨，hover 等于没反馈（v1.1 反馈）。
 fn hover_lift() -> Vec<BoxShadow> {
     vec![
-        BoxShadow::new(px(0.), px(18.), gpui_kit::gpui::black().opacity(0.28))
-            .blur_radius(px(40.)),
+        BoxShadow::new(px(0.), px(18.), gpui_kit::gpui::black().opacity(0.28)).blur_radius(px(40.)),
         BoxShadow::new(px(0.), px(3.), gpui_kit::gpui::black().opacity(0.14)).blur_radius(px(8.)),
     ]
 }
@@ -466,7 +465,9 @@ impl MonitorsView {
             .when(assigned, |d| d.shadow_md())
             // 悬停/悬停指认 = 原型级投影抬升；选中指认 = 仅描边（常驻强投影太重）。
             // 未指派屏不抬升（见 shadow_none）
-            .when(glow_hover || (is_hovered && assigned), |d| d.shadow(hover_lift()))
+            .when(glow_hover || (is_hovered && assigned), |d| {
+                d.shadow(hover_lift())
+            })
             .when(!assigned, |d| d.border_dashed().bg(t.panel).shadow_none())
             .drag_over::<CardDrag>(move |s, _, _, _| {
                 s.border_color(dz_accent).border_dashed().bg(dz_accent_soft)
