@@ -129,6 +129,7 @@ pub struct Texts {
 
     // 托盘（构建时取启动语言；语言切换经 UpdateSettings 检测后实时重建）
     pub tray_pause_all: &'static str,
+    pub tray_resume_all: &'static str,
     pub tray_random: &'static str,
     pub tray_main_window: &'static str,
     pub tray_autostart: &'static str,
@@ -252,6 +253,7 @@ pub const ZH: Texts = Texts {
     fit_fill: "拉伸",
 
     tray_pause_all: "暂停全部壁纸",
+    tray_resume_all: "恢复全部壁纸",
     tray_random: "随机换一张",
     tray_main_window: "管理窗口…",
     tray_autostart: "开机自启",
@@ -414,6 +416,7 @@ pub const EN: Texts = Texts {
     fit_fill: "Stretch",
 
     tray_pause_all: "Pause all wallpapers",
+    tray_resume_all: "Resume all wallpapers",
     tray_random: "Shuffle",
     tray_main_window: "Open manager…",
     tray_autostart: "Launch at login",
@@ -604,6 +607,7 @@ accessors! {
     policy_pause => POLICY_PAUSE, policy_downclock => POLICY_DOWNCLOCK, policy_ignore => POLICY_IGNORE,
     fit_cover => FIT_COVER, fit_contain => FIT_CONTAIN, fit_fill => FIT_FILL,
     tray_pause_all => TRAY_PAUSE_ALL, tray_random => TRAY_RANDOM,
+    tray_resume_all => TRAY_RESUME_ALL,
     tray_main_window => TRAY_MAIN_WINDOW, tray_autostart => TRAY_AUTOSTART, tray_quit => TRAY_QUIT,
     mon_main => MON_MAIN, mon_main_short => MON_MAIN_SHORT, meta_builtin => META_BUILTIN,
     tip_toggle_theme => TIP_TOGGLE_THEME,

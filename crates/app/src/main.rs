@@ -755,14 +755,22 @@ struct ActionOutcome {
     lang_changed: bool,
 }
 
-/// 托盘菜单（文案唯一出处 = ui::strings；语言切换后主循环重建整个菜单，
-/// 事件经全局 handler 按 id 路由，重建不影响逻辑）。
-fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
+/// 托盘菜单（文案唯一出处 = ui::strings；语言/暂停状态变化后主循环重建整个菜单，
+/// 事件经全局 handler 按 id 路由，重建不影响逻辑）。结构见 §4.1 2026-11-10：
+/// 「管理窗口…」置顶（Windows 左键直达的就是它），「恢复系统壁纸」与「退出」之间
+/// 加分隔防误触连坐。
+fn build_tray_menu(autostart_on: bool, paused: bool) -> tray_icon::menu::Menu {
     use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
     let menu = Menu::new();
-    let mi_pause = MenuItem::with_id("pause", ui::strings::TRAY_PAUSE_ALL(), true, None);
-    let mi_cycle = MenuItem::with_id("cycle", ui::strings::TRAY_RANDOM(), true, None);
     let mi_main = MenuItem::with_id("main", ui::strings::TRAY_MAIN_WINDOW(), true, None);
+    // 暂停/恢复按当前状态二选一：点击时翻转发光，重建后文案跟随真源
+    let pause_label = if paused {
+        ui::strings::TRAY_RESUME_ALL()
+    } else {
+        ui::strings::TRAY_PAUSE_ALL()
+    };
+    let mi_pause = MenuItem::with_id("pause", pause_label, true, None);
+    let mi_cycle = MenuItem::with_id("cycle", ui::strings::TRAY_RANDOM(), true, None);
     let mi_update = MenuItem::with_id("check-update", ui::strings::TRAY_CHECK_UPDATE(), true, None);
     let mi_auto = CheckMenuItem::with_id(
         "autostart",
@@ -779,15 +787,16 @@ fn build_tray_menu(autostart_on: bool) -> tray_icon::menu::Menu {
         None,
     );
     menu.append_items(&[
+        &mi_main,
         &mi_pause,
         &mi_cycle,
         &PredefinedMenuItem::separator(),
-        &mi_main,
         &mi_update,
         &PredefinedMenuItem::separator(),
         &mi_auto,
         &PredefinedMenuItem::separator(),
         &mi_restore,
+        &PredefinedMenuItem::separator(),
         &mi_quit,
     ])
     .expect("菜单");
@@ -799,11 +808,10 @@ fn install_tray_menu_handler() {
     tray_icon::menu::MenuEvent::set_event_handler(Some(|e: tray_icon::menu::MenuEvent| {
         use engine::EngineAction;
         match e.id().as_ref() {
-            // 菜单文案恒为「暂停全部壁纸」（muda handler 要求 Send，不能持菜单句柄改文案；
-            // 当前状态经托盘图标/状态矩阵反映）
             "pause" => {
                 // fetch_xor 翻转并返回旧值（swap(true) 会永远读到同一个旧值 →
-                // 该项变成"只暂停不恢复"，历史踩过同款坑）
+                // 该项变成"只暂停不恢复"，历史踩过同款坑）；菜单文案由主循环
+                // 检测 TRAY_PAUSED 变化后重建整个菜单来跟随（同语言切换机制）
                 let paused = !TRAY_PAUSED.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
                 engine::enqueue(EngineAction::PauseAll(paused));
             }
@@ -834,7 +842,10 @@ fn build_tray(autostart_on: bool) -> tray_icon::TrayIcon {
     let icon = tray_icon::Icon::from_rgba(rgba, w, h).unwrap();
     let mut tray_builder = tray_icon::TrayIconBuilder::new()
         .with_tooltip("Gesso")
-        .with_menu(Box::new(build_tray_menu(autostart_on)));
+        .with_menu(Box::new(build_tray_menu(
+            autostart_on,
+            TRAY_PAUSED.load(std::sync::atomic::Ordering::SeqCst),
+        )));
     // macOS：黑字形 + template 标志，随菜单栏亮暗自适应；
     // Windows：彩色 compact 应用图标（与任务栏图标同稿，描边字形在托盘尺寸读不出）
     #[cfg(target_os = "macos")]
@@ -1416,6 +1427,9 @@ fn main() {
             let tray: &'static tray_icon::TrayIcon = Box::leak(Box::new(build_tray(autostart_on)));
 
             cx.spawn(async move |cx| {
+                // 托盘菜单的暂停态跟踪：与真源 TRAY_PAUSED 不一致即重建菜单
+                // （「暂停/恢复全部壁纸」文案跟随，§4.1 2026-11-10）
+                let mut tray_menu_paused = TRAY_PAUSED.load(std::sync::atomic::Ordering::SeqCst);
                 // 定时基准：150ms 一拍。各周期用拍数命名，不再出现裸魔数。
                 const PATROL_EVERY: u32 = 33; // 稳态巡检（深收敛）≈5s：事件丢失/静默篡改的安全网
                 const AUTOPAUSE_EVERY: u32 = 13; // 自动暂停检测 ≈2.0s（全屏/电池/锁屏采样）
@@ -1531,7 +1545,27 @@ fn main() {
                                     .config()
                                     .settings
                                     .autostart;
-                                tray.set_menu(Some(Box::new(build_tray_menu(autostart_on))));
+                                tray.set_menu(Some(Box::new(build_tray_menu(
+                                    autostart_on,
+                                    tray_menu_paused,
+                                ))));
+                            }
+                            // 暂停状态变化：菜单「暂停/恢复全部壁纸」文案跟随
+                            // （§4.1 2026-11-10，同语言切换的整菜单重建机制）
+                            let paused_now =
+                                TRAY_PAUSED.load(std::sync::atomic::Ordering::SeqCst);
+                            if paused_now != tray_menu_paused {
+                                tray_menu_paused = paused_now;
+                                let autostart_on = cx
+                                    .global::<engine::AppState>()
+                                    .sm
+                                    .config()
+                                    .settings
+                                    .autostart;
+                                tray.set_menu(Some(Box::new(build_tray_menu(
+                                    autostart_on,
+                                    paused_now,
+                                ))));
                             }
                         });
                         // FocusMainWindow 需 window/cx：借用结束后兑现
