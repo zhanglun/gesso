@@ -763,7 +763,7 @@ fn build_tray_menu(autostart_on: bool, paused: bool) -> tray_icon::menu::Menu {
     use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
     let menu = Menu::new();
     let mi_main = MenuItem::with_id("main", ui::strings::TRAY_MAIN_WINDOW(), true, None);
-    // 暂停/恢复按当前状态二选一：点击时翻转发光，重建后文案跟随真源
+    // 暂停/恢复按当前状态二选一：点击即翻转暂停态，重建后文案跟随真源
     let pause_label = if paused {
         ui::strings::TRAY_RESUME_ALL()
     } else {
