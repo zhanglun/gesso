@@ -25,6 +25,9 @@ pub const RELEASE_MANIFEST: &str =
 pub const RELEASE_PAGE: &str = "https://github.com/zhanglun/gesso/releases/latest";
 /// 自动检查抑制窗口（§4.7：启动首查后每 24h 一次）。
 const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 3600;
+/// 下载完成后的自动安装倒计时（§4.7 2026-11-10：5 秒，可「立即安装」跳过、
+/// 「暂不安装」/关窗取消）。
+const AUTO_INSTALL_DELAY_MS: u64 = 5_000;
 
 /// 发布说明的双语内容。新客户端按当前 App 语言选择；旧清单仍可回退到同一份文本。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +80,10 @@ pub enum UpdateState {
     Ready {
         release: ReleaseInfo,
         path: String,
+        /// 自动安装倒计时截止（UNIX 毫秒）；None = 手动模式（§4.7 2026-11-10）。
+        auto_install_deadline_ms: Option<u64>,
+        /// 最近一次启动安装包失败的原因（Some = 倒计时停表、UI 内联显示）。
+        install_error: Option<String>,
     },
     Failed {
         message: String,
@@ -96,6 +103,10 @@ static BUSY: AtomicBool = AtomicBool::new(false);
 static LAST_CHECK: AtomicU64 = AtomicU64::new(0);
 /// 已发过「发现新版本」应用内通知的状态代数（同一次发现只通知一次）。
 static NOTIFIED_GEN: AtomicU64 = AtomicU64::new(0);
+/// 更新小窗开合（update_view open/close 回报；决定下载完成后是否进入自动倒计时）。
+static WINDOW_OPEN: AtomicBool = AtomicBool::new(false);
+/// 倒计时已展示的剩余秒数（tick 只在整秒变化时 bump 代数，避免 150ms 节拍狂刷 UI）。
+static COUNTDOWN_SHOWN_SECS: AtomicU64 = AtomicU64::new(0);
 
 fn set(state: UpdateState) {
     *STATE.lock().expect("update 状态锁") = state;
@@ -124,6 +135,18 @@ fn unix_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 倒计时剩余秒数（向上取整；已到期 = 0）。纯函数，单测覆盖。
+fn countdown_remaining_secs(deadline_ms: u64, now_ms: u64) -> u64 {
+    deadline_ms.saturating_sub(now_ms).div_ceil(1000)
 }
 
 /// 启动清理：清空下载目录（`.part` 半成品与已交付的旧安装包不跨会话保留）。
@@ -182,6 +205,121 @@ pub fn reset_failure() {
     }
 }
 
+/// 更新小窗开合回报（update_view open/close 调用）：窗口开着才会在下载完成后
+/// 自动进入安装倒计时——无 UI 的后台完成不该有看不见的自动退出。
+pub fn set_window_open(open: bool) {
+    WINDOW_OPEN.store(open, Ordering::SeqCst);
+}
+
+/// 清除倒计时（「暂不安装」/ 关闭小窗共用），回手动模式。已是手动模式为无害空操作。
+fn clear_countdown() {
+    let cleared = {
+        let mut s = STATE.lock().expect("update 状态锁");
+        match &mut *s {
+            UpdateState::Ready {
+                auto_install_deadline_ms,
+                ..
+            } if auto_install_deadline_ms.is_some() => {
+                *auto_install_deadline_ms = None;
+                true
+            }
+            _ => false,
+        }
+    };
+    if cleared {
+        COUNTDOWN_SHOWN_SECS.store(0, Ordering::SeqCst);
+        GEN.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// 「暂不安装」/ 关闭更新小窗：取消倒计时（§4.7：关窗即「现在不装」，重开可再触发）。
+pub fn postpone_install() {
+    clear_countdown();
+}
+
+/// 下载完成态下（重新）打开小窗：重新武装倒计时；上次启动安装包失败时不自动
+/// 重试（停表 + 手动兜底是失败后的既定出路）。
+pub fn maybe_rearm_countdown() {
+    let armed = {
+        let mut s = STATE.lock().expect("update 状态锁");
+        match &mut *s {
+            UpdateState::Ready {
+                auto_install_deadline_ms,
+                install_error,
+                ..
+            } if auto_install_deadline_ms.is_none() && install_error.is_none() => {
+                *auto_install_deadline_ms = Some(unix_ms() + AUTO_INSTALL_DELAY_MS);
+                true
+            }
+            _ => false,
+        }
+    };
+    if armed {
+        COUNTDOWN_SHOWN_SECS.store(0, Ordering::SeqCst);
+        GEN.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// 主循环节拍（≈150ms）调用：推进下载完成态的自动安装倒计时（§4.7 2026-11-10）。
+/// 剩余秒数整秒变化才 bump 状态代数（驱动小窗刷新）；归零一次性触发
+/// 「启动安装包 + 优雅退出」。非倒计时态为无害空操作。
+pub fn tick() {
+    let deadline = match state_snapshot() {
+        UpdateState::Ready {
+            auto_install_deadline_ms: Some(d),
+            ..
+        } => d,
+        _ => {
+            COUNTDOWN_SHOWN_SECS.store(0, Ordering::SeqCst);
+            return;
+        }
+    };
+    let remaining = countdown_remaining_secs(deadline, unix_ms());
+    if remaining == 0 {
+        // 先清倒计时再执行（fire-once：后续 tick 不会再进入本分支）
+        clear_countdown();
+        install_and_quit();
+        return;
+    }
+    if COUNTDOWN_SHOWN_SECS.swap(remaining, Ordering::SeqCst) != remaining {
+        GEN.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// 「立即安装 / 打开安装包」：跳过剩余等待，直接启动安装包并优雅退出。
+pub fn install_now() {
+    clear_countdown();
+    install_and_quit();
+}
+
+/// 启动安装包；成功且为真正的安装器（setup.exe / dmg）时入队 `Quit` 优雅退出
+/// ——应用先退，安装器覆盖 gesso.exe 才不会撞上文件占用；spawn 出的安装器是
+/// 独立进程，不随应用退出而消亡。失败 = 记录原因（UI 内联显示），不退出。
+fn install_and_quit() {
+    let path = match state_snapshot() {
+        UpdateState::Ready { path, .. } => path,
+        _ => return,
+    };
+    match open_installer(&path) {
+        Ok(InstallLaunch::Launched) => {
+            println!("[update] 安装包已启动，退出应用以完成更新");
+            crate::engine::enqueue(crate::engine::EngineAction::Quit);
+        }
+        Ok(InstallLaunch::Revealed) => {
+            println!("[update] 便携 zip 已交给资源管理器，应用保持运行");
+        }
+        Err(message) => {
+            println!("[update] 启动安装包失败：{message}");
+            let mut s = STATE.lock().expect("update 状态锁");
+            if let UpdateState::Ready { install_error, .. } = &mut *s {
+                *install_error = Some(message);
+            }
+            drop(s);
+            GEN.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
 /// 发起下载（仅「发现新版本」态受理；后台流式写盘，进度经状态回灌）。
 pub fn spawn_download() {
     let Some(release) = state_snapshot().available().cloned() else {
@@ -204,9 +342,16 @@ pub fn spawn_download() {
         BUSY.store(false, Ordering::SeqCst);
         match outcome {
             DownloadOutcome::Done(path) => {
+                // 小窗开着才武装 5s 自动安装倒计时；后台完成（窗已关）保持手动模式，
+                // 避免无人察觉的自动退出（§4.7 2026-11-10）
+                let deadline = WINDOW_OPEN
+                    .load(Ordering::SeqCst)
+                    .then(|| unix_ms() + AUTO_INSTALL_DELAY_MS);
                 set(UpdateState::Ready {
                     release,
                     path: path.display().to_string(),
+                    auto_install_deadline_ms: deadline,
+                    install_error: None,
                 });
             }
             DownloadOutcome::Cancelled => {
@@ -767,19 +912,40 @@ fn notify_update_available(release: &ReleaseInfo) {
     }
 }
 
+/// 安装包启动结果（§4.7 2026-11-10）：真正的安装器启动成功后应用应退出让位；
+/// 便携 zip 只是交资源管理器定位，应用保持运行。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallLaunch {
+    Launched,
+    Revealed,
+}
+
 /// 「打开安装包」：macOS 挂载 dmg；Windows 安装器直接运行、zip 交给资源管理器。
-pub fn open_installer(path: &str) {
+/// 失败原因返回给调用方（倒计时路径内联展示）。
+pub fn open_installer(path: &str) -> Result<InstallLaunch, String> {
     if path.is_empty() {
-        return;
+        return Err("安装包路径为空".into());
     }
     println!("[update] 打开安装包：{path}");
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(path).spawn();
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map(|_| InstallLaunch::Launched)
+            .map_err(|e| format!("无法挂载 dmg：{e}"))
+    }
     #[cfg(target_os = "windows")]
-    if path.ends_with(".exe") {
-        let _ = std::process::Command::new(path).spawn();
-    } else {
-        reveal(path);
+    {
+        if path.ends_with(".exe") {
+            std::process::Command::new(path)
+                .spawn()
+                .map(|_| InstallLaunch::Launched)
+                .map_err(|e| format!("无法启动安装器：{e}"))
+        } else {
+            reveal(path);
+            Ok(InstallLaunch::Revealed)
+        }
     }
 }
 
@@ -850,12 +1016,20 @@ pub fn public_view() -> UpdateView {
             downloaded,
             ..UpdateView::default()
         },
-        UpdateState::Ready { release, path } => UpdateView {
+        UpdateState::Ready {
+            release,
+            path,
+            auto_install_deadline_ms,
+            install_error,
+        } => UpdateView {
             phase: UpdatePhase::Ready,
             current_version: current.into(),
             version: release.version.into(),
             asset_name: release.asset_name.into(),
             file_path: path.into(),
+            countdown_secs: auto_install_deadline_ms
+                .map_or(0, |d| countdown_remaining_secs(d, unix_ms())),
+            install_error,
             ..UpdateView::default()
         },
         UpdateState::Failed {
@@ -1067,6 +1241,24 @@ mod tests {
         }));
         assert_eq!(consume_available_toast().as_deref(), Some("0.3.0"));
         set(UpdateState::Idle);
+    }
+
+    #[test]
+    fn countdown_math_ceil_and_expiry() {
+        let now = 1_000_000;
+        assert_eq!(countdown_remaining_secs(now + 5_000, now), 5, "整 5 秒");
+        assert_eq!(
+            countdown_remaining_secs(now + 4_999, now),
+            5,
+            "不足整秒向上取整"
+        );
+        assert_eq!(countdown_remaining_secs(now + 1, now), 1, "剩 1ms 仍显示 1");
+        assert_eq!(countdown_remaining_secs(now, now), 0, "到点归零");
+        assert_eq!(
+            countdown_remaining_secs(now.saturating_sub(1), now),
+            0,
+            "过期安全归零"
+        );
     }
 
     #[test]

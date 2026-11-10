@@ -990,6 +990,14 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             println!("[engine] 取消下载更新");
             update::cancel_download();
         }
+        engine::EngineAction::UpdateInstallNow => {
+            println!("[engine] 启动安装包并退出以完成更新");
+            update::install_now();
+        }
+        engine::EngineAction::UpdatePostponeInstall => {
+            println!("[engine] 暂不安装：取消自动安装倒计时");
+            update::postpone_install();
+        }
         engine::EngineAction::ThumbsDone { dir } => {
             // 后台抽帧完成：释放在途标记（重试计数随之累加）；快照回灌由主循环触发
             app.thumbs.mark_finished(&dir);
@@ -1653,6 +1661,9 @@ fn main() {
                         });
                         update::maybe_auto_check(enabled);
                     }
+                    // 自动安装倒计时节拍（§4.7 2026-11-10）：整秒变化 bump 代数驱动
+                    // 小窗刷新，归零启动安装包 + 优雅退出；非倒计时态为空操作
+                    update::tick();
                     // 更新状态代数变化：回灌快照 + 托盘 tooltip 跟随；首次「发现新
                     // 版本」补应用内 toast（系统通知已在检查线程先行发出）
                     let update_gen = update::generation();

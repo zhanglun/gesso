@@ -108,6 +108,11 @@ pub enum EngineAction {
     UpdateDownload,
     /// 取消进行中的下载（回到 Available 态并清理 .part）。
     UpdateCancelDownload,
+    /// 「立即安装 / 打开安装包」（§4.7 2026-11-10）：启动安装包并优雅退出应用，
+    /// 让安装器无文件占用地完成覆盖。
+    UpdateInstallNow,
+    /// 「暂不安装」/ 关闭更新小窗：取消自动安装倒计时，回手动模式。
+    UpdatePostponeInstall,
     /// 托盘「管理窗口…」：激活主窗口。
     FocusMainWindow,
     /// 托盘「恢复系统壁纸」：清全部指派 + 拆全部壁纸窗——运行时不接管

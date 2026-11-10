@@ -258,7 +258,7 @@ pub struct UpdateView {
     pub current_version: SharedString,
     /// 新版本号（Available/Downloading/Ready 态有值）。
     pub version: SharedString,
-    /// release notes（按纯文本展示，弹窗限高滚动）。
+    /// release notes（markdown 子集渲染，弹窗限高滚动）。
     pub notes: SharedString,
     pub asset_name: SharedString,
     /// 安装包字节数（0 = 未知；进度行走不确定文案）。
@@ -271,4 +271,8 @@ pub struct UpdateView {
     pub error: SharedString,
     /// true = 下载阶段失败（[重试] 直达下载）；false = 检查阶段失败（[重试] 重新检查）。
     pub can_retry_download: bool,
+    /// 下载完成态的自动安装倒计时剩余秒数（0 = 无倒计时，手动模式；§4.7 2026-11-10）。
+    pub countdown_secs: u64,
+    /// 最近一次启动安装包失败的原因（Some 时倒计时停表、Ready 态内联显示）。
+    pub install_error: Option<String>,
 }

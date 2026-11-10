@@ -58,6 +58,8 @@ fn phase_window_size(phase: UpdatePhase) -> WinSize<Pixels> {
 
 /// 打开（或激活已打开的）更新小窗。托盘与设置页共用入口。
 pub fn open(cx: &mut App) {
+    // 开合回报给 update 模块：窗口开着才会在下载完成后进入自动安装倒计时
+    crate::update::set_window_open(true);
     let existing = UPDATE_WINDOW.lock().ok().and_then(|g| *g);
     if let Some(h) = existing {
         let activated = activate_update_window(h, cx);
@@ -65,6 +67,8 @@ pub fn open(cx: &mut App) {
             return;
         }
     }
+    // 重开小窗可再次触发自动安装倒计时（§4.7：关窗即「现在不装」，重开可再触发）
+    crate::update::maybe_rearm_countdown();
     // 初建即按当前状态定高（Available/Ready 可跨窗存活，重开不总是 Idle）。
     let phase = state(cx).update.phase;
     let options = WindowOptions {
@@ -115,9 +119,12 @@ fn activate_update_window(handle: gpui_kit::AnyWindowHandle, cx: &mut App) -> bo
 }
 
 fn close(window: &mut Window) {
-    // 失败态随窗口关闭重置（重开从「检查更新」干净起步，不停留在旧错误）。
+    // 失败态随窗口关闭重置（重开从「检查更新」干净起步，不停留在旧错误）；
+    // 关窗即「现在不装」：取消自动安装倒计时（§4.7 2026-11-10）。
     // 同时丢弃句柄，避免托盘下次激活命中已移除的窗口。
     crate::update::reset_failure();
+    crate::update::set_window_open(false);
+    crate::update::postpone_install();
     if let Ok(mut handle) = UPDATE_WINDOW.lock() {
         *handle = None;
     }
@@ -275,13 +282,32 @@ impl Render for UpdateModal {
                         .child(UPD_READY_TITLE())
                         .into_any_element(),
                 );
-                body.push(
-                    div()
-                        .text_size(px(12.5))
-                        .text_color(t.text2)
-                        .child(UPD_READY_DESC())
-                        .into_any_element(),
-                );
+                // 倒计时说明 / 启动失败原因 / 手动模式说明 三选一（§4.7 2026-11-10）
+                if let Some(err) = u.install_error.clone() {
+                    body.push(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(t.danger)
+                            .child(SharedString::from(err))
+                            .into_any_element(),
+                    );
+                } else if u.countdown_secs > 0 {
+                    body.push(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(t.text2)
+                            .child(UPD_READY_COUNTDOWN())
+                            .into_any_element(),
+                    );
+                } else {
+                    body.push(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(t.text2)
+                            .child(UPD_READY_DESC())
+                            .into_any_element(),
+                    );
+                }
                 body.push(
                     div()
                         .text_size(px(12.))
@@ -290,31 +316,33 @@ impl Render for UpdateModal {
                         .into_any_element(),
                 );
                 let path = u.file_path.clone();
-                footer.push(
-                    Button::new("upd-close")
-                        .label(UPD_BTN_CLOSE())
-                        .text()
-                        .with_size(Size::Small)
-                        .on_click(|_, window, _| close(window))
-                        .into_any_element(),
-                );
-                footer.push(
-                    Button::new("upd-reveal")
-                        .label(UPD_BTN_REVEAL())
-                        .secondary()
-                        .with_size(Size::Small)
-                        .on_click(move |_, _, _| crate::update::reveal(&path))
-                        .into_any_element(),
-                );
-                let path = u.file_path.clone();
-                footer.push(
-                    Button::new("upd-install")
-                        .label(UPD_BTN_INSTALL())
-                        .primary()
-                        .with_size(Size::Small)
-                        .on_click(move |_, _, _| crate::update::open_installer(&path))
-                        .into_any_element(),
-                );
+                if u.countdown_secs > 0 {
+                    footer.push(
+                        Button::new("upd-postpone")
+                            .label(UPD_BTN_POSTPONE())
+                            .text()
+                            .with_size(Size::Small)
+                            .on_click(|_, _, _| {
+                                crate::engine::enqueue(
+                                    crate::engine::EngineAction::UpdatePostponeInstall,
+                                );
+                            })
+                            .into_any_element(),
+                    );
+                    footer.push(reveal_button(path));
+                    footer.push(install_now_button(u.countdown_secs));
+                } else {
+                    footer.push(
+                        Button::new("upd-close")
+                            .label(UPD_BTN_CLOSE())
+                            .text()
+                            .with_size(Size::Small)
+                            .on_click(|_, window, _| close(window))
+                            .into_any_element(),
+                    );
+                    footer.push(reveal_button(path));
+                    footer.push(install_now_button(0));
+                }
             }
             UpdatePhase::Failed => {
                 // 错误信息是一个可操作的反馈单元：用浅红面板把原因、出路和复制动作
@@ -518,6 +546,34 @@ fn close_button() -> gpui_kit::gpui::AnyElement {
         .text()
         .with_size(Size::Small)
         .on_click(|_, window, _| close(window))
+        .into_any_element()
+}
+
+/// 「打开所在文件夹」：只读交付动作，直接走系统命令（与「打开日志目录」同惯例）。
+fn reveal_button(path: SharedString) -> gpui_kit::gpui::AnyElement {
+    Button::new("upd-reveal")
+        .label(UPD_BTN_REVEAL())
+        .secondary()
+        .with_size(Size::Small)
+        .on_click(move |_, _, _| crate::update::reveal(&path))
+        .into_any_element()
+}
+
+/// 安装按钮：走引擎动作（启动安装包 + 优雅退出在 update 模块统一处理）。
+/// 倒计时中标签带剩余秒数「立即安装 (N)」；0 = 手动模式「打开安装包」（§4.7 状态表）。
+fn install_now_button(countdown_secs: u64) -> gpui_kit::gpui::AnyElement {
+    let label = if countdown_secs > 0 {
+        format!("{} ({countdown_secs})", UPD_BTN_INSTALL_NOW())
+    } else {
+        UPD_BTN_INSTALL().to_string()
+    };
+    Button::new("upd-install")
+        .label(label)
+        .primary()
+        .with_size(Size::Small)
+        .on_click(|_, _, _| {
+            crate::engine::enqueue(crate::engine::EngineAction::UpdateInstallNow);
+        })
         .into_any_element()
 }
 
