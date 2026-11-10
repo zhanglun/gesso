@@ -2,7 +2,7 @@
 
 All notable changes to Gesso are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [SemVer](https://semver.org/spec/v2.0.0.html) once 0.1 ships.
 
-## [Unreleased]
+## [0.1.4] - 2026-11-10
 
 ### Fixed
 

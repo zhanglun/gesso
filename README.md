@@ -9,7 +9,7 @@ Videos, GIFs, shaders and web pages pinned *behind* your desktop icons — writt
 
 [Download](https://github.com/zhanglun/gesso/releases) · [简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md)
 
-> **Status: v0.1.3 released (2026-10-15)** — macOS and Windows are working (unsigned builds). Windows single-display use is verified; multi-display hardware remains a roadmap item.
+> **Status: v0.1.4 released (2026-11-10)** — macOS and Windows are working (unsigned builds). Windows single-display use is verified; multi-display hardware remains a roadmap item.
 
 ---
 
