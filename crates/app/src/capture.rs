@@ -22,8 +22,8 @@ use std::sync::Mutex;
 use gesso_core::WallpaperKind;
 
 // 快照实现依赖 AppKit/WKWebView（Apple 专属）：以下导入与实现项全部 macOS 门控，
-// Windows 采集使用 capture_win.rs 的 WebView2 抽帧实现。
-#[cfg(target_os = "macos")]
+// Windows 采集使用 capture_win.rs 的 WebView2 抽帧实现。例外：Path 为双平台共用
+// （Windows capture_poster 签名也用），不可门控。
 use std::path::Path;
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
