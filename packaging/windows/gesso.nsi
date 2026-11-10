@@ -7,6 +7,8 @@
 
 Unicode true
 
+!include LogicLib.nsh
+
 !define APPNAME "Gesso"
 !define PUBLISHER "Gesso"
 !ifndef VERSION
@@ -33,6 +35,30 @@ Page directory
 Page instfiles
 UninstPage uninstConfirm
 UninstPage instfiles
+
+; The in-app updater (design spec 4.7, 2026-11-10) quits Gesso before running
+; this installer; this wait loop is the safety net for manual/edge cases: a
+; running gesso.exe would lock the file copy below and pop "Retry/Abort".
+Function .onInit
+  StrCpy $R0 0
+  ${While} $R0 < 30
+    ; find.exe exit code: 0 = gesso.exe still running, 1 = gone
+    nsExec::ExecToStack 'cmd /c tasklist /NH /FO CSV | find /I "gesso.exe"'
+    Pop $R1
+    Pop $R2
+    ${If} $R1 != 0
+      ${Break}
+    ${EndIf}
+    Sleep 500
+    IntOp $R0 $R0 + 1
+  ${EndWhile}
+FunctionEnd
+
+; Upgrade loop closure (design spec 4.7, 2026-11-10): launch the freshly
+; installed Gesso as soon as the copy succeeds, no need to hunt for shortcuts.
+Function .onInstSuccess
+  Exec '"$INSTDIR\gesso.exe"'
+FunctionEnd
 
 Section "Install"
   SetOutPath "$INSTDIR"
