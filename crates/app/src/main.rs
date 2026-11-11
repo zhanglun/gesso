@@ -807,6 +807,7 @@ fn build_tray_menu(autostart_on: bool, paused: bool) -> tray_icon::menu::Menu {
 fn install_tray_menu_handler() {
     tray_icon::menu::MenuEvent::set_event_handler(Some(|e: tray_icon::menu::MenuEvent| {
         use engine::EngineAction;
+        println!("[tray] 菜单点击 id={}", e.id().as_ref());
         match e.id().as_ref() {
             "pause" => {
                 // fetch_xor 翻转并返回旧值（swap(true) 会永远读到同一个旧值 →
