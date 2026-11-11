@@ -12,7 +12,8 @@
 |---|---|---|---|
 | `video` | mp4 | **零拷贝直引**（`gesso://steam` 流式 Range 读源，不拷入库） | ✅ 已交付 |
 | `web` | HTML5 + WE JS API | **零拷贝直引**：`gesso://steam` 读原文件，主 HTML 在协议层内存注入 WE API shim（不改原文件），子资源相对路径同源加载 | ✅ 已交付 |
-| `scene` | `scene.pkg`（贴图 `.tex`、时间轴、着色器） | 解包（`depkg`，GPL，子进程隔离）→ 轻量运行时；先行降级：抽取图片资产 | 计划中 |
+| `scene` | `scene.json`（图层/材质/效果栈）+ 散装贴图 | **WebGL 运行时**：宿主页新增场景渲染器，实时渲染（保留鼠标视差等交互） | 设计定稿（2026-11-10），待实现 |
+| `scene`（`.pkg` 打包变体） | 贴图打包为 `scene.pkg`（`.tex` 压缩纹理） | 解包后再走上行流程（GPL 工具链子进程隔离，立项前重评） | 二期 |
 | `application` | 原生 exe | **明确拒绝**（安全模型不允许，macOS 也无法运行） | 永不 |
 
 ## 素材从哪来
@@ -33,6 +34,41 @@ Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/4319
   1. **子进程调用** `depkg-cli`（进程边界隔离 GPL，主程序保持宽松许可，当前倾向）；
   2. 接受整个项目 GPL-3.0。
   该方案尚未进入当前实现；在 scene 立项前重新评估，并在 README 明示。
+
+## scene 方案设计（2026-11-10 定稿，待实现）
+
+### 路线选型：webview 内 WebGL 运行时（非烘焙、非原生 Metal）
+
+参考 Phosphene（烘焙成视频，~5300 行 Swift/Metal）后否决烘焙路线：烘焙丢
+失实时交互（鼠标视差、音频响应），且与 GPL 工具链纠缠更深。Gesso 钉窗里
+跑的是 webview，**WebGL 是 scene 渲染的自然载体**——WE 场景本身就是分层
+图像 + GLSL 效果栈，与浏览器渲染模型同构。纹理零拷贝直引走现有
+`gesso://steam` 路由（scene 的贴图多为散装 png/jpg，无需解包；`.pkg` 打包
+变体二期处理，GPL 子进程隔离方案不变）。
+
+### 分期（每期可独立验收）
+
+- **一期（基础场景）**：`scene.json` 解析（Rust 侧，进 `we.rs`）→ 生成场景
+  描述 JSON 交宿主页；宿主页新增 WebGL 场景运行时：图片层合成（placement/
+  alpha/color/亮度/混合模式）+ 鼠标视差（`wallpaper_properties`）+ 固定帧率。
+  验收：导入散装 scene 项目，基础图层正确渲染、视差工作、缩略图/封面帧/
+  锁屏静帧自动复用现有管线。预计 1–2 周。
+- **二期（效果栈）**：WE GLSL 方言 → GLSL ES 翻译器（宿主页 JS 侧做源变
+  换），效果链（waves/ripple/blur/glow 等常见效果）、copiesBackground、
+  `.pkg` 解包（GPL 子进程隔离，立项前重评）。
+- **三期/明确不支持**：粒子系统、音频响应、文本/时钟层、3D 模型、
+  puppet-warp——不支持项在导入时如实告知（对齐 Phosphene 的 omissions
+  上报模式）。
+
+### 安全边界（不可信输入，照搬 Phosphene 经验）
+
+路径限制在条目目录内（`PathSafety.contained` 同款）；非有限数值丢弃；纹理
+与渲染目标设字节预算；shader 尺寸与 include 深度上限；加载失败的贴图画黑。
+
+### 法律边界
+
+散装 scene（多数项目）无需解包工具，无 GPL 接触；`.pkg` 解包二期再评估
+（depkg 子进程隔离 or 接受 GPL，现状倾向前者）。主程序保持 MIT OR Apache-2.0。
 
 ## 验收
 
