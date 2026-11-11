@@ -563,10 +563,17 @@ impl Render for LibraryView {
         // 响应式网格（原型 .wall-grid：repeat(auto-fill, minmax(196px, 1fr))）：
         // 列数随可用宽度适配，卡片等分撑满一行——不做固定宽 + wrap（放不下
         // 时右侧留大空）。gap 14 与原型一致。
+        //
+        // 防贴边（1px 余量 + 卡宽 floor）：等分结果若与容器宽严丝合缝（零
+        // 余量），flex 换行判定在逻辑空间就悬在等号上，浮点误差即可让末卡
+        // 掉行——实测 150% 缩放 894.7 逻辑宽窗口按 4 列等分恰好运到这个坑
+        // （206.17/卡 × 4 与容器精确相等），行尾整卡换行、右侧留一整卡空白。
+        // 1px 常备余量 + floor 丢掉的小数（×列数）保证换行判定恒有正余量；
+        // 绘制阶段的设备像素取整只吃进缝隙 ±1px，不再影响换行。
         const GAP: f32 = 14.;
-        let avail: f32 = (window.viewport_size().width - px(28.)).into(); // 网格左右 px(14)
+        let avail: f32 = (window.viewport_size().width - px(29.)).into(); // 网格左右 px(14) + 1px 防贴边
         let cols = (((avail + GAP) / (CARD_MIN_W + GAP)).floor() as usize).max(1);
-        let card_w = (avail - (cols as f32 - 1.) * GAP) / cols as f32;
+        let card_w = ((avail - (cols as f32 - 1.) * GAP) / cols as f32).floor();
 
         let toolbar = self.toolbar(cx);
         let grid = self.grid(card_w, cx);
