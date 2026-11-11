@@ -37,6 +37,15 @@ Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/4319
 
 ## scene 方案设计（2026-11-10 定稿，待实现）
 
+### 竞品现状（2026-11-10 调研）
+
+**第三方壁纸软件中目前没有已知实现能在自家引擎里实时渲染 WE scene**：
+Lively（最流行的开源动态壁纸）不支持，用户社区三年前就在求、只能转 mp4
+（开源转换器 we-to-lively 实测也仅支持 mp4 类，scene 转换被禁用）；Sucrose
+只兼容 WE 的 web 类型。唯一有此能力的第三方是 Phosphene（macOS，自研
+Metal 渲染器烘焙成视频，非实时）。Gesso 的实时路线若做成，即是该领域最
+完整的第三方实现。
+
 ### 路线选型：webview 内 WebGL 运行时（非烘焙、非原生 Metal）
 
 参考 Phosphene（烘焙成视频，~5300 行 Swift/Metal）后否决烘焙路线：烘焙丢
