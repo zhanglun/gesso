@@ -99,6 +99,7 @@ impl LibraryView {
             Filter::Kind(Kind::Photo),
             Filter::Kind(Kind::Shader),
             Filter::Kind(Kind::Web),
+            Filter::Kind(Kind::Scene),
             Filter::We,
         ];
         let seg = h_flex()

@@ -471,6 +471,7 @@ fn snapshot_ui(sm: &session::SessionManager, thumbs: &engine::ThumbScheduler) ->
                     }
                 }
                 WallpaperKind::Shader => ui::data::Kind::Shader,
+                WallpaperKind::Scene => ui::data::Kind::Scene,
                 WallpaperKind::Html => ui::data::Kind::Web,
             };
             // 缩略图"生成中"投影：需生成的类型 + 当前缺帧 + 调度器仍会重试
@@ -736,7 +737,18 @@ fn kind_art(kind: WallpaperKind) -> ui::data::Art {
             from: 0x2A2A30,
             to: 0x101012,
         },
+        WallpaperKind::Scene => ui::data::Art {
+            from: 0x1E4034,
+            to: 0x0E0F13,
+        },
     }
+}
+
+/// 引擎动作产出的用户通知：主循环在主窗口上兑现 toast
+///（对话框导入路径此前对引擎侧结果零反馈，scene 部分支持也由此告知）。
+enum Notice {
+    Warning(String),
+    Info(String),
 }
 
 /// 开机自启（auto-launch：macOS LaunchAgent / Win 注册表 Run 键）。
@@ -753,6 +765,8 @@ struct ActionOutcome {
     open_update_modal: bool,
     /// 界面语言变化（托盘菜单文案需重建，见主循环）。
     lang_changed: bool,
+    /// 导入回执通知（警告 = 引擎侧导入失败；信息 = scene 带不支持项导入成功）。
+    notice: Option<Notice>,
 }
 
 /// 托盘菜单（文案唯一出处 = ui::strings；语言/暂停状态变化后主循环重建整个菜单，
@@ -939,18 +953,31 @@ fn apply_engine_action(app: &mut engine::AppState, action: engine::EngineAction)
             };
             let result = match we_entry {
                 Some(we_e) => sm.import_we_entry(&we_e),
-                None => sm.import_entry(p0),
+                None => sm.import_entry(p0).map(|e| (e, None)),
             };
-            if let Ok(e) = result {
-                println!("[ui] 已导入「{}」→ {}", e.title, e.id);
-                if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
-                    out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
+            match result {
+                Ok((e, scan)) => {
+                    println!("[ui] 已导入「{}」→ {}", e.title, e.id);
+                    if gesso_core::content_type(e.kind).thumb != gesso_core::ThumbStrategy::Direct {
+                        out.pending_thumbs.push((encoding::thumb_home(&e), e.kind));
+                    }
+                    if let Some(job) = poster_job_for(&e) {
+                        out.poster_jobs.push(job);
+                    }
+                    // scene 带不支持项导入成功：如实告知哪些内容不会显示
+                    if let Some(s) = scan.filter(|s| !s.omissions.is_empty()) {
+                        out.notice = Some(Notice::Info(ui::strings::toast_scene_partial(
+                            &e.title,
+                            &s.omissions,
+                        )));
+                    }
                 }
-                if let Some(job) = poster_job_for(&e) {
-                    out.poster_jobs.push(job);
+                Err(err) => {
+                    println!("[ui] 导入失败：{err:?}");
+                    out.notice = Some(Notice::Warning(
+                        crate::ui::app_state::import_error_text(err),
+                    ));
                 }
-            } else if let Err(err) = result {
-                println!("[ui] 导入失败：{err:?}");
             }
         }
         engine::EngineAction::ImportUrl { url } => {
@@ -1511,6 +1538,7 @@ fn main() {
                         let mut focus_main = false;
                         let mut open_update_modal = false;
                         let mut lang_changed = false;
+                        let mut notice: Option<Notice> = None;
                         cx.update(|cx| {
                             for a in engine_actions {
                                 // 低频路径性能归因：引擎动作全在主线程内联执行，
@@ -1536,6 +1564,26 @@ fn main() {
                                 }
                                 if out.lang_changed {
                                     lang_changed = true;
+                                }
+                                notice = out.notice.or(notice);
+                            }
+                            // 导入回执通知（引擎侧失败 / scene 部分支持）：
+                            // 主窗口 toast——对话框导入此前对引擎侧结果零反馈
+                            if let Some(n) = notice {
+                                if let Some(h) = MAIN_WINDOW.lock().ok().and_then(|g| *g) {
+                                    use gpui_kit::component::WindowExt as _;
+                                    let _ = h.update(cx, |_, window, cx| {
+                                        match n {
+                                            Notice::Warning(text) => window.push_notification(
+                                                gpui_kit::component::notification::Notification::warning(text),
+                                                cx,
+                                            ),
+                                            Notice::Info(text) => window.push_notification(
+                                                gpui_kit::component::notification::Notification::info(text),
+                                                cx,
+                                            ),
+                                        }
+                                    });
                                 }
                             }
                             // 语言切换：以新语言重建托盘菜单（勾选态取真源 config）

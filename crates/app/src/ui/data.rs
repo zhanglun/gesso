@@ -12,6 +12,7 @@ pub enum Kind {
     Photo,
     Shader,
     Web,
+    Scene,
 }
 
 impl Kind {
@@ -23,6 +24,7 @@ impl Kind {
             Kind::Photo => "PHOTO",
             Kind::Shader => "SHADER",
             Kind::Web => "WEB",
+            Kind::Scene => "SCENE",
         }
     }
 
@@ -34,6 +36,7 @@ impl Kind {
             Kind::Photo => super::strings::KIND_PHOTO(),
             Kind::Shader => super::strings::KIND_SHADER(),
             Kind::Web => super::strings::KIND_WEB(),
+            Kind::Scene => super::strings::KIND_SCENE(),
         }
     }
 }

@@ -1177,7 +1177,12 @@ impl SessionManager {
     /// 零拷贝：source_dir 直指 Steam 工坊目录（只读，绝不改原文件）；video
     /// 走回环 HTTP / gesso://steam 流式 Range，web 的 shim 在协议层内存注入。
     /// main_file 记住 project.json 声明的主资源名（video 媒体 / web 入口）。
-    pub fn import_we_entry(&mut self, e: &crate::we::WeEntry) -> Result<LibraryEntry, ImportError> {
+    /// scene 条目随导入返回快速扫描结果（None = 非 scene），供 UI 如实告知
+    /// 「哪些内容不支持、不会显示」。
+    pub fn import_we_entry(
+        &mut self,
+        e: &crate::we::WeEntry,
+    ) -> Result<(LibraryEntry, Option<crate::we::SceneScan>), ImportError> {
         use crate::we::WeKind;
         let title = if e.project.title.is_empty() {
             e.workshop_id.clone()
@@ -1189,10 +1194,34 @@ impl SessionManager {
         let kind = match e.kind() {
             WeKind::Video => WallpaperKind::Video,
             WeKind::Web => WallpaperKind::Html,
+            WeKind::Scene => WallpaperKind::Scene,
             WeKind::Unsupported(_) | WeKind::UnsupportedStr(_) => {
                 return Err(ImportError::Unsupported)
             }
         };
+
+        // scene 快速扫描：阻断项拒绝导入；不支持项随结果带回 UI 告知
+        let mut scene_scan = None;
+        if kind == WallpaperKind::Scene {
+            match crate::we::scene_scan(&e.dir, &e.scene_file()) {
+                Some(s) if !s.blockers.is_empty() => {
+                    println!("[we] scene 拒绝导入：阻断项 {}", s.blockers.join(", "));
+                    return Err(ImportError::Unsupported);
+                }
+                Some(s) => {
+                    println!(
+                        "[we] scene 扫描：图层 {} · 不支持项 {}",
+                        s.layers,
+                        s.omissions_summary()
+                    );
+                    scene_scan = Some(s);
+                }
+                None => {
+                    println!("[we] scene 拒绝导入：scene.json 缺失或损坏");
+                    return Err(ImportError::Unsupported);
+                }
+            }
+        }
 
         // 零拷贝：source_dir 直接指向 Steam 工坊目录（只读，绝不修改原文件）。
         // web 的 shim 在 gesso://steam 协议层内存注入，video 直接流式 Range 读取。
@@ -1207,6 +1236,7 @@ impl SessionManager {
                 }
                 .to_string(),
             ),
+            WallpaperKind::Scene => Some(e.scene_file()),
             _ => None,
         };
         let entry = LibraryEntry {
@@ -1224,7 +1254,7 @@ impl SessionManager {
         }
         .save(&crate::protocol::library_dir().join("library.json"))
         .map_err(|_| ImportError::Io)?;
-        Ok(entry)
+        Ok((entry, scene_scan))
     }
 
     pub fn save_config(&self) -> gesso_core::Result<()> {
@@ -1881,7 +1911,7 @@ mod we_import_tests {
         let _env = crate::ENV_LOCK.lock().unwrap();
         let (home, entry) = fixture();
         let mut sm = SessionManager::new(Default::default(), Vec::new());
-        let got = sm.import_we_entry(&entry).expect("导入成功");
+        let (got, _) = sm.import_we_entry(&entry).expect("导入成功");
         assert_eq!(got.kind, WallpaperKind::Html);
         assert_eq!(got.title, "My Web");
         assert_eq!(got.origin, "wallpaper-engine");
@@ -1901,19 +1931,34 @@ mod we_import_tests {
     }
 
     #[test]
-    fn rejects_scene() {
+    fn imports_scene_entry_with_scan_log() {
         let _env = crate::ENV_LOCK.lock().unwrap();
         let home = tempfile_lite::TempHome::new();
         let root = home.path.join("workshop/content/431960/9");
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("project.json"),
-            r#"{"type":"scene","file":"s.pkg","title":"S"}"#,
+            r#"{"type":"scene","file":"scene.json","title":"S"}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("scene.json"),
+            r#"{"general":{"orthogonalprojection":{"width":1920,"height":1080}},"objects":[]}"#,
         )
         .unwrap();
         let entry = crate::we::import_we_at(&root, "9").unwrap();
         let mut sm = SessionManager::new(Default::default(), Vec::new());
-        assert_eq!(sm.import_we_entry(&entry), Err(ImportError::Unsupported));
+        let (got, scan) = sm
+            .import_we_entry(&entry)
+            .expect("scene 条目接受导入");
+        assert_eq!(got.kind, WallpaperKind::Scene);
+        // 空场景无不支持项：扫描仍随导入返回（Some 且无 omissions）
+        assert!(scan.is_some());
+        assert!(scan.and_then(|s| if s.omissions.is_empty() { None } else { Some(s) }).is_none());
+        assert_eq!(got.main_file.as_deref(), Some("scene.json"));
+        assert_eq!(got.origin, "wallpaper-engine");
+        // 零拷贝不变：source_dir 仍指向工坊目录
+        assert_eq!(got.source_dir, root.to_string_lossy());
     }
 }
 

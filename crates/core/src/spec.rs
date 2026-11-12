@@ -10,6 +10,9 @@ pub enum WallpaperKind {
     Image,
     Shader,
     Html,
+    /// Wallpaper Engine scene（分层贴图 + 效果，webview WebGL 实时渲染；
+    /// 见 docs/WALLPAPER-ENGINE.md scene 方案设计）。
+    Scene,
 }
 
 /// 填充方式。

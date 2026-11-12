@@ -121,6 +121,7 @@ pub struct Texts {
     pub kind_photo: &'static str,
     pub kind_shader: &'static str,
     pub kind_web: &'static str,
+    pub kind_scene: &'static str,
 
     // 设置页策略下拉（全屏/电池共用一组）
     pub policy_pause: &'static str,
@@ -243,6 +244,7 @@ pub const ZH: Texts = Texts {
     kind_photo: "图片",
     kind_shader: "Shader",
     kind_web: "网页",
+    kind_scene: "场景",
 
     policy_pause: "暂停",
     policy_downclock: "降帧至 5 fps",
@@ -406,6 +408,7 @@ pub const EN: Texts = Texts {
     kind_photo: "Image",
     kind_shader: "Shader",
     kind_web: "Web",
+    kind_scene: "Scene",
 
     policy_pause: "Pause",
     policy_downclock: "Downclock to 5 fps",
@@ -603,7 +606,7 @@ accessors! {
     import_err_hevc => IMPORT_ERR_HEVC, import_err_io => IMPORT_ERR_IO,
     dz_hint => DZ_HINT,
     kind_video => KIND_VIDEO, kind_gif => KIND_GIF, kind_photo => KIND_PHOTO,
-    kind_shader => KIND_SHADER, kind_web => KIND_WEB,
+    kind_shader => KIND_SHADER, kind_web => KIND_WEB, kind_scene => KIND_SCENE,
     policy_pause => POLICY_PAUSE, policy_downclock => POLICY_DOWNCLOCK, policy_ignore => POLICY_IGNORE,
     fit_cover => FIT_COVER, fit_contain => FIT_CONTAIN, fit_fill => FIT_FILL,
     tray_pause_all => TRAY_PAUSE_ALL, tray_random => TRAY_RANDOM,
@@ -717,6 +720,51 @@ pub fn toast_imported(name: &str) -> String {
         format!("Imported \"{name}\"")
     } else {
         format!("已导入「{name}」")
+    }
+}
+
+/* ── WE scene 部分支持（不支持项导入时如实告知）────────────────────────── */
+
+/// scene 扫描不支持项的稳定键 → 当前语言标签（键出处 = we::scene_scan）。
+/// 未知键原样返回（向前兼容：新版引擎加键、旧版 UI 不崩）。
+pub fn omission_label(key: &str) -> String {
+    let en = LANG.load(Ordering::Relaxed) == 1;
+    match (key, en) {
+        ("effects", false) => "效果".into(),
+        ("effects", true) => "effects".into(),
+        ("particles", false) => "粒子".into(),
+        ("particles", true) => "particles".into(),
+        ("text", false) => "文本".into(),
+        ("text", true) => "text".into(),
+        ("sound", false) => "音频".into(),
+        ("sound", true) => "audio".into(),
+        ("3d-model", false) => "3D 模型".into(),
+        ("3d-model", true) => "3D models".into(),
+        _ => key.to_string(),
+    }
+}
+
+/// 导入成功但场景含不支持项：说明哪些内容不会显示（出处 = 导入扫描，
+/// 不让用户对着不动的壁纸猜原因）。
+pub fn toast_scene_partial(name: &str, omissions: &[(&str, usize)]) -> String {
+    let en = LANG.load(Ordering::Relaxed) == 1;
+    let sep = if en { ", " } else { "、" };
+    let summary = omissions
+        .iter()
+        .map(|(k, c)| {
+            let label = omission_label(k);
+            if *c > 1 {
+                format!("{label}×{c}")
+            } else {
+                label
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(sep);
+    if en {
+        format!("Scene \"{name}\" imported, but these parts aren't supported yet and won't show: {summary}")
+    } else {
+        format!("已导入场景「{name}」，但以下内容暂不支持、不会显示：{summary}")
     }
 }
 

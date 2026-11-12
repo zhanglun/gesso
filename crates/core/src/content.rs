@@ -55,6 +55,13 @@ pub fn content_type(kind: WallpaperKind) -> ContentType {
             default_ext: "html",
             thumb: ThumbStrategy::Capture,
         },
+        // 主资源 = scene.json；素材（贴图 png/jpg、材质 json）经 gesso://steam
+        // 相对路径加载，不走主资源发现。
+        WallpaperKind::Scene => ContentType {
+            extensions: &["json"],
+            default_ext: "json",
+            thumb: ThumbStrategy::Capture,
+        },
     }
 }
 
@@ -80,6 +87,8 @@ pub fn mime_for_ext(ext: &str) -> Option<&'static str> {
 }
 
 /// 扩展名 → 内容类型（仅匹配可导入的扩展名；不识别返回 None）。
+/// Scene 有意不在白名单：`.json` 只能经 WE project.json 入口整目录导入
+///（直接拖入任意 json 不应被当成场景），scene 的判定在 we::scene_scan。
 pub fn kind_from_ext(ext: &str) -> Option<WallpaperKind> {
     let ext = ext.to_ascii_lowercase();
     [
@@ -102,14 +111,19 @@ pub fn is_animated_image_ext(ext: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// 不变量测试遍历的类型全集。Scene 的 `json` 不参与扩展名反查
+    ///（kind_from_ext 白名单有意排除，见其文档），其余不变量照常覆盖。
+    const ALL_KINDS: [WallpaperKind; 5] = [
+        WallpaperKind::Video,
+        WallpaperKind::Image,
+        WallpaperKind::Shader,
+        WallpaperKind::Html,
+        WallpaperKind::Scene,
+    ];
+
     #[test]
     fn default_ext_is_always_declared() {
-        for k in [
-            WallpaperKind::Video,
-            WallpaperKind::Image,
-            WallpaperKind::Shader,
-            WallpaperKind::Html,
-        ] {
+        for k in ALL_KINDS {
             let c = content_type(k);
             assert!(
                 c.extensions.contains(&c.default_ext),
@@ -120,7 +134,8 @@ mod tests {
 
     #[test]
     fn every_declared_ext_resolves_back_to_kind() {
-        // 扩展名表与 kind_from_ext 互为逆：声明的扩展名都能反查
+        // 扩展名表与 kind_from_ext 互为逆：声明的扩展名都能反查。
+        // Scene 不在列：json 经 WE 入口导入，拖拽预检必须拒绝（见 kind_from_ext）。
         for k in [
             WallpaperKind::Video,
             WallpaperKind::Image,
@@ -131,18 +146,14 @@ mod tests {
                 assert_eq!(kind_from_ext(ext), Some(k), "{ext} 应反查到 {k:?}");
             }
         }
+        assert_eq!(kind_from_ext("json"), None, "json 只经 WE 入口导入");
         assert_eq!(kind_from_ext("exe"), None);
         assert_eq!(kind_from_ext("MOV"), None, "mov 不在视频白名单");
     }
 
     #[test]
     fn every_declared_ext_has_mime() {
-        for k in [
-            WallpaperKind::Video,
-            WallpaperKind::Image,
-            WallpaperKind::Shader,
-            WallpaperKind::Html,
-        ] {
+        for k in ALL_KINDS {
             for ext in content_type(k).extensions {
                 assert!(mime_for_ext(ext).is_some(), "{ext} 缺少 MIME");
             }

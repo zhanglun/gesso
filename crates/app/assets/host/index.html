@@ -123,7 +123,8 @@
     const h = Math.max(1, Math.round(cvs.clientHeight * dpr));
     if (cvs.width !== w || cvs.height !== h) {
       cvs.width = w; cvs.height = h;
-      gl.viewport(0, 0, w, h);
+      const viewportGl = sceneRt ? sceneRt.gl : gl;
+      if (viewportGl) viewportGl.viewport(0, 0, w, h);
     }
   }
 
@@ -222,6 +223,414 @@
     }
   }
 
+  // ============ scene 渲染器（WebGL2 · Wallpaper Engine scene 一期）============
+  // 支持范围（docs/WALLPAPER-ENGINE.md「scene 方案设计」）：图片层合成
+  // （origin/size/alignment/scale/angle/alpha/color/brightness/blend/zoom）、
+  // alpha 关键帧动画（loop/mirror/single）、相机视差（cameraparallax 总开关
+  // + 层级 parallaxDepth 速率，偏移方向背离光标）。
+  // 格式约定（与参考实现 wallpaper-scene-renderer 逐项核对）：正交场景坐标
+  // 原点在画布左下、Y 向上；对象 origin 为层中心，alignment 决定锚定边；
+  // 层尺寸 = 模型 json 宽高 > 对象 size > origin×2；objects 数组顺序即
+  // 绘制顺序（先渲染的在底层）。
+  // 不支持（渲染时跳过并 console 计数）：效果链、粒子、文本、音频、3D、
+  // 视频纹理、copiesBackground 层。安全模型：scene 数据只经 fetch+JSON.parse
+  // + WebGL 纹理（不可信数据），无 eval 无 HTML 拼接。
+
+  var sceneRt = null;
+  var sceneRoot = null;
+
+  function sceneUrl(rel) {
+    // spec.source = gesso://steam/<entry>/<scene.json 相对路径>；保留 scheme。
+    if (rel === spec.source) return rel;
+    if (typeof rel !== "string" || rel[0] === "/" || /[\\\\?#]/.test(rel)) {
+      throw new Error("非法 scene 资源路径");
+    }
+    var decoded = decodeURIComponent(rel);
+    if (decoded.split("/").indexOf("..") >= 0 || /^[a-z][a-z0-9+.-]*:/i.test(decoded)) {
+      throw new Error("非法 scene 资源路径");
+    }
+    var base = sceneRoot || new URL(spec.source);
+    var url = new URL(decoded, base);
+    if (url.protocol !== base.protocol || url.host !== base.host ||
+        !url.pathname.startsWith(base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1))) {
+      throw new Error("非法 scene 资源路径");
+    }
+    return url.toString();
+  }
+
+  function sceneFetchJson(rel) {
+    return fetch(sceneUrl(rel)).then(function (r) {
+      if (!r.ok) throw new Error(rel + " -> " + r.status);
+      return r.json();
+    });
+  }
+
+  function sceneLoadTexture(gl2, rel) {
+    return new Promise(function (resolve) {
+      // 字节预算：>16M 像素的贴图拒载（画黑，对齐 WE 行为）
+      var img = new Image();
+      img.crossOrigin = "anonymous";
+      var timeout = setTimeout(function () {
+        console.log("[scene] 贴图加载超时", rel); resolve(null);
+      }, 5000);
+      img.onload = function () {
+        clearTimeout(timeout);
+        if (img.naturalWidth * img.naturalHeight > 16 * 1024 * 1024) {
+          console.log("[scene] 贴图超大拒载", rel); resolve(null); return;
+        }
+        var t = gl2.createTexture();
+        gl2.bindTexture(gl2.TEXTURE_2D, t);
+        gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
+        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, img);
+        gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, false);
+        gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_S, gl2.CLAMP_TO_EDGE);
+        gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_T, gl2.CLAMP_TO_EDGE);
+        gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MIN_FILTER, gl2.LINEAR);
+        gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MAG_FILTER, gl2.LINEAR);
+        resolve(t);
+      };
+      img.onerror = function () {
+        clearTimeout(timeout);
+        console.log("[scene] 贴图加载失败", rel); resolve(null);
+      };
+      img.src = sceneUrl(rel);
+    });
+  }
+
+  // WE 动画值：{value} 或 {animation:{c0:[{frame,value}...], options:{fps,mode,length}}}
+  // → {constant, keys, length, mirror}（线性插值，loop/mirror/single）
+  // 数组值取首分量：一期动画只用于标量属性（alpha）；复用到向量属性需带分量下标。
+  function sceneAnim(raw, fallback) {
+    var out = { constant: fallback, keys: [], length: 0, mirror: false };
+    var d = raw && typeof raw === "object" ? raw : null;
+    var anim = d && d.animation;
+    var ch = anim && anim.c0;
+    if (!anim || !Array.isArray(ch) || !ch.length) {
+      if (typeof raw === "number") out.constant = raw;
+      else if (d && typeof d.value === "number") out.constant = d.value;
+      return out;
+    }
+    var opt = anim.options || {};
+    var fps = Math.max(1, opt.fps || 30);
+    var keys = [];
+    for (var i = 0; i < ch.length; i++) {
+      var f = Array.isArray(ch[i].frame) ? ch[i].frame[0] : ch[i].frame;
+      var v = Array.isArray(ch[i].value) ? ch[i].value[0] : ch[i].value;
+      if (typeof f === "number" && typeof v === "number") keys.push([f / fps, v]);
+    }
+    keys.sort(function (a, b) { return a[0] - b[0]; });
+    var mode = opt.mode || "loop";
+    if (!keys.length || mode === "single") {
+      out.constant = keys.length ? keys[keys.length - 1][1]
+                   : (d && typeof d.value === "number" ? d.value : fallback);
+      out.keys = []; return out;
+    }
+    out.constant = keys[0][1];
+    out.keys = keys;
+    out.length = Math.max((typeof opt.length === "number" ? opt.length : 0) / fps,
+                          keys[keys.length - 1][0]);
+    out.mirror = mode === "mirror";
+    return out;
+  }
+
+  function sceneAnimEval(a, tSec) {
+    if (!a.keys.length) return a.constant;
+    var period = a.mirror ? a.length * 2 : a.length;
+    if (period <= 0) return a.constant;
+    var t = tSec % period;
+    if (a.mirror && t > a.length) t = 2 * a.length - t;
+    for (var i = 0; i < a.keys.length; i++) {
+      if (a.keys[i][0] >= t) {
+        if (i === 0) return a.keys[0][1];
+        var k0 = a.keys[i - 1], k1 = a.keys[i];
+        var span = Math.max(k1[0] - k0[0], 0.0001);
+        return k0[1] + (k1[1] - k0[1]) * (t - k0[0]) / span;
+      }
+    }
+    return a.keys[a.keys.length - 1][1];
+  }
+
+  function startSceneLoop() {
+    if (!sceneRt || sceneRt.running) return;
+    sceneRt.running = true;
+    sceneRt.lastDraw = -1e9;
+    sceneRt.raf = requestAnimationFrame(sceneTick);
+  }
+  function stopSceneLoop() {
+    if (sceneRt && sceneRt.running) { cancelAnimationFrame(sceneRt.raf); sceneRt.running = false; }
+  }
+  function sceneTick(now) {
+    var rt = sceneRt;
+    rt.raf = requestAnimationFrame(sceneTick);
+    if (now - rt.lastDraw < 1000 / rt.fps - 1) return;
+    rt.lastDraw = now;
+    fitCanvas();
+    var gl2 = rt.gl;
+    gl2.viewport(0, 0, cvs.width, cvs.height);
+    var cl = rt.clear;
+    gl2.clearColor(cl[0] || 0, cl[1] || 0, cl[2] || 0, 1.0);
+    gl2.clear(gl2.COLOR_BUFFER_BIT);
+    var scale = Math.max(cvs.width / rt.design.w, cvs.height / rt.design.h); // cover 铺满
+    var tSec = (now - rt.t0) / 1000;
+    // 视差：鼠标（屏幕坐标 Y 向下）→ 背离光标的世界向量（Y 向上），
+    // 层偏移 = (层心 - 画布心 + 鼠标向量) × 层 parallaxDepth × amount
+    var pd = rt.parallax;
+    var mvx = pd.enable && gMouse.aligned ? (0.5 - gMouse.dx) * pd.influence : 0;
+    var mvy = pd.enable && gMouse.aligned ? (gMouse.dy - 0.5) * pd.influence : 0;
+    gl2.useProgram(rt.prog);
+    gl2.uniform2f(rt.u.res, cvs.width, cvs.height);
+    gl2.uniform1i(rt.u.tex, 0);
+    gl2.activeTexture(gl2.TEXTURE0);
+    for (var i = 0; i < rt.layers.length; i++) {
+      var L = rt.layers[i];
+      if (!L.tex) continue; // 贴图缺失：该层画黑（清屏底色）——对齐 WE 行为
+      var ox = L.placement.origin[0] - rt.design.w / 2;
+      var oy = L.placement.origin[1] - rt.design.h / 2;
+      var sx = (ox + mvx * rt.design.w) * L.pdepth[0] * pd.amount;
+      var sy = (oy + mvy * rt.design.h) * L.pdepth[1] * pd.amount;
+      var px = (ox + sx) * scale + cvs.width / 2;
+      var py = (oy + sy) * scale + cvs.height / 2;
+      var sw = L.size[0] * (L.placement.scale[0] || 1) * scale;
+      var sh2 = L.size[1] * (L.placement.scale[1] || 1) * scale;
+      // alignment 锚定边：origin 指向层的哪条边（默认 center = 层中心）
+      if (L.alignment.indexOf("top") >= 0) py -= sh2 / 2;
+      if (L.alignment.indexOf("bottom") >= 0) py += sh2 / 2;
+      if (L.alignment.indexOf("left") >= 0) px += sw / 2;
+      if (L.alignment.indexOf("right") >= 0) px -= sw / 2;
+      gl2.uniform2f(rt.u.origin, px, py);
+      gl2.uniform2f(rt.u.size, Math.abs(sw), Math.abs(sh2));
+      gl2.uniform1f(rt.u.angle, (L.placement.angle || 0) * Math.PI / 180);
+      gl2.uniform3f(rt.u.color, L.color[0], L.color[1], L.color[2]);
+      gl2.uniform1f(rt.u.alpha, sceneAnimEval(L.alpha, tSec));
+      gl2.uniform1f(rt.u.bright, L.brightness);
+      gl2.bindTexture(gl2.TEXTURE_2D, L.tex);
+      if (L.blend === "additive") {
+        // 加色混合（因子对齐参考实现：颜色/alpha 均 SRC_ALPHA → ONE）
+        gl2.enable(gl2.BLEND);
+        gl2.blendFuncSeparate(gl2.SRC_ALPHA, gl2.ONE, gl2.SRC_ALPHA, gl2.ONE);
+      } else if (L.blend === "normal" || L.blend === "disabled") {
+        gl2.disable(gl2.BLEND); // 直写替换（= ONE/ZERO）
+      } else {
+        gl2.enable(gl2.BLEND);
+        gl2.blendFuncSeparate(gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA, gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA);
+      }
+      gl2.drawArrays(gl2.TRIANGLE_STRIP, 0, 4);
+    }
+  }
+
+  function initScene(src, cap) {
+    v.style.display = "none";
+    var gl2 = cvs.getContext("webgl2", { alpha: false, antialias: true, depth: false });
+    if (!gl2) { msg.textContent = "Gesso: 需要 WebGL2"; return; }
+    var prog = null, u = null;
+    sceneFetchJson(src).then(function (root) {
+      var general = root.general || {};
+      var sourceUrl = new URL(spec.source);
+      var pathParts = sourceUrl.pathname.split("/").filter(Boolean);
+      if (!pathParts.length) throw new Error("scene 来源路径非法");
+      sceneRoot = new URL(sourceUrl.origin + "/" + pathParts[0] + "/");
+      var ortho = general.orthogonalprojection;
+      if (!ortho || !Number.isFinite(Number(ortho.width)) || !Number.isFinite(Number(ortho.height))) {
+        throw new Error("3D 相机场景（无正交投影）");
+      }
+      var design = {
+        w: Math.max(1, Math.min(8192, Number(ortho.width))),
+        h: Math.max(1, Math.min(8192, Number(ortho.height)))
+      };
+      // WE zoom：相机视口 = 画布 / zoom（>1 拉近）
+      var zoom = Number(general.zoom);
+      if (Number.isFinite(zoom) && zoom > 0 && zoom <= 64) {
+        design.w /= zoom; design.h /= zoom;
+      }
+      var clear = Array.isArray(general.clearcolor) ? general.clearcolor.slice(0, 3) : [0, 0, 0];
+      clear = clear.map(function (n) { return Number.isFinite(Number(n)) ? Math.max(0, Math.min(1, Number(n))) : 0; });
+      var num = function (v, d, lo, hi) {
+        var n = Number(v);
+        return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d;
+      };
+      // WE 视差字段：cameraparallax 总开关 + amount 总幅度 + mouseinfluence
+      // 鼠标强度；层级速率在对象 parallaxDepth（默认 [0,0] = 不动）
+      var parallax = {
+        enable: general.cameraparallax === true,
+        amount: num(general.cameraparallaxamount, 1, -10, 10),
+        influence: num(general.cameraparallaxmouseinfluence, 1, 0, 4)
+      };
+
+      var skip = {};
+      var pending = [];
+      var layers = [];
+      var objects = Array.isArray(root.objects) ? root.objects : [];
+      objects.forEach(function (obj, objectIndex) {
+        if (obj.visible === false) return;
+        if (obj.particle) skip.particles = (skip.particles || 0) + 1;
+        else if (obj.text) skip.text = (skip.text || 0) + 1;
+        else if (obj.sound) skip.sound = (skip.sound || 0) + 1;
+        else if (obj.model) skip.models = (skip.models || 0) + 1;
+        else if (obj.effects && obj.effects.length) skip.effects = (skip.effects || 0) + obj.effects.length;
+        if (!obj.image) return;
+        pending.push(
+          sceneFetchJson(obj.image).then(function (model) {
+            if (model.puppet) throw new Error("puppet-warp 层");
+            if (typeof model.material !== "string") throw new Error("图片材质缺失");
+            var fullscreen = model.fullscreen === true;
+            return sceneFetchJson(model.material).then(function (mat) {
+              var p0 = (mat.passes || [])[0] || {};
+              var texRel = Array.isArray(p0.textures) ? p0.textures[0] : null;
+              if (typeof texRel !== "string") throw new Error("图片纹理缺失");
+              if (typeof texRel === "string" && texRel.indexOf("_rt_FullFrameBuffer") === 0) {
+                skip.copiesBackground = (skip.copiesBackground || 0) + 1; return null;
+              }
+              // 尺寸优先级对齐 WE 参考实现：模型 json 宽高 → 对象 size → origin×2
+              var size;
+              if (Number.isFinite(Number(model.width)) && Number.isFinite(Number(model.height))) {
+                size = [Number(model.width), Number(model.height)];
+              } else if (obj.size && Number.isFinite(Number(obj.size[0])) && Number.isFinite(Number(obj.size[1]))) {
+                size = [Number(obj.size[0]), Number(obj.size[1])];
+              } else {
+                size = [Number(obj.origin && obj.origin[0]) * 2 || 2, Number(obj.origin && obj.origin[1]) * 2 || 2];
+              }
+              size = size.map(function (n) { return Math.max(0, Math.min(16384, n)); });
+              var placement = fullscreen
+                ? { origin: [design.w / 2, design.h / 2], scale: [1, 1], angle: 0 }
+                : {
+                    origin: Array.isArray(obj.origin) ? [Number(obj.origin[0]) || 0, Number(obj.origin[1]) || 0] : [0, 0],
+                    scale: Array.isArray(obj.scale) ? [Number(obj.scale[0]) || 1, Number(obj.scale[1]) || 1] : [1, 1],
+                    angle: Array.isArray(obj.angles) ? (Number(obj.angles[2]) || 0) : 0
+                  };
+              var layer = {
+                texRel: texRel,
+                size: size,
+                placement: placement,
+                // 对齐锚定边（默认 center = origin 即层中心）
+                alignment: typeof obj.alignment === "string" ? obj.alignment : "center",
+                // 相机视差的层级速率；depth = 0 该层不随鼠标动（WE 默认）
+                pdepth: Array.isArray(obj.parallaxDepth)
+                  ? [num(obj.parallaxDepth[0], 0, -2, 2), num(obj.parallaxDepth[1], 0, -2, 2)]
+                  : [0, 0],
+                alpha: sceneAnim(obj.alpha, 1),
+                color: Array.isArray(obj.color) ? obj.color.slice(0, 3).map(function (n) {
+                  return Number.isFinite(Number(n)) ? Math.max(0, Math.min(1, Number(n))) : 1;
+                }) : [1, 1, 1],
+                brightness: Number.isFinite(Number(obj.brightness)) ? Math.max(0, Math.min(8, Number(obj.brightness))) : 1,
+                // 层自身混合来自材质 pass 的 blending；colorBlendMode 是颜色
+                // 叠加层（效果）的混合模式，一期随效果链一并跳过
+                blend: p0.blending || "translucent",
+                order: objectIndex,
+                tex: null
+              };
+              layers.push(layer);
+              return texRel ? sceneLoadTexture(gl2, texRel).then(function (tex) {
+                layer.tex = tex;
+              }) : null;
+            });
+          }).catch(function (e) {
+            console.log("[scene] 层跳过:", e && e.message ? e.message : e);
+            return null;
+          })
+        );
+      });
+
+      return Promise.all(pending).then(function () {
+        if (skip.particles || skip.text || skip.sound || skip.models || skip.effects || skip.copiesBackground) {
+          console.log("[scene] 跳过统计:", JSON.stringify(skip));
+        }
+        layers.sort(function (a, b) { return a.order - b.order; });
+        var VS = [
+          "#version 300 es",
+          "in vec2 aPos;",
+          "in vec2 aUV;",
+          "uniform vec2 uRes;",
+          "uniform vec2 uOrigin;",
+          "uniform vec2 uSize;",
+          "uniform float uAngle;",
+          "out vec2 vUV;",
+          "void main() {",
+          "  vec2 p = aPos * uSize;",
+          "  float c = cos(uAngle), s = sin(uAngle);",
+          "  p = vec2(p.x * c - p.y * s, p.x * s + p.y * c);",
+          "  vec2 px = uOrigin + p;",
+          "  vec2 clip = vec2(px.x / uRes.x * 2.0 - 1.0, px.y / uRes.y * 2.0 - 1.0);",
+          "  gl_Position = vec4(clip, 0.0, 1.0);",
+          "  vUV = aUV;",
+          "}"
+        ].join("\n");
+        var FS = [
+          "#version 300 es",
+          "precision mediump float;",
+          "in vec2 vUV;",
+          "uniform sampler2D uTex;",
+          "uniform vec3 uColor;",
+          "uniform float uAlpha;",
+          "uniform float uBrightness;",
+          "out vec4 fragColor;",
+          "void main() {",
+          "  vec4 t = texture(uTex, vUV);",
+          "  fragColor = vec4(t.rgb * uColor * uBrightness, t.a * uAlpha);",
+          "}"
+        ].join("\n");
+        function sh(type, srctext) {
+          var shd = gl2.createShader(type);
+          gl2.shaderSource(shd, srctext);
+          gl2.compileShader(shd);
+          if (!gl2.getShaderParameter(shd, gl2.COMPILE_STATUS)) {
+            throw new Error("scene shader: " + (gl2.getShaderInfoLog(shd) || "?"));
+          }
+          return shd;
+        }
+        prog = gl2.createProgram();
+        gl2.attachShader(prog, sh(gl2.VERTEX_SHADER, VS));
+        gl2.attachShader(prog, sh(gl2.FRAGMENT_SHADER, FS));
+        gl2.linkProgram(prog);
+        if (!gl2.getProgramParameter(prog, gl2.LINK_STATUS)) {
+          throw new Error("scene link: " + gl2.getProgramInfoLog(prog));
+        }
+        gl2.useProgram(prog);
+        var buf = gl2.createBuffer();
+        gl2.bindBuffer(gl2.ARRAY_BUFFER, buf);
+        gl2.bufferData(gl2.ARRAY_BUFFER,
+          new Float32Array([-0.5,-0.5, 0,0,  0.5,-0.5, 1,0,  -0.5,0.5, 0,1,  0.5,0.5, 1,1]),
+          gl2.STATIC_DRAW);
+        var aPos = gl2.getAttribLocation(prog, "aPos");
+        var aUV = gl2.getAttribLocation(prog, "aUV");
+        gl2.enableVertexAttribArray(aPos);
+        gl2.vertexAttribPointer(aPos, 2, gl2.FLOAT, false, 16, 0);
+        gl2.enableVertexAttribArray(aUV);
+        gl2.vertexAttribPointer(aUV, 2, gl2.FLOAT, false, 16, 8);
+        u = {
+          res: gl2.getUniformLocation(prog, "uRes"),
+          origin: gl2.getUniformLocation(prog, "uOrigin"),
+          size: gl2.getUniformLocation(prog, "uSize"),
+          angle: gl2.getUniformLocation(prog, "uAngle"),
+          tex: gl2.getUniformLocation(prog, "uTex"),
+          color: gl2.getUniformLocation(prog, "uColor"),
+          alpha: gl2.getUniformLocation(prog, "uAlpha"),
+          bright: gl2.getUniformLocation(prog, "uBrightness")
+        };
+        return { gl: gl2, prog: prog, u: u, layers: layers, design: design,
+                 clear: clear, parallax: parallax };
+      });
+    }).then(function (rt) {
+      sceneRt = rt;
+      sceneRt.fps = Math.max(1, cap | 0 || 60);
+      sceneRt.running = false;
+      sceneRt.raf = 0;
+      sceneRt.lastDraw = -1e9;
+      sceneRt.t0 = performance.now();
+      cvs.style.display = "block";
+      fitCanvas();
+      window.addEventListener("resize", fitCanvas);
+      window.__gessoReady = true;
+      window.__rafN = 0;
+      (function tick() { window.__rafN++; requestAnimationFrame(tick); })();
+      window.__gessoSeek = function (t) {
+        if (sceneRt) { sceneRt.t0 = performance.now() - t * 1000; sceneRt.lastDraw = -1e9; }
+      };
+      startSceneLoop();
+    }).catch(function (e) {
+      msg.textContent = "Gesso: scene 初始化失败 " + (e && e.message ? e.message : e);
+    });
+  }
+
   // ============ html 渲染器（沙箱 iframe）============
   // 用户页面 = 同目录 wallpaper.html（spec.source 相对路径）。沙箱允许脚本和
   // 条目自身的同源资源访问，但不授予 allow-top-navigation/allow-popups/allow-forms；
@@ -290,6 +699,8 @@
     const code = q.get("code");
     if (!code) { msg.textContent = "Gesso: shader 源码缺失（code 参数）"; }
     else { initShader(code); }
+  } else if (spec.kind === "scene") {
+    initScene(spec.source, spec.fps_cap);
   } else if (spec.kind === "html") {
     initHtml(spec.source);
   } else {
@@ -298,8 +709,8 @@
 
   // 暂停契约：JS 层停帧，窗口常驻
   window.__gesso = {
-    pause: function () { v.pause(); stopShaderLoop(); postToFrame({ __gesso: "pause" }); },
-    resume: function () { v.play().catch(function () {}); startShaderLoop(); postToFrame({ __gesso: "resume" }); }
+    pause: function () { v.pause(); stopShaderLoop(); stopSceneLoop(); postToFrame({ __gesso: "pause" }); },
+    resume: function () { v.play().catch(function () {}); startShaderLoop(); startSceneLoop(); postToFrame({ __gesso: "resume" }); }
   };
 
   // ===== 数据桥（Rust 引擎驱动）=====
@@ -307,6 +718,7 @@
   // html 经 postMessage 递建议值（壁纸自管 RAF）；video 无帧率杠杆，维持播放。
   window.__gesso.setFps = function (n) {
     spec.fps_cap = Math.max(1, n | 0 || 60);
+    if (sceneRt) sceneRt.fps = spec.fps_cap;
     postToFrame({ __gesso: "fps", fps: spec.fps_cap });
   };
   // tick：时间脉冲（每秒由引擎 evaluate 驱动，时钟类壁纸的挂钟真源）

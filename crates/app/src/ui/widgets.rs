@@ -50,6 +50,7 @@ pub fn kind_icon(kind: Kind) -> IconName {
         Kind::Photo => IconName::Image,
         Kind::Shader => IconName::Sparkles,
         Kind::Web => IconName::Globe,
+        Kind::Scene => IconName::Layers,
     }
 }
 

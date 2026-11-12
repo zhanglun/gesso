@@ -369,6 +369,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           <button aria-pressed="false" data-f="图片">图片</button>
           <button aria-pressed="false" data-f="Shader">Shader</button>
           <button aria-pressed="false" data-f="网页">网页</button>
+          <button aria-pressed="false" data-f="场景">场景</button>
           <button aria-pressed="false" data-f="WE">WE</button>
         </div>
         <div class="search">
@@ -506,6 +507,7 @@ const LIB=[
   {id:'plasma',   name:'Plasma Field',  type:'Shader',we:false, meta:'1440p · 60fps',assign:null,kind:'plasma',desc:'等离子场（演示 Shader）'},
   {id:'fuji',     name:'Mount Fuji',    type:'视频',  we:false, meta:'4K · 36s',   assign:null,kind:null,     invalid:true, desc:''},
   {id:'matrix',   name:'Digital Rain',  type:'网页',  we:true,  meta:'1080p',      assign:null,kind:'matrix', desc:'来自创意工坊（演示引用）'},
+  {id:'layers',   name:'Layered Peaks', type:'场景',  we:true,  meta:'1080p · 6层 · 视差',assign:null,kind:'plasma',desc:'WE scene 演示（分层贴图 + 关键帧 + 视差）'},
 ];
 const MEDIADIR={nebula:0,waves:1,clock:2,sakura:3,rain:4,plasma:5,matrix:6,fuji:7};
 
@@ -636,7 +638,7 @@ function renderGrid(){
       <div class="preview"></div>
       <div class="play-chip">${I.play}</div>
       <div class="info">
-        <div class="row1"><span class="name">${w.name}</span><span class="badge${w.we?' we':''}">${w.we?'WE·':''}${w.type.toUpperCase()==='SHADER'?'SHADER':w.type.toUpperCase()==='网页'?'WEB':w.type.toUpperCase()==='视频'?'VIDEO':w.type.toUpperCase()==='动图'?'GIF':''}</span></div>
+        <div class="row1"><span class="name">${w.name}</span><span class="badge${w.we?' we':''}">${w.we?'WE·':''}${w.type.toUpperCase()==='SHADER'?'SHADER':w.type.toUpperCase()==='网页'?'WEB':w.type.toUpperCase()==='视频'?'VIDEO':w.type.toUpperCase()==='动图'?'GIF':w.type.toUpperCase()==='场景'?'SCENE':''}</span></div>
         <div class="meta num">${w.invalid?'文件已移除':w.meta+target}</div>
       </div>`;
     attachPreview(el.querySelector('.preview'),w.kind,false);

@@ -2,6 +2,12 @@
 
 All notable changes to Gesso are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [SemVer](https://semver.org/spec/v2.0.0.html) once 0.1 ships.
 
+## [Unreleased]
+
+### Added
+
+- **Wallpaper Engine scene 一期（基础场景实时渲染）**：WE 的 scene 工坊条目（`project.json` + `scene.json` 分层图片场景，此前一律拒绝导入）现在可以导入并在壁纸上实时渲染——基础图片层合成（位置/对齐/缩放/旋转/颜色/亮度/混合模式）、alpha 关键帧动画（循环/往复/单次）、鼠标视差与 zoom，宿主页 WebGL2 渲染，保留交互。不支持的效果链、粒子、文本、音频、3D 在**导入时 toast 如实告知**哪些内容不会显示；puppet 角色场景、3D 相机场景、`.pkg` 打包仍拒绝导入。渲染格式约定（坐标原点在画布左下、Y 轴向上、图层按数组顺序绘制、尺寸取值优先级、混合模式归属材质）已对照开源参考实现 wallpaper-scene-renderer 逐项核对，顺带修正了两处离线审查发现的真问题（坐标系上下镜像、视差字段名错误导致视差从不生效）。库筛选条新增「场景」分类，对话告知引擎侧导入失败的反馈缺口一并补齐；设计规格筛选条/原型与 WALLPAPER-ENGINE.md 同步。
+
 ## [0.1.4] - 2026-11-10
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Wallpaper Engine 素材兼容
 
-> 状态：video/web 已交付；scene 解析仍在计划中。
+> 状态：video/web 已交付；scene 一期基础图片层实时渲染已接入，效果栈与 `.pkg` 仍在计划中。
 
 ## 目标
 
@@ -12,7 +12,7 @@
 |---|---|---|---|
 | `video` | mp4 | **零拷贝直引**（`gesso://steam` 流式 Range 读源，不拷入库） | ✅ 已交付 |
 | `web` | HTML5 + WE JS API | **零拷贝直引**：`gesso://steam` 读原文件，主 HTML 在协议层内存注入 WE API shim（不改原文件），子资源相对路径同源加载 | ✅ 已交付 |
-| `scene` | `scene.json`（图层/材质/效果栈）+ 散装贴图 | **WebGL 运行时**：宿主页新增场景渲染器，实时渲染（保留鼠标视差等交互） | 设计定稿（2026-11-10），待实现 |
+| `scene` | `scene.json`（图层/材质/效果栈）+ 散装贴图 | **WebGL 运行时**：宿主页实时渲染基础图片层、关键帧与鼠标视差 | ✅ 一期已接入（效果栈等不支持项会跳过） |
 | `scene`（`.pkg` 打包变体） | 贴图打包为 `scene.pkg`（`.tex` 压缩纹理） | 解包后再走上行流程（GPL 工具链子进程隔离，立项前重评） | 二期 |
 | `application` | 原生 exe | **明确拒绝**（安全模型不允许，macOS 也无法运行） | 永不 |
 
@@ -35,7 +35,7 @@ Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/4319
   2. 接受整个项目 GPL-3.0。
   该方案尚未进入当前实现；在 scene 立项前重新评估，并在 README 明示。
 
-## scene 方案设计（2026-11-10 定稿，待实现）
+## scene 方案设计（2026-11-10 定稿；一期已实现）
 
 ### 竞品现状（2026-11-10 调研）
 
@@ -57,13 +57,20 @@ Metal 渲染器烘焙成视频，非实时）。Gesso 的实时路线若做成�
 
 ### 分期（每期可独立验收）
 
-- **一期（基础场景）**：`scene.json` 解析（Rust 侧，进 `we.rs`）→ 生成场景
-  描述 JSON 交宿主页；宿主页新增 WebGL 场景运行时：图片层合成（placement/
-  alpha/color/亮度/混合模式）+ **基础关键帧动画**（常量/线性插值，不含音频
-  绑定——WE 场景的「动感」一半来自属性动画，纯静态拼贴可感知价值不足）+
-  鼠标视差（`wallpaper_properties`）+ 固定帧率。验收：导入散装 scene 项目，
-  图层正确渲染且基础动画/视差工作，缩略图/封面帧/锁屏静帧自动复用现有管
-  线。预计 1–2 周。
+- **一期（基础场景，已接入）**：`scene.json` 解析（Rust 侧，进 `we.rs`）+
+  宿主页 WebGL 场景运行时：图片层合成（placement/alignment/alpha/color/
+  亮度/混合模式/zoom）+ **基础关键帧动画**（常量/线性插值，不含音频绑定）+
+  相机视差（`cameraparallax` 总开关 + 层级 `parallaxDepth` 速率，偏移背离
+  光标）+ 固定帧率。
+  格式约定已与开源参考实现 wallpaper-scene-renderer（catsout）逐项核对：
+  正交场景坐标**原点在画布左下、Y 向上**；对象 `origin` 为层中心、
+  `alignment` 决定锚定边；层尺寸取值顺序 = 模型 json 宽高 > 对象 `size`
+  > `origin×2`；`objects` 数组顺序即绘制顺序（先渲染在底层）；层自身混合
+  来自材质 pass 的 `blending`（`colorBlendMode` 是颜色叠加效果的混合模式，
+  一期随效果链跳过）。
+  不支持项（效果链/粒子/文本/音频/3D）在**导入时如实告知**：Rust 快扫
+  （`we::scene_scan`）识别阻断项（有则拒绝导入）与不支持项计数，导入成功
+  后 toast 列出跳过内容（对齐 Phosphene 的 omissions 上报模式）。
   实现注意：① 同一格式双解析（Rust 导入校验 + JS 渲染）——用真实
   scene.json 黄金夹具回归测试防漂移；② 导入时提取效果清单与支持矩阵比对，
   库卡片如实显示「支持 X / 缺失 Y」——支持矩阵为 Rust/JS 共享常量；
@@ -74,8 +81,8 @@ Metal 渲染器烘焙成视频，非实时）。Gesso 的实时路线若做成�
   换），效果链（waves/ripple/blur/glow 等常见效果）、copiesBackground、
   `.pkg` 解包（GPL 子进程隔离，立项前重评）。
 - **三期/明确不支持**：粒子系统、音频响应、文本/时钟层、3D 模型、
-  puppet-warp——不支持项在导入时如实告知（对齐 Phosphene 的 omissions
-  上报模式）。
+  puppet-warp——不支持项在导入时如实告知（toast；一期已落地，阻断项如
+  puppet/3D 相机则整张拒绝导入）。
 
 ### 选型代价与边界（诚实账，2026-11-10 审查补充）
 
