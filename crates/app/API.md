@@ -40,7 +40,7 @@ impl SessionManager {
 
     /// 导入：扩展名校验 → 随机 ID → 拷贝进库 → 清单落盘（P1）
     pub fn import_entry(&mut self, path: &Path) -> Result<LibraryEntry, ImportError>;
-    /// 导入类型判定（UI 预检与引擎执行共用；ImportError = Unsupported/Mkv/Hevc/Io）
+    /// 导入类型判定（UI 预检与引擎执行共用；ImportError = Unsupported/Mkv/Packed/Hevc/Io）
     pub fn classify_import(path: &Path) -> ImportCheck;
     /// 导入远端网页（origin="url"；仅 https，UI 预检用 encoding::parse_remote_url）
     pub fn import_url_entry(&mut self, url: &str) -> Result<LibraryEntry, ImportError>;
@@ -61,8 +61,11 @@ impl SessionManager {
 
     /// 从库移除条目（local 拷贝目录入回收站；WE/url 只断引用）
     pub fn remove_entry(&mut self, entry_id: &str);
-    /// WE 条目导入（we.rs 解析结果零拷贝登记）
-    pub fn import_we_entry(&mut self, e: &WeEntry) -> Result<LibraryEntry, ImportError>;
+    /// WE 条目导入（we.rs 解析结果零拷贝登记）；scene 条目随导入返回快扫结果
+    /// （阻断项已在内部拒绝并落 ImportError::Packed/Unsupported，omissions 由
+    /// 主循环经 Notice::Info toast 如实告知）
+    pub fn import_we_entry(&mut self, e: &WeEntry)
+        -> Result<(LibraryEntry, Option<SceneScan>), ImportError>;
     /// 单显示器帧率上限
     pub fn set_fps(&mut self, monitor_id: &str, fps: u8);
 }
@@ -80,7 +83,7 @@ pub struct LibraryEntry { pub id: String, pub kind: WallpaperKind, pub title: St
                           pub origin: String, pub source_dir: String,
                           pub main_file: Option<String>,    // WE 条目主文件名，其余 None
                           pub source_url: Option<String> } // origin="url" 的远端网页地址，其余 None
-pub enum WallpaperKind { Video, Image, Shader, Html }
+pub enum WallpaperKind { Video, Image, Shader, Html, Scene }
 pub struct AppConfig { pub monitors: MonitorMap, pub settings: Settings }
 ```
 
@@ -98,7 +101,8 @@ pub fn assets_dir() -> PathBuf;      // 宿主页与内置样例
 - 引擎把 `SessionManager` 放进 `gpui` 全局状态（`crates/app/src/engine.rs`：`cx.set_global(engine::AppState::new(sm))`）
 - 读：`main.rs::snapshot_ui(&sm)` 生成 `ui::app_state::GessoState`（UI 投影），启动注入 + 轮询回灌（保留 tab/selected/query/filter 等浏览状态）
 - 写：UI 只 `engine::enqueue(EngineAction::…)`；引擎 150ms 轮询 drain 执行（与托盘同一通道，托盘菜单也已统一走该队列）
-  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import` / `ImportWe` / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `UpdateInstallNow` / `UpdatePostponeInstall` / `RestoreSystemWallpaper`（托盘「恢复系统壁纸」：释放全部显示器指派并拆除 Gesso 壁纸窗口）（另有引擎内部的 `ThumbsDone`，UI 不入队）
+  - 动作集：`Assign` / `PauseAll` / `PauseOne` / `SyncMonitors` / `CycleMain` / `Import`（含 WE project.json 整目录导入） / `ImportUrl` / `UpdateSettings` / `SetAutostart` / `Remove` / `SetMonitorFps` / `FocusMainWindow` / `UpdateCheck{open_modal}` / `UpdateDownload` / `UpdateCancelDownload` / `UpdateInstallNow` / `UpdatePostponeInstall` / `RestoreSystemWallpaper`（托盘「恢复系统壁纸」：释放全部显示器指派并拆除 Gesso 壁纸窗口）（另有引擎内部的 `ThumbsDone`，UI 不入队）
+- 引擎侧导入反馈：`ActionOutcome.notice`（`Notice::Warning` = 导入失败原因文案；`Notice::Info` = scene 部分支持告知）由主循环统一 `push_notification` 兑现为 toast；文案一律取自 `strings.rs`，UI 不自行拼装
 - **禁止** UI 直接创建/销毁壁纸窗口；`sync_monitors` 负责一切窗口生命周期
 
 ## 4.1 锁屏快照子系统（§4.8/§4.8.1，双平台）
@@ -146,7 +150,7 @@ macOS 26+）已搁置，骨架在 `crates/app/swift/`（GESSO_APPX=1 才构建�
 |---|---|
 | `gesso://` 自定义协议 | 宿主页走 `gesso://host`，条目资源走 `gesso://library/<entry>/…`；视频支持 Range(206)（惰性切片 + 开放范围 512KB 部分响应）。WE 零拷贝直引使用 `gesso://steam/<entry-id>` |
 | 壁纸窗口 | 纯原生窗口，非 GPUI 窗口；UI 无法也不应嵌入它 |
-| 渲染器 | 四类全部生效：video / image（gif/webp/jpg/jpeg/png/avif）/ shader（WebGL2 + Shadertoy 子集）/ html（沙箱 iframe）；静态图 Direct 直引源文件，其余类型有真实采集的静态 + hover 帧 |
+| 渲染器 | 五类全部生效：video / image（gif/webp/jpg/jpeg/png/avif）/ shader（WebGL2 + Shadertoy 子集）/ html（沙箱 iframe）/ scene（宿主页 WebGL2 场景运行时）；静态图 Direct 直引源文件，其余类型有真实采集的静态 + hover 帧（scene 在 Windows 仅封面 poster，hover 帧未实现——见 ROADMAP 已知缺口） |
 | 显示器重配 | epoch 事件驱动收敛：平台拓扑事件 + 去抖 + 两段式提交，机制见 ARCHITECTURE §2 |
 | 单屏暂停 | 已接 `pause_one`（状态机 UserPause/UserResume）；全屏、电池、光标和空闲状态由系统数据桥提供，纯轮询无需授权 |
-| 导入 I/O 失败反馈 | UI 已把 ImportError（Unsupported/Mkv/Hevc/Io）映射为 i18n 文案提示（`strings.rs`），不再静默 |
+| 导入 I/O 失败反馈 | UI 已把 ImportError（Unsupported/Mkv/Packed/Hevc/Io）映射为 i18n 文案提示（`strings.rs`），不再静默 |

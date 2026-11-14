@@ -2012,7 +2012,7 @@ mod tempfile_lite {
             // USERPROFILE，漏掉它测试会把夹具清单写进真实 library.json
             //（实测事故：「My Web」混入用户库）。两个变量同指临时目录。
             // ponytail: set_var 依赖测试单进程；并行测试只共享变量值，
-            // 但各夹具路径已唯一，find_steam 读到的是谁都能各自找到自己的文件。
+            // 但各夹具路径已唯一，并行测试各自读写自己的夹具互不干扰。
             unsafe {
                 std::env::set_var("HOME", &path);
                 std::env::set_var("USERPROFILE", &path);

@@ -66,15 +66,15 @@ docs/           工程文档 + design/（当前设计源；历史资料在 docs/
 - macOS 和 Windows 壁纸窗口由 `pin/` 自己管理，不使用 GPUI 窗口；Windows 使用 WorkerW，macOS 使用 AppKit。
 - 视频使用原生管线：macOS 为 AVPlayerLayer，Windows 为 Media Foundation + DXGI；WebView 负责 shader、图片和 HTML。
 - UI 写操作只能进入 `EngineAction`；读取使用快照；壁纸资源通过只读 `gesso://` 路由提供。
-- WE 只接受用户主动导入的 `video` / `web` 条目，不扫描 Steam/工坊；远端网页只接受用户主动指定的 HTTPS 地址。
+- WE 只接受用户主动导入的 `video` / `web` / `scene` 条目，不扫描 Steam/工坊；远端网页只接受用户主动指定的 HTTPS 地址。
 - 显示器重配使用 epoch 事件、去抖收敛和 macOS 自家过渡窗；运行时不写系统桌面。
 - 内容类型、扩展名、MIME 和缩略图策略以 `gesso_core::content` 为唯一事实源；UI 接口以 `crates/app/API.md` 为唯一事实源。
-- 应用更新不静默替换正在运行的程序；Windows 多显示器硬件回归、WE scene 和更广泛 HTML 兼容性仍在 `docs/ROADMAP.md`。
+- 应用更新不静默替换正在运行的程序；Windows 多显示器硬件回归、WE scene 效果栈（二期）和更广泛 HTML 兼容性仍在 `docs/ROADMAP.md`。
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 
 - macOS 构建**不需要 Xcode**（runtime_shaders）；图标用 `gpui_kit_assets::IconName`（完整 Lucide）；`Button` 无 `color()`/`when()`（用变体 + `if`）；`overflow_y_scroll` 必须在 `.id()` 之后；库路径含空格必须百分号编码；`swap(true)` 当开关必错（用 `fetch_xor`）。
-- WE **只由用户主动导入**（对话框选 `project.json`），绝不扫描磁盘/枚举 Steam。video/web 不拷入库，`source_dir` 指用户选中目录，经 `gesso://steam/<entry-id>/…` 以不可猜 entry id 为凭据只读直引（视频 Range 206、shim 内存注入）。
+- WE **只由用户主动导入**（对话框选 `project.json`），绝不扫描磁盘/枚举 Steam。video/web/scene 不拷入库，`source_dir` 指用户选中目录，经 `gesso://steam/<entry-id>/…` 以不可猜 entry id 为凭据只读直引（视频 Range 206、shim 内存注入、scene 基础图层 WebGL 渲染）。`.pkg` 打包条目不内置解包：导入时给解包指引（RePKG 外部解包，见 `docs/WALLPAPER-ENGINE.md`「打包条目指引」）。
 - **Windows 壁纸窗口创建顺序 = 生死线**：必须先 `SetParent` 挂 WorkerW、**后**创建 WebView2——反序则窗口树全绿但整窗不渲染（DComp 视觉树创建时绑定宿主层级）；explorer 重启会连带销毁跨进程子窗口，重钉 = 整窗重建（`session::remount_all`）。
 - Windows 进程 DPI awareness 必须自己在 main() 顶部声明 PMv2（GPUI/wry 均不设置），否则 125%+ 缩放下与 WorkerW 无法像素对齐；`GPUI_DISABLE_DIRECT_COMPOSITION=1` 同步设置。
 - 本机系统若被精简过（System32 缺 Windows.UI.Composition.dll 等 WinRT UI 运行时）：WinRT UI 类激活 E_ACCESSDENIED，勿选 WinRT 呈现路线；经典 dcomp.dll/DXGI/MF 完好可用。
