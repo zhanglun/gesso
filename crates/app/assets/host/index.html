@@ -348,7 +348,7 @@
         if (settled) return;
         attempt += 1;
         if (attempt < candidates.length) {
-          console.log("[scene] 贴图回落", rel, "->", candidates[attempt]);
+          console.log("[scene] 贴图回落", candidates[attempt - 1], "->", candidates[attempt]);
           img.src = sceneUrl(candidates[attempt]);
           return;
         }
