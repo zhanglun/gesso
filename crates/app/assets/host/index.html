@@ -306,7 +306,8 @@
       var settled = false;
       var img = new Image();
       img.crossOrigin = "anonymous";
-      // 字节预算：>16M 像素的贴图拒载（拒载/失败即跳过该层，露出背景）
+      // 像素预算：超软预算的合法大图等比缩小到预算内上传（WE 本尊也吃这种
+      // 图）；超过硬上限（病态输入）才拒载。GPU 内存随之受控。
       var timeout = setTimeout(function () {
         if (settled) return;
         settled = true;
@@ -315,14 +316,26 @@
       img.onload = function () {
         if (settled) return;
         clearTimeout(timeout);
-        if (img.naturalWidth * img.naturalHeight > 16 * 1024 * 1024) {
+        var px = img.naturalWidth * img.naturalHeight;
+        var source = img;
+        if (px > 256 * 1024 * 1024) {
           settled = true;
-          console.log("[scene] 贴图超大拒载", rel); resolve(null); return;
+          console.log("[scene] 贴图超大拒载", candidates[0]); resolve(null); return;
+        }
+        if (px > 16 * 1024 * 1024) {
+          var k = Math.sqrt(16 * 1024 * 1024 / px);
+          var cw = Math.max(1, Math.floor(img.naturalWidth * k));
+          var ch = Math.max(1, Math.floor(img.naturalHeight * k));
+          var sc = document.createElement("canvas");
+          sc.width = cw; sc.height = ch;
+          sc.getContext("2d").drawImage(img, 0, 0, cw, ch);
+          source = sc;
+          console.log("[scene] 贴图超预算缩放", img.naturalWidth, "x", img.naturalHeight, "->", cw, "x", ch);
         }
         var t = gl2.createTexture();
         gl2.bindTexture(gl2.TEXTURE_2D, t);
         gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
-        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, img);
+        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, source);
         gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, false);
         gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_S, gl2.CLAMP_TO_EDGE);
         gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_T, gl2.CLAMP_TO_EDGE);
