@@ -22,6 +22,8 @@ pub enum ImportError {
     Unsupported,
     /// mkv 容器：webview 不支持，需转封装。
     Mkv,
+    /// 打包的场景条目（`scene.pkg`）：Gesso 不内置解包，需先解包再导入。
+    Packed,
     /// HEVC：Windows 需系统扩展（macOS 原生支持，仍统一提示）。
     Hevc,
     /// 磁盘 I/O 失败。
@@ -1217,6 +1219,12 @@ impl SessionManager {
                     scene_scan = Some(s);
                 }
                 None => {
+                    // scene.json 不在盘上：目录里若有 .pkg（打包条目），给解包
+                    // 指引而不是笼统的「不支持」
+                    if crate::we::is_packed_scene(&e.dir) {
+                        println!("[we] scene 拒绝导入：打包条目（scene.pkg），需先解包");
+                        return Err(ImportError::Packed);
+                    }
                     println!("[we] scene 拒绝导入：scene.json 缺失或损坏");
                     return Err(ImportError::Unsupported);
                 }
@@ -1954,11 +1962,35 @@ mod we_import_tests {
         assert_eq!(got.kind, WallpaperKind::Scene);
         // 空场景无不支持项：扫描仍随导入返回（Some 且无 omissions）
         assert!(scan.is_some());
-        assert!(scan.and_then(|s| if s.omissions.is_empty() { None } else { Some(s) }).is_none());
+        assert!(scan.filter(|s| !s.omissions.is_empty()).is_none());
         assert_eq!(got.main_file.as_deref(), Some("scene.json"));
         assert_eq!(got.origin, "wallpaper-engine");
         // 零拷贝不变：source_dir 仍指向工坊目录
         assert_eq!(got.source_dir, root.to_string_lossy());
+    }
+
+    #[test]
+    fn packed_scene_import_reports_packed() {
+        let _env = crate::ENV_LOCK.lock().unwrap();
+        let home = tempfile_lite::TempHome::new();
+        let root = home.path.join("workshop/content/431960/7");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("project.json"),
+            r#"{"type":"scene","file":"scene.json","title":"P"}"#,
+        )
+        .unwrap();
+        // 打包条目：场景与贴图都在包内，盘上只有包文件本身
+        fs::write(root.join("scene.pkg"), b"PKGD00R00").unwrap();
+        let entry = crate::we::import_we_at(&root, "7").unwrap();
+        let mut sm = SessionManager::new(Default::default(), Vec::new());
+        let err = match sm.import_we_entry(&entry) {
+            Err(e) => e,
+            Ok(_) => panic!("打包条目应拒绝导入"),
+        };
+        // 给的是解包指引（Packed），不是笼统的「不支持」
+        assert_eq!(err, ImportError::Packed);
+        drop(home);
     }
 }
 

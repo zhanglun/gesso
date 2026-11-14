@@ -263,6 +263,7 @@ pub fn import_error_text(e: ImportError) -> String {
     match e {
         ImportError::Unsupported => super::strings::IMPORT_ERR_UNSUPPORTED().into(),
         ImportError::Mkv => super::strings::IMPORT_ERR_MKV().into(),
+        ImportError::Packed => super::strings::IMPORT_ERR_PACKED().into(),
         ImportError::Hevc => super::strings::IMPORT_ERR_HEVC().into(),
         ImportError::Io => super::strings::IMPORT_ERR_IO().into(),
     }

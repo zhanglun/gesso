@@ -77,6 +77,20 @@ pub fn import_we_at(dir: &Path, workshop_id: &str) -> Option<WeEntry> {
     })
 }
 
+/// 条目目录是否为打包 scene：目录里存在 `.pkg` 包（典型为 Wallpaper Engine
+/// 打包发布的 `scene.pkg`，场景与贴图都在包内）。只在 `scene_scan` 读不到
+/// 场景文件时作「给解包指引」的判据；只读一层目录，不解析包内容。
+pub fn is_packed_scene(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            e.path()
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case("pkg"))
+        })
+    })
+}
+
 // ── scene 快速扫描（一期：识别阻断项与不支持项计数；不支持项随导入结果
 // 返回给 UI，导入时如实告知）────
 

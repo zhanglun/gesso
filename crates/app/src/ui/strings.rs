@@ -47,6 +47,7 @@ pub struct Texts {
     // 导入失败
     pub import_err_unsupported: &'static str,
     pub import_err_mkv: &'static str,
+    pub import_err_packed: &'static str,
     pub import_err_hevc: &'static str,
     pub import_err_io: &'static str,
 
@@ -233,6 +234,7 @@ pub const ZH: Texts = Texts {
 
     import_err_unsupported: "不支持的文件类型。支持：mp4 / webm / gif / webp / html / glsl",
     import_err_mkv: ".mkv 容器暂不支持：请用「快速转封装为 mp4」工具转换后再导入",
+    import_err_packed: "打包的场景条目（scene.pkg）：Gesso 不内置解包，请先用 RePKG 等工具解包，再导入含 project.json 的输出目录",
     import_err_hevc:
         "HEVC 视频需要系统安装 HEVC 扩展（Microsoft Store 免费），建议改用 H.264 编码的 mp4",
     import_err_io: "导入失败：文件复制出错（磁盘空间或权限问题）",
@@ -398,6 +400,7 @@ pub const EN: Texts = Texts {
 
     import_err_unsupported: "Unsupported file type. Supported: mp4 / webm / gif / webp / html / glsl",
     import_err_mkv: ".mkv containers are not supported yet — remux to mp4 with the quick remux tool first",
+    import_err_packed: "Packed scene entry (scene.pkg): Gesso doesn't unpack it — run an external unpacker (e.g. RePKG) first, then import the output folder containing project.json",
     import_err_hevc: "HEVC video needs the HEVC extension (free in the Microsoft Store); H.264 mp4 is recommended",
     import_err_io: "Import failed: file copy error (disk space or permissions)",
 
@@ -604,6 +607,7 @@ accessors! {
     menu_open_folder => MENU_OPEN_FOLDER, menu_remove => MENU_REMOVE,
     import_err_unsupported => IMPORT_ERR_UNSUPPORTED, import_err_mkv => IMPORT_ERR_MKV,
     import_err_hevc => IMPORT_ERR_HEVC, import_err_io => IMPORT_ERR_IO,
+    import_err_packed => IMPORT_ERR_PACKED,
     dz_hint => DZ_HINT,
     kind_video => KIND_VIDEO, kind_gif => KIND_GIF, kind_photo => KIND_PHOTO,
     kind_shader => KIND_SHADER, kind_web => KIND_WEB, kind_scene => KIND_SCENE,
@@ -954,6 +958,7 @@ mod tests {
             |p| p.tray_quit,
             |p| p.btn_view_all,
             |p| p.we_empty_desc,
+            |p| p.import_err_packed,
             |p| p.mon_main,
             |p| p.win_close,
         ];
