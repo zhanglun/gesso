@@ -267,15 +267,26 @@
 
   function sceneLoadTexture(gl2, rel) {
     return new Promise(function (resolve) {
-      // 字节预算：>16M 像素的贴图拒载（画黑，对齐 WE 行为）
+      // repkg 解包产物：材质引用 .tex（WE 压缩纹理，webview 不可解码）——
+      // 依次回落同名 .png / .gif（URL 仍经 sceneUrl 校验，路径安全不变）
+      var candidates = /\.tex$/i.test(rel)
+        ? [rel, rel.replace(/\.tex$/i, ".png"), rel.replace(/\.tex$/i, ".gif")]
+        : [rel];
+      var attempt = 0;
+      var settled = false;
       var img = new Image();
       img.crossOrigin = "anonymous";
+      // 字节预算：>16M 像素的贴图拒载（拒载/失败即跳过该层，露出背景）
       var timeout = setTimeout(function () {
+        if (settled) return;
+        settled = true;
         console.log("[scene] 贴图加载超时", rel); resolve(null);
       }, 5000);
       img.onload = function () {
+        if (settled) return;
         clearTimeout(timeout);
         if (img.naturalWidth * img.naturalHeight > 16 * 1024 * 1024) {
+          settled = true;
           console.log("[scene] 贴图超大拒载", rel); resolve(null); return;
         }
         var t = gl2.createTexture();
@@ -287,13 +298,22 @@
         gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_T, gl2.CLAMP_TO_EDGE);
         gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MIN_FILTER, gl2.LINEAR);
         gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MAG_FILTER, gl2.LINEAR);
+        settled = true;
         resolve(t);
       };
       img.onerror = function () {
+        if (settled) return;
+        attempt += 1;
+        if (attempt < candidates.length) {
+          console.log("[scene] 贴图回落", rel, "->", candidates[attempt]);
+          img.src = sceneUrl(candidates[attempt]);
+          return;
+        }
         clearTimeout(timeout);
+        settled = true;
         console.log("[scene] 贴图加载失败", rel); resolve(null);
       };
-      img.src = sceneUrl(rel);
+      img.src = sceneUrl(candidates[0]);
     });
   }
 

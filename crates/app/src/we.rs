@@ -142,6 +142,24 @@ fn safe_file(dir: &Path, rel: &str) -> Option<PathBuf> {
     file.starts_with(&root).then_some(file)
 }
 
+/// 材质引用的贴图是否能在盘上找到：原名存在即可；`.tex` 引用（repkg 解包
+/// 产物的常态，raw 包体 webview 不可解码）回落同名 `.png`/`.gif`——与宿主页
+/// sceneLoadTexture 的回落链保持一致。
+fn texture_on_disk(dir: &Path, texture: &str) -> bool {
+    if safe_file(dir, texture).is_some() {
+        return true;
+    }
+    let Some((stem, ext)) = texture.rsplit_once('.') else {
+        return false;
+    };
+    if !ext.eq_ignore_ascii_case("tex") {
+        return false;
+    }
+    ["png", "gif"]
+        .iter()
+        .any(|ext| safe_file(dir, &format!("{stem}.{ext}")).is_some())
+}
+
 /// 读取条目目录内的 JSON 文件（深度和文件大小受限）。
 fn read_json(dir: &Path, rel: &str, depth: usize) -> Option<serde_json::Value> {
     if depth > 4 {
@@ -233,7 +251,7 @@ pub fn scene_scan(dir: &Path, scene_file: &str) -> Option<SceneScan> {
                 .and_then(|v| v.first())
                 .and_then(|v| v.as_str())
             {
-                if !texture.starts_with("_rt_") && safe_file(dir, texture).is_none() {
+                if !texture.starts_with("_rt_") && !texture_on_disk(dir, texture) {
                     blocker(&mut scan, "图片纹理缺失");
                 }
             }
@@ -384,6 +402,53 @@ mod tests {
         #[cfg(unix)]
         assert!(scene_scan(&base, "link.json").is_none());
         let _ = fs::remove_file(outside);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn scene_scan_tex_reference_falls_back_to_png_gif() {
+        // repkg 解包产物形态：材质引用 .tex，盘上是转换出的 .png/.gif
+        let base =
+            std::env::temp_dir().join(format!("gesso-we-tex-{}", gesso_core::generate_id()));
+        let dir = base.join("778");
+        fs::create_dir_all(dir.join("textures")).unwrap();
+        fs::write(
+            dir.join("scene.json"),
+            r#"{
+              "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+              "objects": [
+                {"image": "m.json"},
+                {"image": "g.json"},
+                {"image": "x.json"}
+              ]
+            }"#,
+        )
+        .unwrap();
+        fs::write(dir.join("m.json"), r#"{"material": "mm.json"}"#).unwrap();
+        fs::write(dir.join("g.json"), r#"{"material": "mg.json"}"#).unwrap();
+        fs::write(dir.join("x.json"), r#"{"material": "mx.json"}"#).unwrap();
+        fs::write(
+            dir.join("mm.json"),
+            r#"{"passes": [{"textures": ["textures/a.tex"]}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("mg.json"),
+            r#"{"passes": [{"textures": ["textures/b.tex"]}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("mx.json"),
+            r#"{"passes": [{"textures": ["textures/c.tex"]}]}"#,
+        )
+        .unwrap();
+        fs::write(dir.join("textures/a.png"), b"png").unwrap();
+        fs::write(dir.join("textures/b.gif"), b"gif").unwrap();
+        // c.tex 无任何同名回落文件 → 纹理缺失阻断
+
+        let scan = scene_scan(&dir, "scene.json").unwrap();
+        assert_eq!(scan.blockers, vec!["图片纹理缺失"]);
+
         let _ = fs::remove_dir_all(&base);
     }
 
