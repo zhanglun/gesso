@@ -95,7 +95,10 @@ Metal 渲染器烘焙成视频，非实时）。Gesso 的实时路线若做成�
   一期随效果链跳过）。2026-11-14 实机校准补充：向量字段（origin/size/angles/
   scale/parallaxDepth/color/clearcolor）在真实工坊文件里是空格分隔字符串
   （渲染器同时兼容数组）；材质 `textures` 是无扩展名裸名，按材质 json 所在
-  目录解析为同名 `.tex`（回落 `.png`/`.gif`）；spritesheet 材质一期按整图
+  目录解析为同名纹理（repkg 转换输出可能是 `.png`/`.jpg`/`.gif`，先试可解码
+  格式）；裸 `.tex` 不可解码 = 阻断（图片纹理无法解码），`.mp4` 视频贴图计数
+  跳过，全部图层均不可渲染的场景拒绝导入（无可渲染图层）。快扫阻断原因随
+  toast 如实告知（ImportError::SceneBlocker）。spritesheet 材质一期按整图
   渲染、无逐帧动画。
   不支持项（效果链/粒子/文本/音频/3D）在**导入时如实告知**：Rust 快扫
   （`we::scene_scan`）识别阻断项（有则拒绝导入）与不支持项计数，导入成功

@@ -151,12 +151,13 @@ fn texture_candidates(material_rel: &str, texture: &str) -> Vec<String> {
         .rsplit_once('.')
         .filter(|(_, e)| !e.is_empty() && e.len() <= 5 && !e.contains('/'))
         .map(|(_, e)| e.to_string());
-    let mut v = vec![texture.to_string()];
     if let Some(e) = ext {
+        let mut v = vec![texture.to_string()];
         if e.eq_ignore_ascii_case("tex") {
             let stem = &texture[..texture.len() - e.len() - 1];
-            v.push(format!("{stem}.png"));
-            v.push(format!("{stem}.gif"));
+            for x in ["png", "jpg", "gif", "mp4"] {
+                v.push(format!("{stem}.{x}"));
+            }
         }
         return v;
     }
@@ -164,18 +165,57 @@ fn texture_candidates(material_rel: &str, texture: &str) -> Vec<String> {
         .rsplit_once('/')
         .map(|(d, _)| format!("{d}/"))
         .unwrap_or_default();
-    for e in ["tex", "png", "gif"] {
-        v.push(format!("{mat_dir}{texture}.{e}"));
-        v.push(format!("{texture}.{e}"));
+    let mut v = Vec::new();
+    for x in ["png", "jpg", "gif", "tex", "mp4"] {
+        v.push(format!("{mat_dir}{texture}.{x}"));
+    }
+    for x in ["png", "jpg", "gif", "tex", "mp4"] {
+        v.push(format!("{texture}.{x}"));
     }
     v
 }
 
-/// 材质引用的贴图是否能在盘上找到（候选见 texture_candidates）。
-fn texture_on_disk(dir: &Path, material_rel: &str, texture: &str) -> bool {
-    texture_candidates(material_rel, texture)
-        .iter()
-        .any(|c| safe_file(dir, c).is_some())
+/// 材质引用贴图的可渲染性：webview 只能解码位图（repkg 转出的 `.png`/`.jpg`/
+/// `.gif` 或散装图片）；裸 `.tex` 是 WE 压缩纹理容器（不可解码）；`.mp4` 是
+/// 视频贴图（一期不支持）。候选与宿主页 sceneTextureCandidates 保持一致。
+enum TextureRenderability {
+    Renderable,
+    VideoTexture,
+    Undecodable,
+    Missing,
+}
+
+fn texture_renderability(dir: &Path, material_rel: &str, texture: &str) -> TextureRenderability {
+    let mut decodable = false;
+    let mut raw_tex = false;
+    let mut video = false;
+    for c in texture_candidates(material_rel, texture) {
+        if safe_file(dir, &c).is_none() {
+            continue;
+        }
+        let le = c.to_lowercase();
+        if le.ends_with(".png")
+            || le.ends_with(".jpg")
+            || le.ends_with(".jpeg")
+            || le.ends_with(".gif")
+            || le.ends_with(".webp")
+        {
+            decodable = true;
+        } else if le.ends_with(".tex") {
+            raw_tex = true;
+        } else if le.ends_with(".mp4") {
+            video = true;
+        }
+    }
+    if decodable {
+        TextureRenderability::Renderable
+    } else if video {
+        TextureRenderability::VideoTexture
+    } else if raw_tex {
+        TextureRenderability::Undecodable
+    } else {
+        TextureRenderability::Missing
+    }
 }
 
 /// 读取条目目录内的 JSON 文件（深度和文件大小受限）。
@@ -226,6 +266,7 @@ pub fn scene_scan(dir: &Path, scene_file: &str) -> Option<SceneScan> {
             scan.blockers.push(name);
         }
     };
+    let mut renderable = 0usize;
 
     for obj in root
         .get("objects")
@@ -269,8 +310,23 @@ pub fn scene_scan(dir: &Path, scene_file: &str) -> Option<SceneScan> {
                 .and_then(|v| v.first())
                 .and_then(|v| v.as_str())
             {
-                if !texture.starts_with("_rt_") && !texture_on_disk(dir, material_rel, texture) {
-                    blocker(&mut scan, "图片纹理缺失");
+                match texture_renderability(dir, material_rel, texture) {
+                    TextureRenderability::Renderable => renderable += 1,
+                    TextureRenderability::VideoTexture => {
+                        omission(&mut scan, "video-texture", 1);
+                    }
+                    TextureRenderability::Undecodable => {
+                        blocker(&mut scan, "图片纹理无法解码");
+                    }
+                    // _rt_ 运行时纹理（copiesBackground 等）渲染期由宿主页跳过；
+                    // 真缺失则拒绝
+                    TextureRenderability::Missing => {
+                        if texture.starts_with("_rt_") {
+                            omission(&mut scan, "copies-background", 1);
+                        } else {
+                            blocker(&mut scan, "图片纹理缺失");
+                        }
+                    }
                 }
             }
             // 效果链计数（一期不支持效果渲染）
@@ -289,6 +345,11 @@ pub fn scene_scan(dir: &Path, scene_file: &str) -> Option<SceneScan> {
         } else if obj.get("model").is_some() {
             omission(&mut scan, "3d-model", 1);
         }
+    }
+    // 场景有图层但无一可渲染（全为视频贴图/不可解码/背景复制层）→ 拒绝，
+    // 不让用户对着空白壁纸猜原因
+    if scan.blockers.is_empty() && scan.layers > 0 && renderable == 0 {
+        scan.blockers.push("无可渲染图层");
     }
     Some(scan)
 }
@@ -496,6 +557,74 @@ mod tests {
             "裸名应按材质目录解析: {:?}",
             scan.blockers
         );
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn scene_scan_texture_renderability_matrix() {
+        // jpg 转换输出可渲染；视频贴图计数；裸 tex 不可解码阻断
+        let base =
+            std::env::temp_dir().join(format!("gesso-we-matrix-{}", gesso_core::generate_id()));
+        let dir = base.join("780");
+        fs::create_dir_all(dir.join("materials")).unwrap();
+        fs::write(
+            dir.join("scene.json"),
+            r#"{
+              "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+              "objects": [
+                {"image": "materials/m1.json"},
+                {"image": "materials/m2.json"},
+                {"image": "materials/m3.json"}
+              ]
+            }"#,
+        )
+        .unwrap();
+        fs::write(dir.join("materials/m1.json"), r#"{"material": "materials/mm1.json"}"#).unwrap();
+        fs::write(dir.join("materials/mm1.json"), r#"{"passes": [{"textures": ["A"]}]}"#).unwrap();
+        fs::write(dir.join("materials/A.jpg"), b"jpg").unwrap();
+        fs::write(dir.join("materials/m2.json"), r#"{"material": "materials/mm2.json"}"#).unwrap();
+        fs::write(dir.join("materials/mm2.json"), r#"{"passes": [{"textures": ["B"]}]}"#).unwrap();
+        fs::write(dir.join("materials/B.tex"), b"tex").unwrap();
+        fs::write(dir.join("materials/B.mp4"), b"mp4").unwrap();
+        fs::write(dir.join("materials/m3.json"), r#"{"material": "materials/mm3.json"}"#).unwrap();
+        fs::write(dir.join("materials/mm3.json"), r#"{"passes": [{"textures": ["C"]}]}"#).unwrap();
+        fs::write(dir.join("materials/C.tex"), b"tex").unwrap();
+
+        let scan = scene_scan(&dir, "scene.json").unwrap();
+        assert_eq!(scan.blockers, vec!["图片纹理无法解码"]);
+        let video = scan
+            .omissions
+            .iter()
+            .find(|(k, _)| *k == "video-texture")
+            .map(|(_, c)| *c);
+        assert_eq!(video, Some(1));
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn scene_scan_rejects_scene_with_no_renderable_layers() {
+        // 唯一图层是视频贴图 → 计数 + 无可渲染图层阻断（不让用户对着空白壁纸）
+        let base =
+            std::env::temp_dir().join(format!("gesso-we-empty-{}", gesso_core::generate_id()));
+        let dir = base.join("781");
+        fs::create_dir_all(dir.join("materials")).unwrap();
+        fs::write(
+            dir.join("scene.json"),
+            r#"{
+              "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+              "objects": [{"image": "materials/m1.json"}]
+            }"#,
+        )
+        .unwrap();
+        fs::write(dir.join("materials/m1.json"), r#"{"material": "materials/mm.json"}"#).unwrap();
+        fs::write(dir.join("materials/mm.json"), r#"{"passes": [{"textures": ["B"]}]}"#).unwrap();
+        fs::write(dir.join("materials/B.tex"), b"tex").unwrap();
+        fs::write(dir.join("materials/B.mp4"), b"mp4").unwrap();
+
+        let scan = scene_scan(&dir, "scene.json").unwrap();
+        assert_eq!(scan.blockers, vec!["无可渲染图层"]);
 
         let _ = fs::remove_dir_all(&base);
     }

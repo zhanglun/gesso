@@ -727,6 +727,16 @@ pub fn toast_imported(name: &str) -> String {
     }
 }
 
+/// scene 快扫阻断项拒绝导入：toast 带具体原因（原因词表在 we::scene_scan，
+/// 中文原样；阻断词表暂未双语化）。
+pub fn toast_import_scene_blocker(reason: &str) -> String {
+    if LANG.load(Ordering::Relaxed) == 1 {
+        format!("Scene entry can't be imported: {reason}")
+    } else {
+        format!("场景条目无法导入：{reason}")
+    }
+}
+
 /* ── WE scene 部分支持（不支持项导入时如实告知）────────────────────────── */
 
 /// scene 扫描不支持项的稳定键 → 当前语言标签（键出处 = we::scene_scan）。
@@ -744,6 +754,10 @@ pub fn omission_label(key: &str) -> String {
         ("sound", true) => "audio".into(),
         ("3d-model", false) => "3D 模型".into(),
         ("3d-model", true) => "3D models".into(),
+        ("video-texture", false) => "视频贴图".into(),
+        ("video-texture", true) => "video textures".into(),
+        ("copies-background", false) => "背景复制层".into(),
+        ("copies-background", true) => "background-copy layers".into(),
         _ => key.to_string(),
     }
 }

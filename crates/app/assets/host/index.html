@@ -271,16 +271,21 @@
     var dot = tex.lastIndexOf(".");
     var out = [];
     if (dot > tex.lastIndexOf("/") && tex.length - dot <= 6) {
-      out.push(tex);
       if (/\.tex$/i.test(tex)) {
-        out.push(tex.replace(/\.tex$/i, ".png"));
-        out.push(tex.replace(/\.tex$/i, ".gif"));
+        var stem = tex.replace(/\.tex$/i, "");
+        // repkg 转换输出可能是 png/jpg/gif；mp4 = 视频贴图（一期不渲染）
+        ["png", "jpg", "gif", "mp4"].forEach(function (e) { out.push(stem + "." + e); });
+        out.push(tex);
+      } else {
+        out.push(tex);
       }
       return out;
     }
     var dir = matRel.lastIndexOf("/") >= 0 ? matRel.slice(0, matRel.lastIndexOf("/") + 1) : "";
-    ["tex", "png", "gif"].forEach(function (e) {
+    ["png", "jpg", "gif", "tex", "mp4"].forEach(function (e) {
       out.push(dir + tex + "." + e);
+    });
+    ["png", "jpg", "gif", "tex", "mp4"].forEach(function (e) {
       out.push(tex + "." + e);
     });
     return out;

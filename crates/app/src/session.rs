@@ -24,6 +24,8 @@ pub enum ImportError {
     Mkv,
     /// 打包的场景条目（`scene.pkg`）：Gesso 不内置解包，需先解包再导入。
     Packed,
+    /// scene 快扫阻断项（携带首个原因，toast 如实告知）。
+    SceneBlocker(&'static str),
     /// HEVC：Windows 需系统扩展（macOS 原生支持，仍统一提示）。
     Hevc,
     /// 磁盘 I/O 失败。
@@ -1208,7 +1210,7 @@ impl SessionManager {
             match crate::we::scene_scan(&e.dir, &e.scene_file()) {
                 Some(s) if !s.blockers.is_empty() => {
                     println!("[we] scene 拒绝导入：阻断项 {}", s.blockers.join(", "));
-                    return Err(ImportError::Unsupported);
+                    return Err(ImportError::SceneBlocker(s.blockers[0]));
                 }
                 Some(s) => {
                     println!(
@@ -1990,6 +1992,29 @@ mod we_import_tests {
         };
         // 给的是解包指引（Packed），不是笼统的「不支持」
         assert_eq!(err, ImportError::Packed);
+        drop(home);
+    }
+
+    #[test]
+    fn scene_blocker_import_carries_reason() {
+        let _env = crate::ENV_LOCK.lock().unwrap();
+        let home = tempfile_lite::TempHome::new();
+        let root = home.path.join("workshop/content/431960/8");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("project.json"),
+            r#"{"type":"scene","file":"scene.json","title":"B"}"#,
+        )
+        .unwrap();
+        // 无正交投影 → 阻断项「3D 相机场景」
+        fs::write(root.join("scene.json"), r#"{"general": {}}"#).unwrap();
+        let entry = crate::we::import_we_at(&root, "8").unwrap();
+        let mut sm = SessionManager::new(Default::default(), Vec::new());
+        let err = match sm.import_we_entry(&entry) {
+            Err(e) => e,
+            Ok(_) => panic!("阻断条目应拒绝导入"),
+        };
+        assert_eq!(err, ImportError::SceneBlocker("3D 相机场景"));
         drop(home);
     }
 }
