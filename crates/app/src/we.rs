@@ -142,22 +142,40 @@ fn safe_file(dir: &Path, rel: &str) -> Option<PathBuf> {
     file.starts_with(&root).then_some(file)
 }
 
-/// 材质引用的贴图是否能在盘上找到：原名存在即可；`.tex` 引用（repkg 解包
-/// 产物的常态，raw 包体 webview 不可解码）回落同名 `.png`/`.gif`——与宿主页
-/// sceneLoadTexture 的回落链保持一致。
-fn texture_on_disk(dir: &Path, texture: &str) -> bool {
-    if safe_file(dir, texture).is_some() {
-        return true;
+/// WE 材质的贴图引用候选列表：真实工坊格式里引用可能是「相对场景根的路径
+/// （带扩展名）」，也可能是「无扩展名裸名」（WE 按材质 json 所在目录解析为
+/// 同名 `.tex`；repkg 转出的 `.png`/`.gif` 并存）。候选与宿主页
+/// sceneTextureCandidates 保持一致，逐个 safe_file 探测。
+fn texture_candidates(material_rel: &str, texture: &str) -> Vec<String> {
+    let ext = texture
+        .rsplit_once('.')
+        .filter(|(_, e)| !e.is_empty() && e.len() <= 5 && !e.contains('/'))
+        .map(|(_, e)| e.to_string());
+    let mut v = vec![texture.to_string()];
+    if let Some(e) = ext {
+        if e.eq_ignore_ascii_case("tex") {
+            let stem = &texture[..texture.len() - e.len() - 1];
+            v.push(format!("{stem}.png"));
+            v.push(format!("{stem}.gif"));
+        }
+        return v;
     }
-    let Some((stem, ext)) = texture.rsplit_once('.') else {
-        return false;
-    };
-    if !ext.eq_ignore_ascii_case("tex") {
-        return false;
+    let mat_dir = material_rel
+        .rsplit_once('/')
+        .map(|(d, _)| format!("{d}/"))
+        .unwrap_or_default();
+    for e in ["tex", "png", "gif"] {
+        v.push(format!("{mat_dir}{texture}.{e}"));
+        v.push(format!("{texture}.{e}"));
     }
-    ["png", "gif"]
+    v
+}
+
+/// 材质引用的贴图是否能在盘上找到（候选见 texture_candidates）。
+fn texture_on_disk(dir: &Path, material_rel: &str, texture: &str) -> bool {
+    texture_candidates(material_rel, texture)
         .iter()
-        .any(|ext| safe_file(dir, &format!("{stem}.{ext}")).is_some())
+        .any(|c| safe_file(dir, c).is_some())
 }
 
 /// 读取条目目录内的 JSON 文件（深度和文件大小受限）。
@@ -251,7 +269,7 @@ pub fn scene_scan(dir: &Path, scene_file: &str) -> Option<SceneScan> {
                 .and_then(|v| v.first())
                 .and_then(|v| v.as_str())
             {
-                if !texture.starts_with("_rt_") && !texture_on_disk(dir, texture) {
+                if !texture.starts_with("_rt_") && !texture_on_disk(dir, material_rel, texture) {
                     blocker(&mut scan, "图片纹理缺失");
                 }
             }
@@ -448,6 +466,36 @@ mod tests {
 
         let scan = scene_scan(&dir, "scene.json").unwrap();
         assert_eq!(scan.blockers, vec!["图片纹理缺失"]);
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn scene_scan_resolves_bare_texture_names_next_to_material() {
+        // 真实工坊格式（实机校准）：材质 textures 是无扩展名裸名，按材质所在
+        // 目录解析为同名 .tex/.png/.gif，而不是按场景根
+        let base =
+            std::env::temp_dir().join(format!("gesso-we-bare-{}", gesso_core::generate_id()));
+        let dir = base.join("779");
+        fs::create_dir_all(dir.join("materials")).unwrap();
+        fs::write(
+            dir.join("scene.json"),
+            r#"{
+              "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+              "objects": [{"image": "materials/m1.json"}]
+            }"#,
+        )
+        .unwrap();
+        fs::write(dir.join("materials/m1.json"), r#"{"material": "materials/mm.json"}"#).unwrap();
+        fs::write(dir.join("materials/mm.json"), r#"{"passes": [{"textures": ["T"]}]}"#).unwrap();
+        fs::write(dir.join("materials/T.png"), b"png").unwrap();
+
+        let scan = scene_scan(&dir, "scene.json").unwrap();
+        assert!(
+            scan.blockers.is_empty(),
+            "裸名应按材质目录解析: {:?}",
+            scan.blockers
+        );
 
         let _ = fs::remove_dir_all(&base);
     }

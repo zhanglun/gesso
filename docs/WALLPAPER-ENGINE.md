@@ -92,7 +92,11 @@ Metal 渲染器烘焙成视频，非实时）。Gesso 的实时路线若做成�
   `alignment` 决定锚定边；层尺寸取值顺序 = 模型 json 宽高 > 对象 `size`
   > `origin×2`；`objects` 数组顺序即绘制顺序（先渲染在底层）；层自身混合
   来自材质 pass 的 `blending`（`colorBlendMode` 是颜色叠加效果的混合模式，
-  一期随效果链跳过）。
+  一期随效果链跳过）。2026-11-14 实机校准补充：向量字段（origin/size/angles/
+  scale/parallaxDepth/color/clearcolor）在真实工坊文件里是空格分隔字符串
+  （渲染器同时兼容数组）；材质 `textures` 是无扩展名裸名，按材质 json 所在
+  目录解析为同名 `.tex`（回落 `.png`/`.gif`）；spritesheet 材质一期按整图
+  渲染、无逐帧动画。
   不支持项（效果链/粒子/文本/音频/3D）在**导入时如实告知**：Rust 快扫
   （`we::scene_scan`）识别阻断项（有则拒绝导入）与不支持项计数，导入成功
   后 toast 列出跳过内容（对齐 Phosphene 的 omissions 上报模式）。
