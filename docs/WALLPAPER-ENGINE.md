@@ -1,6 +1,6 @@
 # Wallpaper Engine 素材兼容
 
-> 状态：video/web 已交付；scene 一期基础图片层实时渲染已接入，效果栈与 `.pkg` 仍在计划中。
+> 状态：video/web 已交付；scene 一期基础图片层实时渲染已接入，效果栈二期计划中；`.pkg` 打包条目不内置解包，用户自行解包后导入（见下「打包条目指引」）。
 
 ## 目标
 
@@ -13,12 +13,36 @@
 | `video` | mp4 | **零拷贝直引**（`gesso://steam` 流式 Range 读源，不拷入库） | ✅ 已交付 |
 | `web` | HTML5 + WE JS API | **零拷贝直引**：`gesso://steam` 读原文件，主 HTML 在协议层内存注入 WE API shim（不改原文件），子资源相对路径同源加载 | ✅ 已交付 |
 | `scene` | `scene.json`（图层/材质/效果栈）+ 散装贴图 | **WebGL 运行时**：宿主页实时渲染基础图片层、关键帧与鼠标视差 | ✅ 一期已接入（效果栈等不支持项会跳过） |
-| `scene`（`.pkg` 打包变体） | 贴图打包为 `scene.pkg`（`.tex` 压缩纹理） | 解包后再走上行流程（GPL 工具链子进程隔离，立项前重评） | 二期 |
+| `scene`（`.pkg` 打包变体） | 贴图打包为 `scene.pkg`（`.tex` 压缩纹理） | 用户自行解包后导入（RePKG，见下「打包条目指引」），Gesso 不内置解包 | 已定路线（不内置） |
 | `application` | 原生 exe | **明确拒绝**（安全模型不允许，macOS 也无法运行） | 永不 |
 
 ## 素材从哪来
 
 Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/431960/<workshopid>/`（`431960` = Wallpaper Engine 的 AppID），每个目录含 `project.json`（`title` / `type` / `file` 等）。用户在导入对话框里自行浏览到该目录；Gesso 不枚举这个路径。
+
+## 打包条目指引（`.pkg`；2026-11-14 定案：不内置解包）
+
+部分工坊 scene 条目把 `scene.json` 和贴图打包成一个 `scene.pkg`（贴图为 `.tex`
+压缩纹理）。Gesso 不解析 `.pkg`；用 [RePKG](https://github.com/notscuffed/repkg)
+解包后，把输出目录当作普通条目录入（零拷贝直引该输出目录）：
+
+```bash
+# 单条目：-c 会把条目目录里的 project.json 与封面一并拷入输出
+repkg extract -c <条目目录>/scene.pkg -o <输出目录>/<条目名>
+
+# 批量：对 431960 目录 extract，产物按 <工坊id> 分目录
+repkg extract -c <steam>/steamapps/workshop/content/431960 -o <输出目录>
+```
+
+注意（已核对 RePKG 源码 `Extract.cs`）：对**目录输入的非递归模式只扫子目录**，
+不要直接对单个条目目录跑 `extract`（`scene.pkg` 就在该目录下，会被漏掉）——
+用上面两种形态之一。
+
+解包产物 = 一期已支持的散装形态：`project.json` + `scene.json` + 材质 json +
+贴图（raw `.tex` 与转换出的 `.png`/`.gif` 并存；`.tex-json` 为信息文件，无害）。
+Gesso 对材质 json 引用的 `.tex` 自动回落同名 `.png`/`.gif` 加载。两处退化如实
+声明：动图贴图转 gif 后按**静态首帧**渲染；视频贴图转 mp4，一期渲染器不支持
+（对应图层缺失）。
 
 ## 实现备忘
 
@@ -30,10 +54,11 @@ Steam 创意工坊订阅内容落盘于 `<steam>/steamapps/workshop/content/4319
 
 - **只读本机已订阅内容**；不做下载器、不做素材再分发、不把素材打进 release。
 - 不关联、不破解 Steam，也不检测 WE/Steam 安装状态；没有素材目录就没有条目，不提供任何获取通路。
-- GPL 边界：解包工具链（`depkg`/`repkg`/`PyPKGer`）均为 GPL。集成方式二选一——
-  1. **子进程调用** `depkg-cli`（进程边界隔离 GPL，主程序保持宽松许可，当前倾向）；
-  2. 接受整个项目 GPL-3.0。
-  该方案尚未进入当前实现；在 scene 立项前重新评估，并在 README 明示。
+- GPL 边界：解包工具链（`depkg`/`repkg`/`PyPKGer`）均为 GPL。**2026-11-14 定案：
+  不内置解包**——主程序不捆绑、不调用、不实现 `.pkg` 解包，打包条目由用户自行
+  解包后导入（见「打包条目指引」）；主程序保持 MIT OR Apache-2.0，零 GPL 接触。
+  重开条件：macOS 用户需求强烈（RePKG 无官方 macOS 包）或实机抽样显示打包条目
+  占比可观时，再评估零 GPL 自研解包路线（先做格式 spike）。
 
 ## scene 方案设计（2026-11-10 定稿；一期已实现）
 
@@ -78,8 +103,8 @@ Metal 渲染器烘焙成视频，非实时）。Gesso 的实时路线若做成�
   scene 是「可信渲染器 + 不可信数据」（区别于 web 类型的不可信代码），
   实现严禁 eval/拼接场景数据。
 - **二期（效果栈）**：WE GLSL 方言 → GLSL ES 翻译器（宿主页 JS 侧做源变
-  换），效果链（waves/ripple/blur/glow 等常见效果）、copiesBackground、
-  `.pkg` 解包（GPL 子进程隔离，立项前重评）。
+  换），效果链（waves/ripple/blur/glow 等常见效果）、copiesBackground。
+  `.pkg` 解包不内置（2026-11-14 定案，见「打包条目指引」）。
 - **三期/明确不支持**：粒子系统、音频响应、文本/时钟层、3D 模型、
   puppet-warp——不支持项在导入时如实告知（toast；一期已落地，阻断项如
   puppet/3D 相机则整张拒绝导入）。
@@ -100,15 +125,17 @@ Metal 渲染器烘焙成视频，非实时）。Gesso 的实时路线若做成�
 ### 安全边界（不可信输入，照搬 Phosphene 经验）
 
 路径限制在条目目录内（`PathSafety.contained` 同款）；非有限数值丢弃；纹理
-与渲染目标设字节预算；shader 尺寸与 include 深度上限；加载失败的贴图画黑。
+与渲染目标设字节预算；shader 尺寸与 include 深度上限；贴图拒载（超预算或
+加载失败）时跳过该层、露出背景色。
 
 ### 法律边界
 
-散装 scene（多数项目）无需解包工具，无 GPL 接触；`.pkg` 解包二期再评估
-（depkg 子进程隔离 or 接受 GPL，现状倾向前者）。主程序保持 MIT OR Apache-2.0。
+散装 scene（多数项目）无需解包工具，无 GPL 接触；`.pkg` 打包条目不内置解包
+（2026-11-14 定案，见「打包条目指引」）。主程序保持 MIT OR Apache-2.0。
 
 ## 验收
 
 - 夹具端到端：零拷贝条目指向源目录、steam 路由内存注入 shim + 路径空间隔离、scene 明确拒绝均有测试覆盖；
 - video/web 零拷贝直引实机验证（主文档 + 相对子资源均经 `gesso://steam/<entry-id>/…` 加载，0 panic）；以不可猜 entry id 为凭据，未知 id 回 404；
-- 大规模工坊实机兼容性（热门 20 个 web）待有 Steam 环境补测。
+- 大规模工坊实机兼容性（热门 20 个 web）待有 Steam 环境补测；
+- scene 实机清单（待有 WE 素材的机器执行）：① 散装条目导入渲染（图层 / alpha 动画 / 视差 / zoom）+ 效果链 toast 如实告知 + 卡片封面正常；② 打包条目直接导入原工坊目录 → 出现「请先解包」指引；③ RePKG 解包后导入 → 材质引 `.tex` 的图层正常渲染（`.png`/`.gif` 回落生效）、动图贴图静态化、视频贴图对应层缺失，与「打包条目指引」声明一致；④ 抽样记录打包条目占比（内置解包是否重开的决策数据）。

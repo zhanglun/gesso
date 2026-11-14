@@ -26,6 +26,7 @@ Gesso lives in the menu bar / tray. The manager window holds the wallpaper libra
 - **Pinned behind the icons** — the wallpaper window sits *below* the desktop icon layer: your icons stay visible, stay clickable, and keep working.
 - **Native video plus a host pipeline** — video (`mp4`/`webm`) uses the platform-native player; animated images (`gif`/`webp`), shaders (`glsl`, Shadertoy-style) and web pages (`html`) use the shared sandboxed host page.
 - **Remote pages, zero copy** — paste any `https://` URL in the library toolbar to use a live web page as wallpaper (no local files); Wallpaper Engine `project.json` imports are also read-only references.
+- **Wallpaper Engine packed scenes** — entries shipped as `scene.pkg` need a one-time external unpack (e.g. [RePKG](https://github.com/notscuffed/repkg) `extract -c`) before importing the output folder that contains `project.json` (see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md)).
 - **Real pause** — pausing stops the JS render loop and video decoding, not just the visuals. Full-screen apps and battery mode will pause automatically (see [Roadmap](docs/ROADMAP.md)).
 - **Tray-first UX** — pause/resume and switch wallpapers from the menu bar; open the manager window only when you want to manage content.
 - **No IPC into the app** — wallpaper content is treated as untrusted: it runs in a sandboxed webview and receives only the host's typed pause, frame-rate and input events.
@@ -59,7 +60,7 @@ Builds are **not signed or notarized** (see [Roadmap](docs/ROADMAP.md)), so the 
 | Shader renderer (Shadertoy subset, WebGL2) | ✅ |
 | HTML renderer (sandboxed iframe, no Rust IPC) | ✅ |
 | System data bridge (fullscreen/battery auto-pause · time · cursor · idle) | ✅ |
-| Wallpaper Engine `video`/`web` wallpapers (user-driven import, read-only) | ✅ — see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
+| Wallpaper Engine `video`/`web`/`scene` wallpapers (user-driven import, read-only; packed `scene.pkg` entries need external unpacking) | ✅ — see [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
 ## Built-in wallpapers
 

@@ -25,6 +25,7 @@ Gesso 常驻菜单栏/托盘。管理窗口负责壁纸库、显示器映射和�
 - **钉在图标层之下**：壁纸窗口位于桌面图标层下方，图标可见、可点（点击穿透），不遮挡任何工作内容。
 - **原生视频 + 宿主管线**：视频（`mp4`/`webm`）使用平台原生播放器；动图（`gif`/`webp`）、Shader（`glsl`，Shadertoy 风格）和网页（`html`）使用共享的沙箱宿主页。
 - **远端网页零拷贝**：库页工具条粘贴任意 `https://` 地址即可用在线网页当壁纸（不落盘）；Wallpaper Engine 的 `project.json` 导入同样是只读引用。
+- **Wallpaper Engine 打包场景**：以 `scene.pkg` 打包发布的条目需先解包一次（如 [RePKG](https://github.com/notscuffed/repkg) 的 `extract -c`），再导入含 `project.json` 的输出目录（见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md)）。
 - **暂停是真停**：暂停时 JS 渲染循环停止、视频解码停止，画面定格而非淡出；全屏应用与电池模式下会自动暂停（见[路线图](docs/ROADMAP.md)）。
 - **托盘优先**：暂停/恢复、换壁纸都在菜单栏；管理窗口只用来管内容。
 - **壁纸内容零 IPC**：壁纸内容按不可信代码对待，运行在 webview 沙箱里，只接收宿主页转发的暂停、帧率和输入事件。
@@ -58,7 +59,7 @@ Gesso 常驻菜单栏/托盘。管理窗口负责壁纸库、显示器映射和�
 | Shader 渲染器（Shadertoy 子集，WebGL2） | ✅ |
 | HTML 渲染器（沙箱 iframe，无 Rust IPC） | ✅ |
 | 系统数据桥（全屏/电池自动暂停 · 时间脉冲 · 光标跟随 · 空闲降帧） | ✅ |
-| Wallpaper Engine video/web 壁纸（用户主动导入，只读） | ✅，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
+| Wallpaper Engine video/web/scene 壁纸（用户主动导入，只读；打包 `scene.pkg` 条目需先解包） | ✅，见 [docs/WALLPAPER-ENGINE.md](docs/WALLPAPER-ENGINE.md) |
 
 ## 内置壁纸
 
