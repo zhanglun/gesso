@@ -136,17 +136,19 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
 - 实现（实测第四版）：**纯 JS GIF 解码器**（LZW + GCT/LCT 调色板 + 透明
   索引 + interlace 还原 + disposal 0-2 合成，约 200 行宿主页内嵌）——壁纸
   页面 origin（http://gesso.steam workaround）非安全上下文，WebCodecs
-  ImageDecoder 不可用（实测 WebView2 157 中 undefined）；显示帧号由时钟
-  决定（floor(t/frameDur) % count），渲染循环按序合成（GIF 帧间有增量
-  依赖不能跳帧），每渲染帧把合成画布重传到 GPU；
+  ImageDecoder 不可用（实测 WebView2 157 中 undefined）；播放节拍 = GIF
+  自带帧延时（repkg 从 tex 帧信息写入；tex-json 的 duration 语义存疑，
+  按整段秒数解读实机过快被否）；帧合成按序进行（GIF 帧间有增量依赖不能
+  跳帧），每渲染帧把合成画布重传到 GPU；
 - 实测教训（自测环境逐项抓出）：① DOM 动画时钟不适用于游离/不可见图片
   （drawImage 恒为第 0 帧）；② VideoFrame.duration 与 GIF GCE 延时实测
-  不一致——**节拍以 tex-json duration/frames 为权威**；③ 解码失败帧的
+  不一致——节拍改以 GIF 自带帧延时为准（tex-json duration 语义存疑，
+  实机校准）；③ 解码失败帧的
   null 占位必须被缓存驱逐跳过（否则每帧 TypeError 杀死渲染循环 = 灰屏）；
   ④ **WebCodecs 仅存在于安全上下文**——壁纸 origin（http://gesso.steam）
   非安全上下文，ImageDecoder undefined（自测环境 127.0.0.1 有 localhost
   豁免，曾掩盖该差异）；⑤ GIF 子块带长度前缀不连续，LZW 输入须先拼接；
-- Cyberpunk：100 帧 / 1s 循环（10ms/帧）；
+- Cyberpunk：100 帧 / 80ms 帧延时 = 8s 循环（12.5fps，环境型慢速演变）；
 - **边界**：帧信息仅 repkg 解包产物携带；散装条目维持静态首帧；真正空间
   网格式 spritesheet（如存在）属阶段 C 评估；音频响应（fire 的
   g_AudioSpectrum）按零供给。

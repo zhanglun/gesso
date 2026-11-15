@@ -450,7 +450,9 @@
         var label = u8[pos++];
         if (label === 0xf9 && u8[pos] === 4) {
           var pk = u8[pos + 1];
-          gce = { disposal: (pk >> 2) & 7, transparent: (pk & 1) ? u8[pos + 4] : -1 };
+          var delay = u8[pos + 2] | (u8[pos + 3] << 8); // 单位 1/100s
+          gce = { disposal: (pk >> 2) & 7, transparent: (pk & 1) ? u8[pos + 4] : -1,
+                  delay: Math.max(delay * 0.01, 0.02) }; // 浏览器惯例下限 20ms
           pos += 5;
         }
         while (pos < u8.length && u8[pos] !== 0) pos += 1 + u8[pos];
@@ -488,7 +490,8 @@
           data: data,
           palette: lct || gct,
           disposal: gce ? gce.disposal : 1,
-          transparent: gce ? gce.transparent : -1
+          transparent: gce ? gce.transparent : -1,
+          delay: gce ? gce.delay : 0.1
         });
         gce = null;
       }
@@ -546,6 +549,31 @@
       }
     }
     return rows;
+  }
+
+  // 合成第 k 帧到动图画布（disposal/透明/调色板），初始化与渲染循环共用
+  function animCompositeFrame(an, k) {
+    var fr = an.frames[k];
+    if (k > 0) {
+      var pf = an.frames[k - 1];
+      if (pf.disposal === 2) an.ctx.clearRect(pf.left, pf.top, pf.width, pf.height);
+    }
+    var indices = gifLzwIndices(fr.minCode, fr.data, fr.width * fr.height);
+    if (fr.interlaced) indices = gifDeinterlace(indices, fr.width, fr.height);
+    var rgba = new Uint8ClampedArray(fr.width * fr.height * 4);
+    var pal = fr.palette;
+    if (pal) {
+      for (var i = 0; i < indices.length; i++) {
+        var ci = indices[i];
+        if (ci === fr.transparent) continue; // 透明：保留下层像素
+        rgba[i * 4] = pal[ci * 3];
+        rgba[i * 4 + 1] = pal[ci * 3 + 1];
+        rgba[i * 4 + 2] = pal[ci * 3 + 2];
+        rgba[i * 4 + 3] = 255;
+      }
+    }
+    an.frameCtx.putImageData(new ImageData(rgba, fr.width, fr.height), 0, 0);
+    an.ctx.drawImage(an.frameCvs, fr.left, fr.top);
   }
 
   function startSceneLoop() {
@@ -617,41 +645,25 @@
       // 此分支，一期行为不变。
       if (L.anim) {
         var an = L.anim;
-        // 显示帧号由时钟决定（frameDur 取 tex-json duration/frames，与 WE
-        // spritesheet duration 语义一致）；帧合成按序进行（GIF 帧间有增量
-        // 依赖，不能跳帧），循环回绕时清空合成画布从第 0 帧重放。
-        var idx = Math.floor(tSec / an.frameDur) % an.count;
-        if (an.cursor > idx) {
-          an.cursor = 0;
-          an.ctx.clearRect(0, 0, an.width, an.height);
+        // 节拍 = GIF 自带帧延时（repkg 从 tex 帧信息写入，实测样本 80ms/帧）；
+        // tex-json 的 duration 语义存疑（按整段 1s 解读 = 10ms/帧，实机过快
+        // 被否）。帧合成按序进行（GIF 帧间有增量依赖，不能跳帧）。
+        var dt = Math.min(tSec - (an.lastT === null ? tSec : an.lastT), 0.25);
+        an.lastT = tSec;
+        an.acc += Math.max(dt, 0);
+        var drew = false;
+        while (an.acc >= an.frames[an.cursor].delay) {
+          an.acc -= an.frames[an.cursor].delay;
+          an.cursor = (an.cursor + 1) % an.count;
+          if (an.cursor === 0) an.ctx.clearRect(0, 0, an.width, an.height);
+          animCompositeFrame(an, an.cursor);
+          drew = true;
         }
-        while (an.cursor <= idx) {
-          var fr = an.frames[an.cursor];
-          if (an.cursor > 0) {
-            var pf = an.frames[an.cursor - 1];
-            if (pf.disposal === 2) an.ctx.clearRect(pf.left, pf.top, pf.width, pf.height);
-          }
-          var indices = gifLzwIndices(fr.minCode, fr.data, fr.width * fr.height);
-          if (fr.interlaced) indices = gifDeinterlace(indices, fr.width, fr.height);
-          var rgba = new Uint8ClampedArray(fr.width * fr.height * 4);
-          var pal = fr.palette;
-          if (pal) {
-            for (var pi2 = 0; pi2 < indices.length; pi2++) {
-              var ci = indices[pi2];
-              if (ci === fr.transparent) continue; // 透明：保留下层像素
-              rgba[pi2 * 4] = pal[ci * 3];
-              rgba[pi2 * 4 + 1] = pal[ci * 3 + 1];
-              rgba[pi2 * 4 + 2] = pal[ci * 3 + 2];
-              rgba[pi2 * 4 + 3] = 255;
-            }
-          }
-          an.frameCtx.putImageData(new ImageData(rgba, fr.width, fr.height), 0, 0);
-          an.ctx.drawImage(an.frameCvs, fr.left, fr.top);
-          an.cursor += 1;
+        if (drew) {
+          gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
+          gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, an.cvs);
+          gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, false);
         }
-        gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
-        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, an.cvs);
-        gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, false);
       }
       gl2.drawArrays(gl2.TRIANGLE_STRIP, 0, 4);
     }
@@ -794,11 +806,12 @@
                     layer.anim = {
                       width: parsed.width, height: parsed.height,
                       frames: parsed.frames, count: parsed.frames.length,
-                      frameDur: frameDur, cursor: 0,
+                      cursor: 0, acc: 0, lastT: null,
                       cvs: cvs2, ctx: cvs2.getContext("2d"),
                       frameCvs: fcvs, frameCtx: fcvs.getContext("2d")
                     };
-                    console.log("[scene] 动图贴图:", parsed.frames.length, "帧, frameDur(ms)=", Math.round(frameDur * 1000), "（纯 JS GIF 解码）");
+                    animCompositeFrame(layer.anim, 0); // 初始合成第 0 帧
+                    console.log("[scene] 动图贴图:", parsed.frames.length, "帧, 帧延时(ms)=", Math.round(parsed.frames[0].delay * 1000), "（纯 JS GIF 解码）");
                   });
                 });
               }).catch(function (e) {
