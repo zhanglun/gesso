@@ -197,3 +197,22 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
   输入链而非全屏复制）——差异在 omission / 文档中可见；
 - **安全模型不变**：shader 源来自工坊文件 = 不可信输入，翻译后必须过编译
   白名单式 shim 与 COMBO 求值，禁止 eval/动态拼接源码以外的执行路径。
+
+## 9. 粒子运行时（阶段 C 首批，2026-11-15 实施）
+
+「粒子不做」的早期决策基于格式未知；真实条目格式扫描（16 个定义文件，
+每个 1.7–4KB）证实可 tractable 实现，纳入支持：
+
+- 原语全覆盖（全量扫描封闭集合）：发射器 boxrandom/sphererandom；
+  初始化器 life/size/color/velocity/rotation/angularvelocity/alpha/
+  turbulentvelocity random；操作器 movement（gravity/drag）、
+  controlpointattract（吸引点绕行，鸟群核心行为）、alphafade、colorchange、
+  sizechange、angularmovement、oscillatealpha/position、turbulence；
+  渲染器 sprite；
+- 实现：CPU 模拟（每系统 ≤maxcount 粒，逐帧发射/更新/回收）+ 复用合成
+  管线逐粒子 sprite 绘制（合成着色器加 uTexScale/uTexShift UV 窗口供
+  精灵图逐帧采样，常规层恒等零回归）；精灵图帧信息沿用 repkg tex-json；
+- rope/spritetrail/ropetrail 拖尾渲染器与未知原语 → 该粒子系统跳过并
+  console 记录（后续按需扩）；快扫不再把 particles 列为不支持项；
+- 验收 = PixelFuture 16 组鸟群（birds.json：30 粒、球形出生、寿命 25s、
+  双吸引点绕行、16 帧扇翅精灵图 sequencemultiplier 30）。

@@ -13,6 +13,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 ### Changed
 
 - **Wallpaper Engine 效果栈一期落地（阶段 B）**：scene 条目图层上挂的 shader 效果链现在真实渲染——新增 GLSL 方言翻译器（COMBO 编译开关求值、遮罩槽有无联动 combo、组合标识符替换、GLSL ES 1.00 严格类型的裸整数补 .0）、FBO 离屏 pass 链（每效果一 pass 串行渲染，无效果图层走原直绘路径零回归）、首批 4 效果（水波/树叶摆动/火焰/抖动）全实例编译运行（PixelFuture 5 实例实测通过）。效果可见强度由条目自身参数决定（如流向图为中性图时火焰/抖动按 WE 语义零贡献），不支持的效果实例跳过并计数告知。
+- **Wallpaper Engine sprite 类粒子运行时（阶段 C 首批）**：场景里的粒子系统（鸟群/灰尘/余烬/雾等 sprite 类）现在真实模拟与渲染——CPU 粒子模拟（发射器/初始化器/操作器原语覆盖真实条目全量扫描的封闭集合：球形与盒出生、重力/阻力/吸引点绕行/透明度衰减与振荡/颜色与尺寸变化/湍流）+ 精灵图逐帧动画（合成着色器加 UV 窗口，常规层恒等零回归）。PixelFuture 16 组鸟群实测起飞；rope/trail 拖尾渲染器与未知原语跳过并如实告知。
 ### Fixed
 
 - **真实工坊 scene 条目导入被误拒 / 渲染错位（实机校准发现）**：一期按自制夹具的格式假设实现，真实 WE 工坊文件有两处不同——向量字段（origin/size/angles/scale/parallaxDepth/color/clearcolor）是空格分隔字符串而非数组（`size` 被按首字符误读成 9×6、锚点与视差全部丢失、背景色退成黑），材质贴图引用是无扩展名裸名（按材质所在目录解析为同名 `.tex`，此前按场景根查找导致「图片纹理缺失」拒绝导入）。现在导入快扫与宿主页渲染器同时兼容两种形态，贴图候选两侧一致；spritesheet 材质一期按整图渲染（无逐帧动画，已知退化）。

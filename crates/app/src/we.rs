@@ -5,7 +5,7 @@
 //! `gesso://steam/<entry-id>/<rel>` 路由（见 protocol.rs）。
 //!
 //! WE 数据模型：`<条目目录>/project.json`，431960 = WE AppID。
-//! scene 支持基础图片层实时渲染，application 明确拒绝。
+//! scene 支持基础图片层实时渲染 + sprite 类粒子，application 明确拒绝。
 
 use std::path::{Path, PathBuf};
 
@@ -337,7 +337,7 @@ pub fn scene_scan(dir: &Path, scene_file: &str) -> Option<SceneScan> {
                 }
             }
         } else if obj.get("particle").is_some() {
-            omission(&mut scan, "particles", 1);
+            // 粒子系统（阶段 C 首批）已支持 sprite 类：不再列为不支持项
         } else if obj.get("text").is_some() {
             omission(&mut scan, "text", 1);
         } else if obj.get("sound").is_some() {
@@ -454,7 +454,6 @@ mod tests {
                 .map(|(_, c)| *c)
         };
         assert_eq!(find("effects"), Some(2));
-        assert_eq!(find("particles"), Some(1));
         assert_eq!(find("text"), Some(1));
         assert_eq!(find("sound"), Some(1));
         assert_eq!(find("3d-model"), Some(1));
