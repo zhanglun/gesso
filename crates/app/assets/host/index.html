@@ -878,29 +878,6 @@
 
   // 效果贴图解析：多基准（场景根/材质目录/材质父目录）× 多扩展名候选，
   // 逐个 fetch 探测；全部失败且 basename 命中 WE 内建（util/*）→ 生成垫片
-  // 粒子垫片贴图（WE 本体安装资源 particle/* 不在工坊包内）：按名称生成
-  // 程序化软粒子贴图（径向渐变，透明边缘）
-  function weParticleShimCanvas(ref) {
-    var kind = ref.toLowerCase();
-    var size = 128;
-    var inner = "rgba(210,210,210,0.85)";
-    var outer = "rgba(210,210,210,0)";
-    if (kind.indexOf("smoke") >= 0) { size = 160; inner = "rgba(150,150,155,0.75)"; }
-    else if (kind.indexOf("fog") >= 0) { size = 256; inner = "rgba(225,225,230,0.55)"; }
-    else if (kind.indexOf("flare") >= 0 || kind.indexOf("light") >= 0) { inner = "rgba(255,240,200,0.9)"; }
-    else if (kind.indexOf("fire") >= 0) { inner = "rgba(255,160,60,0.9)"; }
-    else if (kind.indexOf("debris") >= 0) { size = 24; inner = "rgba(70,60,55,0.95)"; outer = "rgba(70,60,55,0)"; }
-    var c = document.createElement("canvas");
-    c.width = size; c.height = size;
-    var g = c.getContext("2d");
-    var grad = g.createRadialGradient(size / 2, size / 2, size * 0.05, size / 2, size / 2, size * 0.48);
-    grad.addColorStop(0, inner);
-    grad.addColorStop(1, outer);
-    g.fillStyle = grad;
-    g.fillRect(0, 0, size, size);
-    return c;
-  }
-
   function sceneResolveSlotTexture(ref, matDir) {
     if (ref === null || ref === undefined) return Promise.resolve(null);
     var key = "slot:" + matDir + ":" + ref;
@@ -917,8 +894,9 @@
     }
     function attempt(i) {
       if (i >= urls.length) {
-        if (/^(util|particle)\//.test(ref)) {
-          var c = /^util\//.test(ref) ? weUtilityCanvas(ref) : weParticleShimCanvas(ref);
+        if (/^util\//.test(ref)) {
+          // particle/* = WE 本体资源（不在包内），垫片近似会满屏闪白——如实跳过
+          var c = weUtilityCanvas(ref);
             // 用生成的垫片画布重建纹理（sceneLoadTexture 对不存在文件会失败）
             var t = sceneGlForEffects.createTexture();
             sceneGlForEffects.bindTexture(sceneGlForEffects.TEXTURE_2D, t);
@@ -1198,7 +1176,10 @@
             // 动图贴图（repkg 把动图纹理转成 GIF）：纯 JS 解码全部帧，
             // 逐帧合成快照 → 每帧独立 GL 纹理；静态贴图单纹理兜底
             return sceneResolveSlotTexture(texRef, matDir).then(function (entry) {
-            if (!entry || !entry.tex) return null;
+            if (!entry || !entry.tex) {
+              console.log("[scene] 粒子系统跳过:", obj.particle, "引用贴图不可用（WE 本体资源，未随包提供）");
+              return null;
+            }
             // 垫片贴图（WE 本体资源程序化生成）无 src：直接单帧使用
             if (!entry.src) {
               var o0 = sceneVec(obj.origin);
