@@ -127,21 +127,24 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
 
 ## 4. 搭车项：动图贴图播放
 
-实测修正（2026-11-15 第二版）：真实样本 Cyberpunk 的动图纹理经 repkg 转换
-输出为 **GIF 动图**（文件头 GIF89a，960×640，扩展名仍为引用名 `.png`）；
-`spritesheetsequences` 的 `width/height` 是**整图尺寸**（非单帧尺寸），
-`frames: 100` 是**时间帧序列**——不是空间网格，初版的网格 UV 方案作废。
+实测定稿（2026-11-15 第三版，自测环境逐项验证）：真实样本 Cyberpunk 的动
+图纹理经 repkg 转换输出为 **GIF 动图**（文件头 GIF89a，960×640，扩展名仍
+为引用名 `.png`）；`spritesheetsequences` 的 `width/height` 是整图尺寸，
+`frames: 100` 是**时间帧序列**（每帧时长 = duration/frames = 10ms）。
 
-- 触发：材质 `combos.spritesheet = 1` 且 tex-json `spritesheetsequences[0]
-  .frames > 1`；
-- 实现：Image 元素由浏览器 GIF 时钟自行推进，渲染循环每帧把 Image 画到
-  2D canvas 并 `texImage2D` 重传当前帧到 GPU（UNPACK_FLIP_Y 与装载路径
-  一致）；播放节奏 = 浏览器的 GIF 帧延时（与 WE 观感天然一致，无需自行
-  解释 duration 语义）；
-- Cyberpunk：100 帧全速播放（fps_cap 内取整）；
-- **边界**：帧信息仅 repkg 解包产物（`.tex-json`）携带；散装条目无此信息
-  → 维持静态首帧（如实告知不变）；真正的空间网格式 spritesheet（如存在）
-  属阶段 C 按需评估。
+- 触发：材质 `combos.spritesheet = 1` 且 tex-json `frames > 1`；
+- 实现：WebCodecs `ImageDecoder` 异步预取当前帧 ±2 的 VideoFrame，显示帧
+  号由时钟决定（`floor(t/frameDur) % count`），`texImage2D(VideoFrame)`
+  上传；滑动窗口缓存（环距离 > 4 驱逐、跳过解码失败占位、显示帧不逐）；
+- 实测教训（两次推翻初版）：① DOM 动画时钟不适用于游离/不可见图片（时钟
+  不推进，drawImage 恒为第 0 帧）；② VideoFrame.duration 与 GIF GCE 延时
+  实测不一致（1s vs 80ms）——**节拍以 tex-json duration/frames 为权威**；
+  ③ 解码失败帧以 null 占位防重试风暴，驱逐循环必须跳过 null（否则每帧
+  TypeError 杀死渲染循环 = 灰屏）；
+- Cyberpunk：100 帧 / 1s 循环（10ms/帧）；
+- **边界**：帧信息仅 repkg 解包产物携带；散装条目维持静态首帧；真正空间
+  网格式 spritesheet（如存在）属阶段 C 评估；音频响应（fire 的
+  g_AudioSpectrum）按零供给。
 
 ## 5. 支持矩阵与退化
 

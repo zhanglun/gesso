@@ -492,32 +492,43 @@
       // FIFO 补水失败时保持上一帧。静态贴图不进此分支，一期行为不变。
       if (L.anim) {
         var an = L.anim;
-        var want = an.cursor % an.count; // 下一帧号
-        if (!an.busy && an.fifo.length < 8) {
-          an.busy = true;
-          an.dec.decode({ frameIndex: want, completeFramesOnly: true }).then(function (res) {
-            an.busy = false;
-            // 回绕可能令在途结果过期（帧号不再是下一个要显示的）：丢弃
-            if (want !== an.cursor % an.count) return;
-            an.fifo.push({
-              idx: want,
-              image: res.image,
-              dur: res.image.duration ? res.image.duration / 1e6 : 0.1
+        // 显示帧号由时钟决定（与 WE spritesheet duration 语义一致）；
+        // 解码异步预取当前帧±2，缺失帧沿用上一帧（解码跟不上不黑屏）
+        var idx = Math.floor(tSec / an.frameDur) % an.count;
+        for (let ni = 0; ni < 3; ni++) {
+          let wi = (idx + ni) % an.count;
+          if (an.bitmaps.has(wi) || an.pending.has(wi)) continue;
+          if (an.pending.size >= 3) break;
+          let p = an.dec
+            .decode({ frameIndex: wi, completeFramesOnly: true })
+            .then(function (res) {
+              an.pending.delete(wi);
+              an.bitmaps.set(wi, res.image);
+            })
+            .catch(function () {
+              an.pending.delete(wi);
+              an.bitmaps.set(wi, null); // 该帧解码失败：标记空，避免重试风暴
             });
-          }).catch(function () { an.busy = false; });
+          an.pending.set(wi, p);
         }
-        var dt = Math.min(tSec - (an.lastT === null ? tSec : an.lastT), 0.25);
-        an.lastT = tSec;
-        an.acc += Math.max(dt, 0);
-        while (an.fifo.length && an.acc >= an.fifo[0].dur) {
-          var f = an.fifo.shift();
-          an.acc -= f.dur;
-          an.cursor = (f.idx + 1) % an.count;
+        var bm = an.bitmaps.has(idx) ? an.bitmaps.get(idx) : an.lastShownBm;
+        if (bm) {
+          an.lastShownBm = bm;
           gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
-          gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, f.image);
+          gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, bm);
           gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, false);
-          f.image.close();
         }
+        // 驱逐窗口外的帧（环距离 > 4）；解码失败帧为 null 占位（跳过驱逐，
+        // 保留防重试语义）；当前显示帧不会被逐
+        an.bitmaps.forEach(function (b, k) {
+          if (!b) return;
+          var d = (idx - k + an.count) % an.count;
+          if (d > an.count / 2) d -= an.count;
+          if (Math.abs(d) > 4 && b !== an.lastShownBm) {
+            b.close();
+            an.bitmaps.delete(k);
+          }
+        });
       }
       gl2.drawArrays(gl2.TRIANGLE_STRIP, 0, 4);
     }
@@ -655,11 +666,14 @@
                       var track = dec.tracks.selectedTrack;
                       var count = Math.min(track.frameCount || seq.frames, seq.frames);
                       if (!(count > 1)) return null;
+                      // 节拍以 tex-json 为权威（duration/frames = 每帧秒数），
+                      // 与 WE spritesheet duration 语义一致
+                      var frameDur = (seq.duration > 0 ? seq.duration : 1) / seq.frames;
                       layer.anim = {
-                        dec: dec, count: count, cursor: 0,
-                        fifo: [], acc: 0, busy: false, lastT: null
+                        dec: dec, count: count, frameDur: frameDur,
+                        bitmaps: new Map(), pending: new Map(), lastShownBm: null
                       };
-                      console.log("[scene] 动图贴图:", count, "帧（ImageDecoder 顺序解码）");
+                      console.log("[scene] 动图贴图:", count, "帧, 帧时长", Math.round(frameDur * 1000), "ms（ImageDecoder）");
                     });
                   });
                 });
