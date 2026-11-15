@@ -487,21 +487,37 @@
         gl2.enable(gl2.BLEND);
         gl2.blendFuncSeparate(gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA, gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA);
       }
-      // 动图贴图（效果栈阶段 A）：GIF 由浏览器时钟逐帧推进，每渲染帧把当前
-      // 帧经 2D canvas 重传到 GPU（UNPACK_FLIP_Y 与装载路径一致）；静态贴图
-      // 不进此分支，行为与一期完全一致。
-      if (L.animated) {
-        if (!L.acvs) {
-          L.acvs = document.createElement("canvas");
-          L.acvs.width = L.animated.naturalWidth;
-          L.acvs.height = L.animated.naturalHeight;
-          L.actx = L.acvs.getContext("2d");
+      // 动图贴图（效果栈阶段 A）：WebCodecs ImageDecoder 顺序解码 + 按帧
+      // 延时消费（GIF 的 GCE 延时即真实节奏）；解码速率远高于显示帧率，
+      // FIFO 补水失败时保持上一帧。静态贴图不进此分支，一期行为不变。
+      if (L.anim) {
+        var an = L.anim;
+        var want = an.cursor % an.count; // 下一帧号
+        if (!an.busy && an.fifo.length < 8) {
+          an.busy = true;
+          an.dec.decode({ frameIndex: want, completeFramesOnly: true }).then(function (res) {
+            an.busy = false;
+            // 回绕可能令在途结果过期（帧号不再是下一个要显示的）：丢弃
+            if (want !== an.cursor % an.count) return;
+            an.fifo.push({
+              idx: want,
+              image: res.image,
+              dur: res.image.duration ? res.image.duration / 1e6 : 0.1
+            });
+          }).catch(function () { an.busy = false; });
         }
-        L.actx.clearRect(0, 0, L.acvs.width, L.acvs.height);
-        L.actx.drawImage(L.animated, 0, 0);
-        gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
-        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, L.acvs);
-        gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, false);
+        var dt = Math.min(tSec - (an.lastT === null ? tSec : an.lastT), 0.25);
+        an.lastT = tSec;
+        an.acc += Math.max(dt, 0);
+        while (an.fifo.length && an.acc >= an.fifo[0].dur) {
+          var f = an.fifo.shift();
+          an.acc -= f.dur;
+          an.cursor = (f.idx + 1) % an.count;
+          gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
+          gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, f.image);
+          gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, false);
+          f.image.close();
+        }
       }
       gl2.drawArrays(gl2.TRIANGLE_STRIP, 0, 4);
     }
@@ -611,24 +627,44 @@
                 blend: p0.blending || "translucent",
                 order: objectIndex,
                 tex: null,
-                animated: null
+                anim: null
               };
               layers.push(layer);
               return texRel ? sceneLoadTexture(gl2, sceneTextureCandidates(model.material, texRel)).then(function (r) {
                 if (!r) return null;
                 layer.tex = r.tex;
-                // 动图贴图（效果栈阶段 A）：repkg 把动图纹理转成 GIF（扩展名
-                // 仍可能是 .png）。tex-json 的 spritesheetsequences.frames > 1
-                // = 时间帧序列；渲染循环里经 2D canvas 逐帧重传当前帧到 GPU
-                // （浏览器 GIF 时钟驱动，节奏与 WE 一致）。静态贴图不进此分支。
+                // 动图贴图（效果栈阶段 A）：repkg 把动图纹理转成 GIF 动图
+                // （扩展名仍可能是 .png）。DOM 动画时钟实测不推进（自测探针
+                // 证实），改用 WebCodecs ImageDecoder 顺序解码：渲染循环按
+                // 帧延时消费 FIFO，静贴图不进此分支。
                 if (!(p0.combos && p0.combos.spritesheet === 1)) return null;
                 var tj = r.src.replace(/\.(png|jpe?g|gif)$/i, ".tex-json");
                 return sceneFetchJson(tj).then(function (meta) {
                   var seq = (meta.spritesheetsequences || [])[0];
                   if (!seq || !(seq.frames > 1)) return null;
-                  layer.animated = r.img;
-                  console.log("[scene] 动图贴图:", seq.frames, "帧（浏览器 GIF 时钟驱动）");
-                }).catch(function () { /* 无帧元数据：静态首帧 */ });
+                  return fetch(sceneUrl(r.src)).then(function (resp) {
+                    return resp.arrayBuffer();
+                  }).then(function (buf) {
+                    var head = new Uint8Array(buf, 0, 6);
+                    var type = null;
+                    if (head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46) type = "image/gif";
+                    else if (head[0] === 0x89 && head[1] === 0x50) type = "image/png";
+                    if (!type || typeof ImageDecoder === "undefined") return null;
+                    var dec = new ImageDecoder({ data: buf, type: type });
+                    return dec.tracks.ready.then(function () {
+                      var track = dec.tracks.selectedTrack;
+                      var count = Math.min(track.frameCount || seq.frames, seq.frames);
+                      if (!(count > 1)) return null;
+                      layer.anim = {
+                        dec: dec, count: count, cursor: 0,
+                        fifo: [], acc: 0, busy: false, lastT: null
+                      };
+                      console.log("[scene] 动图贴图:", count, "帧（ImageDecoder 顺序解码）");
+                    });
+                  });
+                });
+              }).catch(function (e) {
+                console.log("[scene] 动图贴图不可用，保持静态:", e && e.message ? e.message : e);
               }) : null;
             });
           }).catch(function (e) {
