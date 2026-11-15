@@ -342,7 +342,7 @@
         gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MIN_FILTER, gl2.LINEAR);
         gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MAG_FILTER, gl2.LINEAR);
         settled = true;
-        resolve(t);
+        resolve({ tex: t, src: candidates[attempt], w: source.width, h: source.height });
       };
       img.onerror = function () {
         if (settled) return;
@@ -446,7 +446,15 @@
     gl2.activeTexture(gl2.TEXTURE0);
     for (var i = 0; i < rt.layers.length; i++) {
       var L = rt.layers[i];
-      if (!L.tex) continue; // 贴图缺失：该层画黑（清屏底色）——对齐 WE 行为
+      if (!L.tex) continue; // 贴图缺失：跳过该层（露出背景色）
+      // spritesheet 逐帧（效果栈阶段 A）：按帧网格取当前帧 UV 窗口；
+      // 无 sheet 元数据的层 = (1,1)+(0,0) 全图，与一期行为完全一致。
+      // 行号取图上空间自上而下，配 UNPACK_FLIP_Y 上传换算 v 区间。
+      var ts = L.sheet || { cols: 1, rows: 1, frames: 1, frameTime: 0 };
+      var fi = ts.frameTime > 0 ? Math.floor(tSec / ts.frameTime) % ts.frames : 0;
+      var fcol = fi % ts.cols, frow = Math.floor(fi / ts.cols);
+      gl2.uniform2f(rt.u.texScale, 1 / ts.cols, 1 / ts.rows);
+      gl2.uniform2f(rt.u.texShift, fcol / ts.cols, 1 - (frow + 1) / ts.rows);
       var ox = L.placement.origin[0] - rt.design.w / 2;
       var oy = L.placement.origin[1] - rt.design.h / 2;
       var sx = (ox + mvx * rt.design.w) * L.pdepth[0] * pd.amount;
@@ -584,11 +592,32 @@
                 // 叠加层（效果）的混合模式，一期随效果链一并跳过
                 blend: p0.blending || "translucent",
                 order: objectIndex,
-                tex: null
+                tex: null,
+                sheet: null
               };
               layers.push(layer);
-              return texRel ? sceneLoadTexture(gl2, sceneTextureCandidates(model.material, texRel)).then(function (tex) {
-                layer.tex = tex;
+              return texRel ? sceneLoadTexture(gl2, sceneTextureCandidates(model.material, texRel)).then(function (r) {
+                if (!r) return null;
+                layer.tex = r.tex;
+                // spritesheet（效果栈阶段 A）：材质 combos 声明 + repkg 帧元
+                // 数据（.tex-json）齐备才启用逐帧；无元数据 = 整图静态
+                if (!(p0.combos && p0.combos.spritesheet === 1)) return null;
+                var tj = r.src.replace(/\.(png|jpe?g|gif)$/i, ".tex-json");
+                return sceneFetchJson(tj).then(function (meta) {
+                  var seq = (meta.spritesheetsequences || [])[0];
+                  if (!seq || !(seq.frames > 1) || !(seq.width > 0) || !(seq.height > 0)) return null;
+                  var cols = Math.max(1, Math.round(r.w / seq.width));
+                  var rows = Math.max(1, Math.round(r.h / seq.height));
+                  if (r.w < seq.width || r.h < seq.height || cols * rows < seq.frames) {
+                    console.log("[scene] spritesheet 元数据与贴图不符，保持整图", r.src);
+                    return null;
+                  }
+                  layer.sheet = {
+                    cols: cols, rows: rows, frames: seq.frames,
+                    frameTime: (seq.duration > 0 ? seq.duration : 1) / seq.frames
+                  };
+                  console.log("[scene] spritesheet:", cols, "x", rows, "网格,", seq.frames, "帧, 帧时长", layer.sheet.frameTime, "s");
+                }).catch(function () { /* 无帧元数据：整图静态 */ });
               }) : null;
             });
           }).catch(function (e) {
@@ -611,6 +640,8 @@
           "uniform vec2 uOrigin;",
           "uniform vec2 uSize;",
           "uniform float uAngle;",
+          "uniform vec2 uTexScale;",  // spritesheet：当前帧的 UV 窗口（1,1 = 全图）
+          "uniform vec2 uTexShift;",
           "out vec2 vUV;",
           "void main() {",
           "  vec2 p = aPos * uSize;",
@@ -619,7 +650,7 @@
           "  vec2 px = uOrigin + p;",
           "  vec2 clip = vec2(px.x / uRes.x * 2.0 - 1.0, px.y / uRes.y * 2.0 - 1.0);",
           "  gl_Position = vec4(clip, 0.0, 1.0);",
-          "  vUV = aUV;",
+          "  vUV = aUV * uTexScale + uTexShift;",
           "}"
         ].join("\n");
         var FS = [
@@ -670,6 +701,8 @@
           size: gl2.getUniformLocation(prog, "uSize"),
           angle: gl2.getUniformLocation(prog, "uAngle"),
           tex: gl2.getUniformLocation(prog, "uTex"),
+          texScale: gl2.getUniformLocation(prog, "uTexScale"),
+          texShift: gl2.getUniformLocation(prog, "uTexShift"),
           color: gl2.getUniformLocation(prog, "uColor"),
           alpha: gl2.getUniformLocation(prog, "uAlpha"),
           bright: gl2.getUniformLocation(prog, "uBrightness")
