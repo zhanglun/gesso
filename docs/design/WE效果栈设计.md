@@ -125,22 +125,23 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
   由槽是否提供贴图决定（有 → 1，无 → 0）——PixelFuture 的水波实例提供
   mask 贴图，联动做错遮罩会整体失效。
 
-## 4. 搭车项：spritesheet 逐帧动画
+## 4. 搭车项：动图贴图播放
 
-数据源（真实文件 `2228701016/materials/IGM_MOBILE (1).tex-json`）：
+实测修正（2026-11-15 第二版）：真实样本 Cyberpunk 的动图纹理经 repkg 转换
+输出为 **GIF 动图**（文件头 GIF89a，960×640，扩展名仍为引用名 `.png`）；
+`spritesheetsequences` 的 `width/height` 是**整图尺寸**（非单帧尺寸），
+`frames: 100` 是**时间帧序列**——不是空间网格，初版的网格 UV 方案作废。
 
-```json
-"spritesheetsequences": [{ "duration": 1, "frames": 100, "width": 960, "height": 640 }]
-```
-
-- 材质 `combos.spritesheet = 1` 触发；帧网格列数 = 整图宽 / 帧宽（整图尺寸
-  取加载后纹理），行数同理；UV 按比例采样，与一期的整图缩放预算兼容；
-- 动画帧号 = `floor(t / (duration / frames)) % frames`；
-- 实现：现有顶点着色器加 `u_TexShift` / `u_TexScale`，每帧更新——改动极小；
-- Cyberpunk：100 帧 / duration 1s = 全速轮播（帧率上限内取整）；
-- **边界**：帧信息仅 repkg 解包产物（`.tex-json`）携带；散装条目的 png 没有
-  帧信息 → 维持整图静态（如实告知不变）；`duration` 的语义（整段时长 vs
-  单帧时长）按整段实现，实机与 WE 观感比对后修正。
+- 触发：材质 `combos.spritesheet = 1` 且 tex-json `spritesheetsequences[0]
+  .frames > 1`；
+- 实现：Image 元素由浏览器 GIF 时钟自行推进，渲染循环每帧把 Image 画到
+  2D canvas 并 `texImage2D` 重传当前帧到 GPU（UNPACK_FLIP_Y 与装载路径
+  一致）；播放节奏 = 浏览器的 GIF 帧延时（与 WE 观感天然一致，无需自行
+  解释 duration 语义）；
+- Cyberpunk：100 帧全速播放（fps_cap 内取整）；
+- **边界**：帧信息仅 repkg 解包产物（`.tex-json`）携带；散装条目无此信息
+  → 维持静态首帧（如实告知不变）；真正的空间网格式 spritesheet（如存在）
+  属阶段 C 按需评估。
 
 ## 5. 支持矩阵与退化
 
@@ -155,7 +156,7 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
 
 ## 6. 分阶段实施
 
-- **阶段 A（spritesheet 逐帧）**：UV shift + 帧元数据——验收 = Cyberpunk
+- **阶段 A（动图贴图播放）**：GIF 逐帧重传——验收 = Cyberpunk
   LED 动画播放、PixelFuture 静态底图无回归。不含 FBO（无消费者代码不入库）；
 - **阶段 B（FBO 管线 + 翻译器 + 首批效果）**：FBO 池与 pass 链、shim 库、
   COMBO 求值、uniform 供给、4 效果全实例——验收 = PixelFuture 水波/火焰
