@@ -885,8 +885,11 @@
     var up = matDir.replace(/[^/]+\/$/, "");
     var exts = /\.(png|jpe?g|gif|webp)$/i.test(ref) ? [""] : [".png", ".jpg", ".gif", ".webp"];
     var urls = [];
-    for (var bi = 0; bi < 3; bi++) {
-      var base = bi === 0 ? "" : bi === 1 ? matDir : up;
+    // 基准顺序：场景根 / materials 根（粒子与效果材质贴图的惯用相对基准）/
+    // 材质目录 / 材质父目录
+    var bases = ["", "materials/", matDir, up];
+    for (var bi = 0; bi < bases.length; bi++) {
+      var base = bases[bi];
       for (var ei = 0; ei < exts.length; ei++) urls.push(base + ref + exts[ei]);
     }
     function attempt(i) {
@@ -1322,8 +1325,9 @@
   function sceneDrawParticles(sys, gl2, rt, scale, mvx, mvy) {
     for (var i = 0; i < sys.particles.length; i++) {
       var pt = sys.particles[i];
-      var wx = sys.origin[0] + pt.x;
-      var wy = sys.origin[1] + pt.y;
+      // pt.x/y 已是含对象原点的场景绝对坐标（weEmitPos 与吸引点同基准）
+      var wx = pt.x;
+      var wy = pt.y;
       var sx = (wx - rt.design.w / 2) + mvx * rt.design.w * sys.pdepth[0] * rt.parallax.amount;
       var sy = (wy - rt.design.h / 2) + mvy * rt.design.h * sys.pdepth[1] * rt.parallax.amount;
       var px = sx * scale + cvs.width / 2;
@@ -1357,15 +1361,6 @@
         gl2.blendFuncSeparate(gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA, gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA);
       }
       gl2.drawArrays(gl2.TRIANGLE_STRIP, 0, 4);
-    }
-    // 粒子系统（阶段 C 首批）：模拟推进 + 逐粒子绘制
-    for (var psi = 0; psi < rt.particleSys.length; psi++) {
-      var sys = rt.particleSys[psi];
-      var pdt = Math.min(tSec - (sys.lastT === undefined ? tSec : sys.lastT), 0.25);
-      sys.lastT = tSec;
-      sceneSimParticles(sys, pdt, tSec);
-      gl2.useProgram(rt.prog);
-      sceneDrawParticles(sys, gl2, rt, scale, mvx, mvy);
     }
   }
 
@@ -1481,6 +1476,15 @@
         }
       }
       gl2.drawArrays(gl2.TRIANGLE_STRIP, 0, 4);
+    }
+    // 粒子系统（阶段 C 首批）：模拟推进 + 逐粒子绘制
+    for (var psi = 0; psi < rt.particleSys.length; psi++) {
+      var sys = rt.particleSys[psi];
+      var pdt = Math.min(tSec - (sys.lastT === undefined ? tSec : sys.lastT), 0.25);
+      sys.lastT = tSec;
+      sceneSimParticles(sys, pdt, tSec);
+      gl2.useProgram(rt.prog);
+      sceneDrawParticles(sys, gl2, rt, scale, mvx, mvy);
     }
   }
 
