@@ -931,6 +931,98 @@
     });
   }
 
+  function sceneCompileProgram(vsSrc, fsSrc) {
+    function sh(type, text) {
+      var s = sceneGlForEffects.createShader(type);
+      sceneGlForEffects.shaderSource(s, text);
+      sceneGlForEffects.compileShader(s);
+      if (!sceneGlForEffects.getShaderParameter(s, sceneGlForEffects.COMPILE_STATUS)) {
+        throw new Error("effect shader: " + (sceneGlForEffects.getShaderInfoLog(s) || "?").slice(0, 400));
+      }
+      return s;
+    }
+    var prog = sceneGlForEffects.createProgram();
+    sceneGlForEffects.attachShader(prog, sh(sceneGlForEffects.VERTEX_SHADER, vsSrc));
+    sceneGlForEffects.attachShader(prog, sh(sceneGlForEffects.FRAGMENT_SHADER, fsSrc));
+    sceneGlForEffects.linkProgram(prog);
+    if (!sceneGlForEffects.getProgramParameter(prog, sceneGlForEffects.LINK_STATUS)) {
+      throw new Error("effect link: " + (sceneGlForEffects.getProgramInfoLog(prog) || "?").slice(0, 400));
+    }
+    return prog;
+  }
+
+  function sceneBuildEffectChain(instances, layer, texW, texH, gl2) {
+    sceneGlForEffects = gl2;
+    var rtW = Math.min(2048, texW);
+    var rtH = Math.max(1, Math.round(texH * rtW / texW));
+    var effectRT = [sceneEffectRT(gl2, rtW, rtH), sceneEffectRT(gl2, rtW, rtH)];
+    var chain = [];
+    var p = Promise.resolve();
+    instances.forEach(function (inst) {
+      p = p.then(function () {
+        var file = inst.file || "";
+        var name = (file.split("/")[1] || "").toLowerCase();
+        if (WE_SUPPORTED_EFFECTS.indexOf(name) < 0) return null;
+        var instPass = (inst.passes || [])[0] || {};
+        var instParams = instPass.constantshadervalues || {};
+        var instCombos = instPass.combos || {};
+        var instTex = instPass.textures || null;
+        return sceneFetchJson(inst.file).then(function (eff) {
+          var matRef = eff.passes && eff.passes[0] && eff.passes[0].material;
+          if (typeof matRef !== "string") return null;
+          var matDir = matRef.slice(0, matRef.lastIndexOf("/") + 1);
+          return sceneFetchJson(matRef).then(function (mat) {
+            var matPass = (mat.passes || [])[0] || {};
+            var shaderRef = matPass.shader;
+            if (typeof shaderRef !== "string") return null;
+            // 贴图槽：实例覆盖优先，材质兜底
+            var slotRefs = [];
+            var maxSlot = Math.max(matPass.textures ? matPass.textures.length : 0, instTex ? instTex.length : 0);
+            for (var si = 0; si < maxSlot; si++) {
+              var v1 = instTex && si < instTex.length ? instTex[si] : undefined;
+              if (v1 === undefined && matPass.textures && si < matPass.textures.length) v1 = matPass.textures[si];
+              slotRefs.push(v1 === undefined ? null : v1);
+            }
+            return Promise.all([
+              sceneFetchText("shaders/" + shaderRef + ".vert"),
+              sceneFetchText("shaders/" + shaderRef + ".frag")
+            ]).then(function (srcs) {
+              // 贴图槽解析先于编译：遮罩联动需要槽的有无来定 combo 取值
+              return Promise.all(slotRefs.map(function (ref) {
+                return sceneResolveSlotTexture(ref, matDir);
+              })).then(function (slotTex) {
+                var meta = weUniformMeta(srcs[0] + "\n" + srcs[1]);
+                // 遮罩联动：uniform 注释声明 combo 的贴图槽，槽有无贴图
+                // 决定 combo 取值（有 → 1，无 → 0）
+                var combosForTranslate = {};
+                for (var ck in instCombos) combosForTranslate[ck] = instCombos[ck];
+                for (var ti = 0; ti < slotTex.length; ti++) {
+                  var um = meta["g_Texture" + ti];
+                  if (um && um.combo) combosForTranslate[um.combo] = slotTex[ti] ? 1 : 0;
+                }
+                var vs = weTranslateShader(srcs[0], combosForTranslate, false);
+                var fs = weTranslateShader(srcs[1], combosForTranslate, true);
+                var prog = sceneCompileProgram(vs, fs);
+                var pass = sceneBuildPassFromParts(prog, meta, slotTex, instParams, srcs[0], srcs[1]);
+                chain.push(pass);
+                console.log("[scene] 效果实例 OK:", name, "samplers=", pass.samplers.length, "params=", Object.keys(pass.paramValues).length);
+                return null;
+              });
+            });
+          });
+        }).catch(function (e) {
+          console.log("[scene] 效果实例跳过:", name, e && e.message ? e.message : e);
+          return null;
+        });
+      });
+    });
+    return p.then(function () {
+      layer.effectChain = chain;
+      layer.effectRT = effectRT;
+      return null;
+    });
+  }
+
   function sceneBuildPassFromParts(prog, meta, slotTex, params, vsSrc, fsSrc) {
     var gl2 = sceneGlForEffects;
     var uniforms = {};
@@ -962,7 +1054,7 @@
       } else {
         var key = m2.material;
         var v = key && params[key] !== undefined ? params[key] : m2.default;
-        if (v !== undefined && typeof v !== "number") v = weSceneVecStr(v);
+        if (v !== undefined && typeof v !== "number") v = sceneVec(v);
         paramValues[name2] = { loc: uu.loc, type: uu.type, value: v, dims: (m2.type === "color" || /vec[234]/.test("")) ? null : null };
       }
     }
@@ -1530,7 +1622,6 @@ layers: layers, design: design, clear: clear, parallax: parallax, aPos: aPos, aU
       }));
     } catch (e) {}
     postToFrame({ __gesso: "mouse", x: gMouse.dx, y: gMouse.dy, buttons: buttons, present: !!present });
-  };
   };
 })();
 </script>

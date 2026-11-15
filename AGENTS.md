@@ -69,7 +69,7 @@ docs/           工程文档 + design/（当前设计源；历史资料在 docs/
 - WE 只接受用户主动导入的 `video` / `web` / `scene` 条目，不扫描 Steam/工坊；远端网页只接受用户主动指定的 HTTPS 地址。
 - 显示器重配使用 epoch 事件、去抖收敛和 macOS 自家过渡窗；运行时不写系统桌面。
 - 内容类型、扩展名、MIME 和缩略图策略以 `gesso_core::content` 为唯一事实源；UI 接口以 `crates/app/API.md` 为唯一事实源。
-- 应用更新不静默替换正在运行的程序；Windows 多显示器硬件回归、WE scene 效果栈（二期）和更广泛 HTML 兼容性仍在 `docs/ROADMAP.md`。
+- 应用更新不静默替换正在运行的程序；Windows 多显示器硬件回归、WE scene 效果泛化（首批 4 效果已交付，更多效果按真实条目逐个扩）和更广泛 HTML 兼容性仍在 `docs/ROADMAP.md`。
 
 ## 已知平台事实（写代码前扫一眼，全文见工程笔记 §2）
 
