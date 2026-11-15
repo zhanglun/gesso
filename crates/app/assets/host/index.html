@@ -306,6 +306,16 @@
       var settled = false;
       var img = new Image();
       img.crossOrigin = "anonymous";
+      // 挂入 DOM（屏外、不可见）：浏览器只为「被渲染过」的图片推进 GIF 动画
+      // 时钟——游离的 Image 永远停在第 0 帧，动图贴图会退化成静态首帧
+      img.style.position = "fixed";
+      img.style.left = "-10000px";
+      img.style.top = "-10000px";
+      img.style.width = "8px";
+      img.style.height = "8px";
+      img.style.opacity = "0";
+      img.style.pointerEvents = "none";
+      document.body.appendChild(img);
       // 像素预算：超软预算的合法大图等比缩小到预算内上传（WE 本尊也吃这种
       // 图）；超过硬上限（病态输入）才拒载。GPU 内存随之受控。
       var timeout = setTimeout(function () {
