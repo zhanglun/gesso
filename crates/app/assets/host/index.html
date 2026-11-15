@@ -1172,46 +1172,89 @@
             var matPass = (mat.passes || [])[0] || {};
             var texRef = (matPass.textures || [])[0];
             if (typeof texRef !== "string") return null;
+            // 动图贴图（repkg 把动图纹理转成 GIF）：纯 JS 解码全部帧，
+            // 逐帧合成快照 → 每帧独立 GL 纹理；静态贴图单纹理兜底
             return sceneResolveSlotTexture(texRef, matDir).then(function (entry) {
-              if (!entry || !entry.tex) return null;
-              // 精灵图帧元数据（repkg tex-json）：无帧信息 = 整图单帧
-              var tjSrc = entry.src.replace(/\.(png|jpe?g|gif|webp)$/i, ".tex-json");
-              return sceneFetchJson(tjSrc).then(function (meta) {
-                var sheet = null;
-                var seq = (meta.spritesheetsequences || [])[0];
-                if (seq && seq.frames > 1 && seq.width > 0 && seq.height > 0) {
-                  var cols = Math.max(1, Math.round(entry.w / seq.width));
-                  var rows = Math.max(1, Math.round(entry.h / seq.height));
-                  if (cols * rows >= seq.frames) {
-                    sheet = { cols: cols, rows: rows, frames: seq.frames,
-                              frameRate: seq.frames / (seq.duration > 0 ? seq.duration : 1) };
+            if (!entry || !entry.tex) return null;
+            return fetch(sceneUrl(entry.src)).then(function (resp) {
+              return resp.arrayBuffer();
+            }).then(function (buf) {
+              var parsed = gifParse(new Uint8Array(buf));
+              var frameTex = null;
+              var frameDelays = null;
+              if (parsed && parsed.frames.length > 1) {
+                var comp = document.createElement("canvas");
+                comp.width = parsed.width; comp.height = parsed.height;
+                var cctx = comp.getContext("2d");
+                var fcvs = document.createElement("canvas");
+                fcvs.width = parsed.width; fcvs.height = parsed.height;
+                var fctx = fcvs.getContext("2d");
+                frameTex = [];
+                frameDelays = [];
+                for (var k = 0; k < parsed.frames.length; k++) {
+                  var fk = parsed.frames[k];
+                  if (k > 0) {
+                    var fp = parsed.frames[k - 1];
+                    if (fp.disposal === 2) cctx.clearRect(fp.left, fp.top, fp.width, fp.height);
                   }
+                  var indices = gifLzwIndices(fk.minCode, fk.data, fk.width * fk.height);
+                  if (fk.interlaced) indices = gifDeinterlace(indices, fk.width, fk.height);
+                  var rgba = new Uint8ClampedArray(fk.width * fk.height * 4);
+                  var pal = fk.palette;
+                  if (pal) {
+                    for (var q = 0; q < indices.length; q++) {
+                      var ci = indices[q];
+                      if (ci === fk.transparent) continue;
+                      rgba[q * 4] = pal[ci * 3];
+                      rgba[q * 4 + 1] = pal[ci * 3 + 1];
+                      rgba[q * 4 + 2] = pal[ci * 3 + 2];
+                      rgba[q * 4 + 3] = 255;
+                    }
+                  }
+                  fctx.clearRect(0, 0, fk.width, fk.height);
+                  fctx.putImageData(new ImageData(rgba, fk.width, fk.height), 0, 0);
+                  cctx.drawImage(fcvs, fk.left, fk.top);
+                  var snap = document.createElement("canvas");
+                  snap.width = parsed.width; snap.height = parsed.height;
+                  snap.getContext("2d").drawImage(comp, 0, 0);
+                  var t = gl2.createTexture();
+                  gl2.bindTexture(gl2.TEXTURE_2D, t);
+                  gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
+                  gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, gl2.RGBA, gl2.UNSIGNED_BYTE, snap);
+                  gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, false);
+                  gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_S, gl2.CLAMP_TO_EDGE);
+                  gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_T, gl2.CLAMP_TO_EDGE);
+                  gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MIN_FILTER, gl2.LINEAR);
+                  gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MAG_FILTER, gl2.LINEAR);
+                  frameTex.push(t);
+                  frameDelays.push(fk.delay || 0.1);
                 }
-                var origin = sceneVec(obj.origin);
-                var scale = sceneVec(obj.scale);
-                var pd = sceneVec(obj.parallaxDepth);
-                var sys = {
-                  name: obj.particle,
-                  origin: [origin[0] || 0, origin[1] || 0],
-                  scale: [scale[0] || 1, scale[1] || 1],
-                  pdepth: [Math.max(-2, Math.min(2, pd[0] || 0)), Math.max(-2, Math.min(2, pd[1] || 0))],
-                  blend: matPass.blending || "translucent",
-                  tex: entry.tex,
-                  sheet: sheet,
-                  spec: spec,
-                  maxcount: spec.maxcount || 50,
-                  seqMult: spec.sequencemultiplier || 30,
-                  cps: (spec.controlpoint || []).map(function (cp) {
-                    var v = sceneVec(cp.offset);
-                    return [origin[0] + (v[0] || 0), origin[1] + (v[1] || 0)];
-                  }),
-                  particles: [],
-                  acc: 0
-                };
-                systems.push(sys);
-                console.log("[scene] 粒子系统就绪:", spec.maxcount, "粒上限");
-                return null;
-              });
+              }
+              var origin = sceneVec(obj.origin);
+              var scale = sceneVec(obj.scale);
+              var pd = sceneVec(obj.parallaxDepth);
+              var sys = {
+                name: obj.particle,
+                origin: [origin[0] || 0, origin[1] || 0],
+                scale: [scale[0] || 1, scale[1] || 1],
+                pdepth: [Math.max(-2, Math.min(2, pd[0] || 0)), Math.max(-2, Math.min(2, pd[1] || 0))],
+                blend: matPass.blending || "translucent",
+                tex: entry.tex,
+                frameTex: frameTex,
+                frameDelays: frameDelays,
+                spec: spec,
+                maxcount: spec.maxcount || 50,
+                cps: (spec.controlpoint || []).map(function (cp) {
+                  var v = sceneVec(cp.offset);
+                  return [origin[0] + (v[0] || 0), origin[1] + (v[1] || 0)];
+                }),
+                particles: [],
+                acc: 0
+              };
+              systems.push(sys);
+              console.log("[scene] 粒子系统就绪:", spec.maxcount, "粒上限,", frameTex ? frameTex.length + " 帧动画" : "静态贴图");
+              return null;
+            });
             });
           });
         });
@@ -1228,7 +1271,7 @@
     var inits = sys.spec.initializer || [];
     p.life = 5; p.size = 50; p.color = [1, 1, 1]; p.alpha = 1;
     p.vx = 0; p.vy = 0; p.rot = 0; p.angVel = 0;
-    p.turb = null; p.oscA = null; p.oscP = null; p.fade = undefined;
+    p.turb = null; p.oscA = null; p.oscP = null; p.fade = undefined; p.fphase = Math.random() * 8;
     for (var i = 0; i < inits.length; i++) {
       var it = inits[i];
       if (it.name === "lifetimerandom") p.life = weRnd(it.min || 0, it.max || 0);
@@ -1342,17 +1385,21 @@
       if (pt.oscA) a *= 1 - pt.oscA.s + pt.oscA.s * (0.5 + 0.5 * Math.sin(pt.age * pt.oscA.f * Math.PI * 2));
       gl2.uniform1f(rt.u.alpha, Math.max(0, Math.min(1, a)));
       gl2.uniform1f(rt.u.bright, 1);
-      if (sys.sheet) {
-        var fi = Math.floor(pt.age * sys.sheet.frameRate) % sys.sheet.frames;
-        var fcol = fi % sys.sheet.cols;
-        var frow = Math.floor(fi / sys.sheet.cols);
-        gl2.uniform2f(rt.u.texScale, 1 / sys.sheet.cols, 1 / sys.sheet.rows);
-        gl2.uniform2f(rt.u.texShift, fcol / sys.sheet.cols, 1 - (frow + 1) / sys.sheet.rows);
+      if (sys.frameTex) {
+        // 按 GIF 自带帧延时循环选帧（每粒子独立相位 = 各自扇翅）
+        var total = 0;
+        for (var di = 0; di < sys.frameDelays.length; di++) total += sys.frameDelays[di];
+        var local = (pt.age + pt.fphase) % total;
+        var fi = 0;
+        while (fi < sys.frameDelays.length - 1 && local >= sys.frameDelays[fi]) {
+          local -= sys.frameDelays[fi]; fi += 1;
+        }
+        gl2.bindTexture(gl2.TEXTURE_2D, sys.frameTex[fi] || sys.tex);
       } else {
-        gl2.uniform2f(rt.u.texScale, 1, 1);
-        gl2.uniform2f(rt.u.texShift, 0, 0);
+        gl2.bindTexture(gl2.TEXTURE_2D, sys.tex);
       }
-      gl2.bindTexture(gl2.TEXTURE_2D, sys.tex);
+      gl2.uniform2f(rt.u.texScale, 1, 1);
+      gl2.uniform2f(rt.u.texShift, 0, 0);
       if (sys.blend === "additive") {
         gl2.enable(gl2.BLEND);
         gl2.blendFuncSeparate(gl2.SRC_ALPHA, gl2.ONE, gl2.SRC_ALPHA, gl2.ONE);
