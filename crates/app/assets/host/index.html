@@ -750,11 +750,42 @@
     var combos = weCollectCombos(src);
     for (var k in instanceCombos) if (instanceCombos[k] !== undefined) combos[k] = instanceCombos[k];
     var out = wePreprocess(src, combos);
-    // shim 无条件前置（fire/shake 的 vert 无 include 行也要拿到 mul 等
-    // 定义）；include 行仅做清除（防残留指令），shim 不会重复定义
-    out = WE_COMMON_GLSL + "\n" + out.replace(/^\s*#include\s+"common[^"]*"\s*$/gm, "");
+    // include 行清除；shim 无条件前置（fire/shake 的 vert 无 include 行
+    // 也要拿到 mul 等定义）
+    out = out.replace(/^\s*#include\s+"common[^"]*"\s*$/gm, "");
+    // GLSL ES 1.00 无 int→float 隐式转换：裸整数字面量补 .0（先于替换，
+    // 保护下标/for 头/既有小数）
+    out = weFloatify(out);
+    // 组合标识符替换：#if 已解析但 combo 名仍以变量形式残留在代码体
+    // （如 ApplyBlending(BLENDMODE, ...)）→ 按词边界替换为数值（整数，
+    // 供 ApplyBlending 的 int 形参）
+    for (var ck in combos) {
+      out = out.replace(new RegExp("\\b" + ck + "\\b", "g"), String(combos[ck]));
+    }
+    out = WE_COMMON_GLSL + "\n" + out;
     if (isFragment) out = "precision highp float;\n" + out;
     return out;
+  }
+
+  // 裸整数字面量 → 浮点（GLSL ES 1.00 严格类型）：保护数组下标、for 头、
+  // 既有小数与标识符内数字
+  function weFloatify(src) {
+    var subs = [];
+    var s = src.replace(/for\s*\([^)]*\)/g, function (m) {
+      subs.push(m);
+      return "\u0000" + (subs.length - 1) + "\u0000";
+    });
+    s = s.replace(/\[\s*(-?\d+)\s*\]/g, function (m) {
+      subs.push(m);
+      return "\u0000" + (subs.length - 1) + "\u0000";
+    });
+    s = s.replace(/(^|[^\w.])(\d+)(?![\w.])/g, function (m, pre, num) {
+      return pre + num + ".0";
+    });
+    s = s.replace(/\u0000(\d+)\u0000/g, function (m, i) {
+      return subs[parseInt(i, 10)];
+    });
+    return s;
   }
 
   // uniform 尾注释元数据提取（{"material":..., "combo":..., "default":...}）
@@ -780,7 +811,8 @@
       gl2.bindBuffer(gl2.ARRAY_BUFFER, WE_EFFECT_QUAD);
       // a_Position(vec3) + a_TexCoord(vec2)，20 字节 stride
       gl2.bufferData(gl2.ARRAY_BUFFER,
-        new Float32Array([0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1]),
+        // v0(0,0)uv(0,0) v1(1,0)uv(1,0) v2(0,1)uv(0,1) v3(1,1)uv(1,1)
+        new Float32Array([0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 1, 1]),
         gl2.STATIC_DRAW);
     }
     gl2.bindBuffer(gl2.ARRAY_BUFFER, WE_EFFECT_QUAD);
@@ -880,7 +912,7 @@
         }
         return Promise.resolve(null);
       }
-      return sceneLoadTexture([urls[i]]).then(function (r) {
+      return sceneLoadTexture(sceneGlForEffects, [urls[i]]).then(function (r) {
         if (r) { WE_TEX_CACHE.set(key, r); return r; }
         return attempt(i + 1);
       });
@@ -896,144 +928,6 @@
     return fetch(sceneUrl(rel)).then(function (r) {
       if (!r.ok) throw new Error(rel + " -> " + r.status);
       return r.text();
-    });
-  }
-
-  function sceneBuildPass(vsSrc, fsSrc, slotTex, params, matMeta) {
-    var vs = weTranslateShader(vsSrc, {}, false);
-    var fs = weTranslateShader(fsSrc, {}, true);
-    var prog = sceneCompileProgram(vs, fs);
-    // 枚举活跃 uniform 并分类
-    var uniforms = {};
-    var list = [];
-    var n = sceneGlForEffects.getProgramParameter(prog, sceneGlForEffects.ACTIVE_UNIFORMS);
-    for (var i = 0; i < n; i++) {
-      var info = sceneGlForEffects.getActiveUniform(prog, i);
-      var name = info.name.replace("\[0\]", "");
-      var u = { name: name, loc: sceneGlForEffects.getUniformLocation(prog, info.name), type: info.type, array: info.size > 1 };
-      uniforms[name] = u;
-      list.push(u);
-    }
-    var meta = weUniformMeta(vsSrc + "\n" + fsSrc);
-    // 逐 uniform 分类与取值
-    var samplers = [], resolutions = [], mvp = null, timeU = null, audio = [], paramValues = {};
-    for (var name2 in uniforms) {
-      var uu = uniforms[name2];
-      var m2 = meta[name2] || {};
-      if (/^g_Texture\d*$/.test(name2)) {
-        var slot = parseInt(name2.replace("g_Texture", ""), 10) || 0;
-        samplers.push({ slot: slot, loc: uu.loc, tex: slotTex[slot] || null });
-      } else if (/^g_Texture\d+Resolution$/.test(name2)) {
-        var s2 = parseInt(name2.replace("g_Texture", "").replace("Resolution", ""), 10) || 0;
-        resolutions.push({ loc: uu.loc, slot: s2 });
-      } else if (name2 === "g_ModelViewProjectionMatrix") {
-        mvp = uu.loc;
-      } else if (name2 === "g_Time") {
-        timeU = uu.loc;
-      } else if (/^g_AudioSpectrum/.test(name2)) {
-        audio.push({ loc: uu.loc, type: uu.type });
-      } else {
-        var key = m2.material;
-        var v = key && params[key] !== undefined ? params[key] : m2.default;
-        if (v !== undefined && typeof v !== "number") v = weSceneVecStr(v);
-        paramValues[name2] = { loc: uu.loc, type: uu.type, value: v };
-      }
-    }
-    return {
-      prog: prog, uniforms: uniforms, list: list,
-      mvp: mvp, timeU: timeU, samplers: samplers, resolutions: resolutions,
-      audio: audio, paramValues: paramValues
-    };
-  }
-
-  function weSceneVecStr(v) {
-    if (typeof v === "string") v = v.trim().split(/\s+/);
-    return Array.isArray(v) ? v.map(Number).filter(Number.isFinite) : [];
-  }
-
-  function sceneCompileProgram(vsSrc, fsSrc) {
-    function sh(type, text) {
-      var s = sceneGlForEffects.createShader(type);
-      sceneGlForEffects.shaderSource(s, text);
-      sceneGlForEffects.compileShader(s);
-      if (!sceneGlForEffects.getShaderParameter(s, sceneGlForEffects.COMPILE_STATUS)) {
-        throw new Error("effect shader: " + (sceneGlForEffects.getShaderInfoLog(s) || "?").slice(0, 400));
-      }
-      return s;
-    }
-    var prog = sceneGlForEffects.createProgram();
-    sceneGlForEffects.attachShader(prog, sh(sceneGlForEffects.VERTEX_SHADER, vsSrc));
-    sceneGlForEffects.attachShader(prog, sh(sceneGlForEffects.FRAGMENT_SHADER, fsSrc));
-    sceneGlForEffects.linkProgram(prog);
-    if (!sceneGlForEffects.getProgramParameter(prog, sceneGlForEffects.LINK_STATUS)) {
-      throw new Error("effect link: " + (sceneGlForEffects.getProgramInfoLog(prog) || "?").slice(0, 400));
-    }
-    return prog;
-  }
-
-  function sceneBuildEffectChain(instances, layer, texW, texH, gl2) {
-    sceneGlForEffects = gl2;
-    var rtW = Math.min(2048, texW);
-    var rtH = Math.max(1, Math.round(texH * rtW / texW));
-    var effectRT = [sceneEffectRT(gl2, rtW, rtH), sceneEffectRT(gl2, rtW, rtH)];
-    var chain = [];
-    var p = Promise.resolve();
-    instances.forEach(function (inst) {
-      p = p.then(function () {
-        var file = inst.file || "";
-        var name = (file.split("/")[1] || "").toLowerCase();
-        if (WE_SUPPORTED_EFFECTS.indexOf(name) < 0) return null; // 不支持：快扫已计数
-        var instPass = (inst.passes || [])[0] || {};
-        var instParams = instPass.constantshadervalues || {};
-        var instCombos = instPass.combos || {};
-        var instTex = instPass.textures || null;
-        return sceneFetchJson(inst.file).then(function (eff) {
-          var matRef = eff.passes && eff.passes[0] && eff.passes[0].material;
-          if (typeof matRef !== "string") return null;
-          var matDir = matRef.slice(0, matRef.lastIndexOf("/") + 1);
-          return sceneFetchJson(matRef).then(function (mat) {
-            var matPass = (mat.passes || [])[0] || {};
-            var shaderRef = matPass.shader;
-            if (typeof shaderRef !== "string") return null;
-            return Promise.all([
-              sceneFetchText("shaders/" + shaderRef + ".vert"),
-              sceneFetchText("shaders/" + shaderRef + ".frag")
-            ]).then(function (srcs) {
-              var vs = weTranslateShader(srcs[0], instCombos, false);
-              var fs = weTranslateShader(srcs[1], instCombos, true);
-              var prog = sceneCompileProgram(vs, fs);
-              var meta = weUniformMeta(srcs[0] + "\n" + srcs[1]);
-              // 贴图槽：实例覆盖优先，材质兜底
-              var slotRefs = [];
-              var maxSlot = Math.max(matPass.textures ? matPass.textures.length : 0, instTex ? instTex.length : 0);
-              for (var si = 0; si < maxSlot; si++) {
-                var v1 = instTex && si < instTex.length ? instTex[si] : undefined;
-                if (v1 === undefined && matPass.textures && si < matPass.textures.length) v1 = matPass.textures[si];
-                slotRefs.push(v1 === undefined ? null : v1);
-              }
-              var slotPromises = slotRefs.map(function (ref) {
-                return sceneResolveSlotTexture(ref, matDir);
-              });
-              return Promise.all(slotPromises).then(function (slotTex) {
-                // null 槽 = 输入纹理（渲染期绑定）——mask/normal 槽的透明索引等
-                // 由 shader 自行处理
-                var pass = sceneBuildPassFromParts(prog, meta, slotTex, instParams, vsSrc, fsSrc);
-                chain.push(pass);
-                console.log("[scene] 效果实例 OK:", name, "samplers=", pass.samplers.length, "params=", Object.keys(pass.paramValues).length);
-                return null;
-              });
-            });
-          });
-        }).catch(function (e) {
-          console.log("[scene] 效果实例跳过:", name, e && e.message ? e.message : e);
-          return null;
-        });
-      });
-    });
-    return p.then(function () {
-      layer.effectChain = chain;
-      layer.effectRT = effectRT;
-      return null;
     });
   }
 
@@ -1090,6 +984,7 @@
       var dst = L.effectRT[i % 2];
       gl2.bindFramebuffer(gl2.FRAMEBUFFER, dst.fb);
       gl2.viewport(0, 0, dst.w, dst.h);
+      gl2.disable(gl2.BLEND); // 合成遗留的混合态会污染 RT
       gl2.useProgram(pass.prog);
       gl2.bindBuffer(gl2.ARRAY_BUFFER, sceneEffectQuad(gl2));
       if (pass.aPos >= 0) { gl2.enableVertexAttribArray(pass.aPos); gl2.vertexAttribPointer(pass.aPos, 3, gl2.FLOAT, false, 20, 0); }
@@ -1100,7 +995,7 @@
       // 贴图槽 + 分辨率
       for (var si = 0; si < pass.samplers.length; si++) {
         var sm = pass.samplers[si];
-        var entry = sm.entry || (si === 0 ? srcEntry : null);
+        var entry = sm.entry || (sm.slot === 0 ? srcEntry : null);
         if (!entry || !entry.tex) continue;
         gl2.activeTexture(gl2.TEXTURE0 + sm.slot);
         gl2.bindTexture(gl2.TEXTURE_2D, entry.tex);
@@ -1636,22 +1531,8 @@ layers: layers, design: design, clear: clear, parallax: parallax, aPos: aPos, aU
     } catch (e) {}
     postToFrame({ __gesso: "mouse", x: gMouse.dx, y: gMouse.dy, buttons: buttons, present: !!present });
   };
-  window.__sceneDbg = function () {
-    var rt = sceneRt;
-    var L = rt && rt.layers && rt.layers[0];
-    return {
-      ready: window.__gessoReady === true,
-      layers: rt && rt.layers ? rt.layers.length : -1,
-      tex: L ? !!L.tex : null,
-      srcW: L && L.srcW ? L.srcW : null,
-      anim: L && L.anim ? "set(" + L.anim.frames.length + ")" : "none",
-      chain: L ? (L.effectChain === undefined ? "undef" : L.effectChain === null ? "null" : L.effectChain.length) : "?",
-      passes: L && L.effectChain ? L.effectChain.map(function (p) { return p.samplers.length + "tex/" + Object.keys(p.paramValues).length + "p"; }) : null,
-      logs: (window.__logs || []).slice(-6)
-    };
   };
 })();
 </script>
-<script src="debug-overlay.js"></script>
 </body>
 </html>

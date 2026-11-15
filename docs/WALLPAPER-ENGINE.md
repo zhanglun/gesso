@@ -112,10 +112,12 @@ Metal 渲染器烘焙成视频，非实时）。Gesso 的实时路线若做成�
 - **二期（效果栈）**：WE GLSL 方言 → GLSL ES 翻译器（宿主页 JS 侧做源变
   换），效果链（waves/ripple/blur/glow 等常见效果）、copiesBackground。
   **设计已定稿**：`docs/design/WE效果栈设计.md`（2026-11-15，基于本机真实
-  工坊文件的格式分析与分阶段实施——阶段 A = spritesheet 逐帧，阶段 B =
-  FBO 管线 + 翻译器 + 首批 4 效果）。**阶段 A 已实施**（2026-11-15：材质
-  spritesheet 声明 + 帧元数据齐备的动图贴图逐帧重传播放；repkg 动图输出为
-  GIF）。
+  工坊文件的格式分析与分阶段实施）。**阶段 A 已实施**（动图贴图播放：纯 JS
+  GIF 解码 + GIF 帧延时节拍）。**阶段 B 已实施**（2026-11-15：FBO ping-pong
+  pass 链 + GLSL 方言翻译器 + 首批 4 效果 waterripple/foliagesway/fire/shake
+  全部编译运行；实测要点——壁纸 origin 非安全上下文故 WebCodecs 不可用、
+  GLSL ES 1.00 严格类型需裸整数补 .0、combo 标识符需替换进代码体、遮罩槽
+  有无决定 combo 取值；效果可见强度随条目参数，如实告知机制兜底）。
   `.pkg` 解包不内置（2026-11-14 定案，见「打包条目指引」）。
 - **三期/明确不支持**：粒子系统、音频响应、文本/时钟层、3D 模型、
   puppet-warp——不支持项在导入时如实告知（toast；一期已落地，阻断项如

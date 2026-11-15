@@ -168,9 +168,12 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
 
 - **阶段 A（动图贴图播放）**：GIF 逐帧重传——验收 = Cyberpunk
   LED 动画播放、PixelFuture 静态底图无回归。不含 FBO（无消费者代码不入库）；
-- **阶段 B（FBO 管线 + 翻译器 + 首批效果）**：FBO 池与 pass 链、shim 库、
-  COMBO 求值、uniform 供给、4 效果全实例——验收 = PixelFuture 水波/火焰
-  可见且动；
+- **阶段 B（FBO 管线 + 翻译器 + 首批效果）**：已实施（2026-11-15）——
+  FBO ping-pong pass 链、shim 库、COMBO 求值（含遮罩联动）、uniform 供给、
+  4 效果 5 实例全部编译运行。实机校准补记：GLSL ES 1.00 严格类型（裸整数
+  补 .0）、combo 标识符需替换进代码体、翻译失败实例跳过不崩场景；效果可见
+  强度由条目参数决定（fire/shake 的 noflow 中性流向图 = 零贡献，WE 同），
+  遮挡时 WebView2 挂起渲染为省电设计；
 - **阶段 C（泛化）**：按真实条目逐个扩效果、组合兜底策略。
 - 每阶段独立提交、独立验收；PixelFuture / Cyberpunk 为常备回归金标准。
 

@@ -10,6 +10,9 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 - **Wallpaper Engine 打包条目解包路线落地**：`.pkg` 打包的场景条目（`scene.json` 与贴图都在包内）Gesso 不内置解包——导入这类条目时给出明确指引（先用 RePKG 等工具解包，再导入含 `project.json` 的输出目录），不再笼统报「不支持」；材质 json 引用的 `.tex` 贴图（RePKG 解包产物常态，webview 不可解码）自动回落同名 `.png`/`.gif` 加载，导入扫描与渲染两侧语义一致。已知退化如实声明：动图贴图转 gif 后按静态首帧渲染；视频贴图（转 mp4）一期不渲染，对应图层缺失。路线决策与解包命令见 WALLPAPER-ENGINE.md「打包条目指引」。
 - **Wallpaper Engine 动图贴图播放（效果栈阶段 A）**：材质声明为 spritesheet 且解包产物携带帧元数据（帧数 > 1）的动图贴图——repkg 把动图纹理转成 GIF 动图（扩展名仍为引用名）——宿主页内置纯 JS GIF 解码器（LZW + 帧合成，壁纸 origin 非安全上下文故 WebCodecs 不可用），按 GIF 自带帧延时逐帧重传合成结果到 GPU（帧元数据的 duration 语义存疑，实机校准），LED 类条目（如 Cyberpunk city）开始播放动画而非静态首帧；散装条目无帧元数据时维持静态，效果栈管线（FBO pass 链）与翻译器属阶段 B。设计见 `docs/design/WE效果栈设计.md`。
 
+### Changed
+
+- **Wallpaper Engine 效果栈一期落地（阶段 B）**：scene 条目图层上挂的 shader 效果链现在真实渲染——新增 GLSL 方言翻译器（COMBO 编译开关求值、遮罩槽有无联动 combo、组合标识符替换、GLSL ES 1.00 严格类型的裸整数补 .0）、FBO 离屏 pass 链（每效果一 pass 串行渲染，无效果图层走原直绘路径零回归）、首批 4 效果（水波/树叶摆动/火焰/抖动）全实例编译运行（PixelFuture 5 实例实测通过）。效果可见强度由条目自身参数决定（如流向图为中性图时火焰/抖动按 WE 语义零贡献），不支持的效果实例跳过并计数告知。
 ### Fixed
 
 - **真实工坊 scene 条目导入被误拒 / 渲染错位（实机校准发现）**：一期按自制夹具的格式假设实现，真实 WE 工坊文件有两处不同——向量字段（origin/size/angles/scale/parallaxDepth/color/clearcolor）是空格分隔字符串而非数组（`size` 被按首字符误读成 9×6、锚点与视差全部丢失、背景色退成黑），材质贴图引用是无扩展名裸名（按材质所在目录解析为同名 `.tex`，此前按场景根查找导致「图片纹理缺失」拒绝导入）。现在导入快扫与宿主页渲染器同时兼容两种形态，贴图候选两侧一致；spritesheet 材质一期按整图渲染（无逐帧动画，已知退化）。
