@@ -70,13 +70,13 @@ use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerforma
 use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows, FindWindowExW, FindWindowW,
-    GetClientRect, GetWindowRect, IsWindowVisible, RegisterClassW, RegisterWindowMessageW,
-    SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowPos, ShowWindow,
-    SystemParametersInfoW, HTTRANSPARENT, HWND_BOTTOM, LWA_ALPHA, MONITORINFOF_PRIMARY,
-    SMTO_NORMAL, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_GETDESKWALLPAPER, SPI_SETDESKWALLPAPER,
-    SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_EX_STYLE,
-    WM_DISPLAYCHANGE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
+    GetClientRect, GetParent, GetWindowRect, IsWindow, IsWindowVisible, RegisterClassW,
+    RegisterWindowMessageW, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent,
+    SetWindowPos, ShowWindow, SystemParametersInfoW, HTTRANSPARENT, HWND_BOTTOM, LWA_ALPHA,
+    MONITORINFOF_PRIMARY, SMTO_NORMAL, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_GETDESKWALLPAPER,
+    SPI_SETDESKWALLPAPER, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    WINDOW_EX_STYLE, WM_DISPLAYCHANGE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
 };
 
 use super::{MonitorInfo, WallpaperWindow};
@@ -174,6 +174,66 @@ fn monitor_pnp_id_parse(device_id: &str) -> Option<String> {
     (!seg.is_empty()).then_some(seg)
 }
 
+/// 连续读取失败多少次后才降级设备名 ID。巡检 ≈5s 一轮 → 容忍 ≈15s 的读取瞬断。
+const PNP_CACHE_MAX_MISSES: u32 = 3;
+
+/// PnP 身份缓存：设备名（`\\.\DISPLAYn`）→ (上次成功的 PnP ID, 连续失败次数)。
+///
+/// 背景（2026-11 双屏 DP 链路闪屏排查）：DP 链路重训/模式提交窗口期
+/// EnumDisplayDevicesW 可能单次失败（外部观测：无 WM_DISPLAYCHANGE、无 PnP
+/// 启停，但应用日志里同一显示器 ID 在 `edid-*` 与 `win-DISPLAY*` 间跳变）。
+/// 此前单次失败即回落 `win-DISPLAYN`，同一物理显示器当轮换 ID，稳态巡检
+/// 把「ID 变了」误判成「显示器更换」→ 拆窗重建 webview = 用户可见闪屏。
+/// 读取失败时沿用缓存身份，连续失败超限才降级；读取成功（含身份变化）
+/// 即刷新缓存。枚举只在本进程主线程调用，Mutex 仅为跨线程安全兜底。
+#[derive(Default)]
+struct PnpCache {
+    map: std::collections::BTreeMap<String, (String, u32)>,
+}
+
+impl PnpCache {
+    /// 决议本回合应采用的 PnP 身份。`live` = 本次实时读取结果（Some = 成功）。
+    fn resolve(&mut self, device: &str, live: Option<String>) -> Option<String> {
+        match live {
+            Some(pnp) => {
+                if let Some((prev, _)) = self.map.get(device) {
+                    if *prev != pnp {
+                        println!("[pin] {device} PnP 身份变化：{prev} → {pnp}");
+                    }
+                }
+                self.map.insert(device.to_string(), (pnp.clone(), 0));
+                Some(pnp)
+            }
+            None => {
+                let (pnp, misses) = self.map.get_mut(device)?;
+                *misses += 1;
+                if *misses <= PNP_CACHE_MAX_MISSES {
+                    println!("[pin] {device} PnP 读取失败（连续 {misses} 次），沿用缓存身份 {pnp}");
+                    Some(pnp.clone())
+                } else {
+                    if *misses == PNP_CACHE_MAX_MISSES + 1 {
+                        println!("[pin] {device} PnP 连续 {misses} 次失败，降级设备名 ID");
+                    }
+                    None
+                }
+            }
+        }
+    }
+}
+
+static PNP_CACHE: std::sync::Mutex<PnpCache> = std::sync::Mutex::new(PnpCache {
+    map: std::collections::BTreeMap::new(),
+});
+
+/// 带缓存的 PnP 身份读取（见 [`PnpCache`]；唯一供枚举使用的入口）。
+fn monitor_pnp_id_cached(device: &str) -> Option<String> {
+    let live = monitor_pnp_id(device);
+    PNP_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .resolve(device, live)
+}
+
 /// 身份 → 稳定 ID：`edid-<pnp>`；同 PnP 多屏（同型号多显示器）追加设备名消歧；
 /// 无身份回落 `win-DISPLAYN`（v1 行为）。
 fn assign_monitor_ids(rows: &[(String, Option<String>)]) -> Vec<String> {
@@ -256,7 +316,7 @@ unsafe extern "system" fn enum_monitor_proc(
         .trim_end_matches('\0')
         .to_string();
     rows.push(EnumRow {
-        pnp: monitor_pnp_id(&device),
+        pnp: monitor_pnp_id_cached(&device),
         device,
         frame: (
             r.left as f64,
@@ -376,6 +436,32 @@ fn mount(hwnd: HWND, frame: &[i32; 4]) -> MountKind {
         }
     }
     kind
+}
+
+/// 已挂载窗口的几何重申（set_frame/reassert_pinning 用）：父窗口仍存活时
+/// **不重找挂载点**，只按现父窗口换算坐标移动。重找会走 `find_wallpaper_parent`，
+/// 最坏路径是向 Progman 发 0x052C 让 Explorer 再生一个 WorkerW——桌面结构
+/// 重组会把壁纸层全体窗口闪动一遍、还可能堆积孤儿 WorkerW（见
+/// [`find_wallpaper_parent`] 注释），或把窗口无谓地挪到另一个 WorkerW。
+/// 稳态深巡检每 ≈5s 对每个会话重申一次挂载不变量，搜索路径的任何瞬时
+/// 失败都会被放大成全屏闪动——父窗口活着就说明贴壁层级没变，跳过搜索。
+/// 仅当父窗口已死/不存在（explorer 重启、从未挂载）才重走完整挂载阶梯。
+fn remount_existing(hwnd: HWND, frame: &[i32; 4], prev_kind: MountKind) -> MountKind {
+    // SAFETY: hwnd 由本模块创建；GetParent/IsWindow/GetWindowRect 查询型调用
+    unsafe {
+        let parent = GetParent(hwnd).ok().filter(|p| IsWindow(Some(*p)).as_bool());
+        match parent {
+            Some(p) => {
+                let mut r = RECT::default();
+                if GetWindowRect(p, &mut r).is_ok() {
+                    let (x, y) = child_offset((r.left, r.top), (frame[0], frame[1]));
+                    let _ = SetWindowPos(hwnd, None, x, y, frame[2], frame[3], SWP_NOACTIVATE);
+                }
+                prev_kind
+            }
+            None => mount(hwnd, frame),
+        }
+    }
 }
 
 /// TaskbarCreated 是否已到（由引擎轮询取走；取走即清零）。主线程调用。
@@ -801,7 +887,7 @@ impl WallpaperWindow for WinWallpaperWindow {
 
     fn set_frame(&mut self, (x, y, w, h): (f64, f64, f64, f64)) {
         let frame = [x as i32, y as i32, w as i32, h as i32];
-        let kind = mount(self.hwnd, &frame);
+        let kind = remount_existing(self.hwnd, &frame, self.mount.get());
         self.mount.set(kind);
     }
 
@@ -997,7 +1083,7 @@ impl WallpaperWindow for WinVideoWindow {
 
     fn set_frame(&mut self, (x, y, w, h): (f64, f64, f64, f64)) {
         let frame = [x as i32, y as i32, w as i32, h as i32];
-        let kind = mount(self.hwnd, &frame);
+        let kind = remount_existing(self.hwnd, &frame, self.mount.get());
         self.mount.set(kind);
     }
 
@@ -1642,5 +1728,31 @@ mod tests {
     fn monitor_id_strips_device_prefix() {
         assert_eq!(monitor_id_from_device(r"\\.\DISPLAY1"), "win-DISPLAY1");
         assert_eq!(monitor_id_from_device(r"\\.\DISPLAY3"), "win-DISPLAY3");
+    }
+
+    #[test]
+    fn pnp_cache_tolerates_transient_failures_then_degrades() {
+        let mut c = PnpCache::default();
+        let d = r"\\.\DISPLAY1";
+        // 无缓存时读取失败 → None（真·无身份，回落 win-DISPLAYN）
+        assert_eq!(c.resolve(d, None), None);
+        // 成功读取建立缓存并清零失败计数
+        assert_eq!(c.resolve(d, Some("dela0bc".into())), Some("dela0bc".into()));
+        // 瞬断 ≤ 上限：沿用缓存身份（ID 不翻转的关键）
+        for i in 1..=PNP_CACHE_MAX_MISSES {
+            assert_eq!(
+                c.resolve(d, None),
+                Some("dela0bc".into()),
+                "第 {i} 次失败应沿用缓存"
+            );
+        }
+        // 超限才降级（避免真·身份丢失被无限掩盖）
+        assert_eq!(c.resolve(d, None), None);
+        // 恢复成功 → 缓存重建，之后的瞬断再次被容忍
+        assert_eq!(c.resolve(d, Some("dela0bc".into())), Some("dela0bc".into()));
+        assert_eq!(c.resolve(d, None), Some("dela0bc".into()));
+        // 身份变化（换显示器/重编 PnP）→ 直接采用新值
+        assert_eq!(c.resolve(d, Some("bnq789".into())), Some("bnq789".into()));
+        assert_eq!(c.resolve(d, None), Some("bnq789".into()));
     }
 }

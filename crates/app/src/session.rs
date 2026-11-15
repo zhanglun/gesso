@@ -15,6 +15,11 @@ use gesso_core::{
 
 use crate::pin::{self, MonitorFrame, MonitorInfo, WallpaperWindow};
 
+/// 枚举缺席多少轮收敛才真正拆除会话（拆除去抖）。巡检 ≈5s 一轮 → 单轮枚举
+/// 异常（PnP 读取瞬断、GetMonitorInfoW 瞬断、枚举半程状态）绝不拆窗重建；
+/// 真实断开 ≈10s 内拆除（事件路径上 30ms 快速清扫已先行熄窗，不留残窗）。
+const REMOVE_ABSENT_ROUNDS: u32 = 2;
+
 /// 导入失败原因（UI 侧映射 strings.rs 文案；§7 失败文案带原因和出路）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImportError {
@@ -114,6 +119,9 @@ pub struct Session {
     /// 鼠标静止空闲降帧生效中（与全屏降帧互斥，恢复时回设 fps）。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub idle_down: bool,
+    /// 连续缺席轮数：收敛时枚举里找不到本会话显示器 ID 的连续次数。
+    /// 拆除去抖依据（REMOVE_ABSENT_ROUNDS）——瞬时枚举异常不该立刻拆窗。
+    pub absent_streak: u32,
 }
 
 /// 会话的 UI 投影视图（`views()` 产物）。
@@ -397,35 +405,7 @@ impl SessionManager {
 
         // 显示器身份优先使用平台硬件标识：macOS 为 EDID vendor/model/serial，
         // Windows 为 monitor PnP ID；没有硬件身份时回落平台显示器编号。
-        // 全失配迁移保留作兜底：虚拟屏或系统重编 ID 时把既有指派迁到当前主屏。
-        let known: std::collections::BTreeSet<String> =
-            monitors.iter().map(|m| m.id.clone()).collect();
-        if !self.config.monitors.is_empty()
-            && self.config.monitors.keys().all(|k| !known.contains(k))
-        {
-            if let Some(main) = monitors
-                .iter()
-                .find(|m| m.is_main)
-                .or_else(|| monitors.first())
-            {
-                let old_map: Vec<(String, String)> = self
-                    .config
-                    .monitors
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                let first_entry = old_map.first().map(|(_, v)| v.clone());
-                self.config.monitors.clear();
-                if let Some(entry) = first_entry {
-                    self.config.monitors.insert(main.id.clone(), entry);
-                }
-                let _ = self.save_config();
-                println!(
-                    "[session] 显示器 ID 已失效（系统重编），配置迁移 → {}",
-                    main.id
-                );
-            }
-        }
+        // 全失配迁移见下方（几何平移 remap 之后）。
 
         // 首启占位键 "main" → 解析为真实主屏 ID（一次性改写并落盘）
         if self.config.monitors.remove("main").is_some() {
@@ -462,10 +442,12 @@ impl SessionManager {
                 })
                 .cloned()
                 .collect();
+            let mut moved = false;
             for (old_id, new_id) in plan_id_remap(&stale, &candidates) {
                 let Some(m) = monitors.iter().find(|m| m.id == new_id).cloned() else {
                     continue;
                 };
+                moved = true;
                 // 平移只动会话归属与记录；几何重申交给下方收敛计划——
                 // applied 信念保持旧值，「帧变了/窗口被搬了」自然判 Reassert
                 if let Some(mut s) = self.sessions.remove(&old_id) {
@@ -480,7 +462,55 @@ impl SessionManager {
                 }
                 println!("[session] 显示器 ID 重编：{old_id} → {new_id}（几何匹配，会话平移）");
             }
-            let _ = self.save_config();
+            if moved {
+                let _ = self.save_config();
+            }
+        }
+
+        // —— 全失配迁移（兜底）：虚拟屏、系统重编 ID 且几何同时变化等 remap
+        //   承接不了的场景，把既有指派迁到当前主屏。**必须在几何 remap 之后**：
+        //   迁移会把主屏的新 ID 写进 config，抢占 remap 的「未占用候选」——
+        //   插在前面时，双屏同轮 ID 抖动会让主屏会话既平移不了又被判缺席，
+        //   走「拆除 + 重建 webview」= 用户可见闪屏（2026-11 双屏 DP 链路
+        //   闪屏的根因放大器）。remap 成功平移后 config 键全部在场，本块自然跳过。 ——
+        let known: std::collections::BTreeSet<String> =
+            monitors.iter().map(|m| m.id.clone()).collect();
+        if !self.config.monitors.is_empty()
+            && self.config.monitors.keys().all(|k| !known.contains(k))
+        {
+            if let Some(main) = monitors
+                .iter()
+                .find(|m| m.is_main)
+                .or_else(|| monitors.first())
+            {
+                let old_map: Vec<(String, String)> = self
+                    .config
+                    .monitors
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let first_entry = old_map.first().map(|(_, v)| v.clone());
+                self.config.monitors.clear();
+                if let Some(entry) = first_entry {
+                    self.config.monitors.insert(main.id.clone(), entry);
+                }
+                let _ = self.save_config();
+                println!(
+                    "[session] 显示器 ID 已失效（系统重编），配置迁移 → {}",
+                    main.id
+                );
+            }
+        }
+
+        // —— 缺席计数：枚举里找不到的会话累计连续轮数，在场即清零。拆除决策
+        //   以此去抖（REMOVE_ABSENT_ROUNDS）——单轮枚举异常（PnP 读取瞬断/
+        //   GetMonitorInfoW 瞬断/枚举半程状态）不该触发销毁重建。 ——
+        for (id, s) in self.sessions.iter_mut() {
+            if now.contains(id) {
+                s.absent_streak = 0;
+            } else {
+                s.absent_streak += 1;
+            }
         }
 
         // —— 计划：单会话收敛动作（决策纯函数见 plan_converge）——
@@ -513,13 +543,51 @@ impl SessionManager {
             }
         }
 
+        // 收敛决策日志：非 Keep 决策一行汇总（拍号 + unix 时间戳 + 各会话决策）。
+        // 与上方「拓扑枚举」行（ID/几何变化才打）对读，可把用户可见闪屏时刻
+        // 与具体销毁/重建决策逐拍对齐。
+        if plans.iter().any(|(_, act)| *act != ConvergeAct::Keep) {
+            static CONVERGE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let seq = CONVERGE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let detail = plans
+                .iter()
+                .map(|(id, act)| format!("{id}={act:?}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            println!("[session] 收敛决策#{seq}（unix={ts}）：{detail}");
+        }
+
+        // 巡检心跳（GESSO_PATROL_HEARTBEAT=1）：深巡检全部「不动窗」时也落一行
+        // 带时间戳的日志，证明「引擎活着且无动作」。没有它，日志静默分不清
+        // 是「一切平静」还是「进程僵死」——闪屏归因（引擎零动作期间仍闪 →
+        // 嫌疑转向 DP 链路/驱动）就缺了这条反证。
+        if deep && patrol_heartbeat_enabled() && plans.iter().all(|(_, act)| *act == ConvergeAct::Keep)
+        {
+            static HEARTBEAT_SEQ: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+            let seq = HEARTBEAT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            println!("[session] 巡检心跳#{seq}（unix={ts}）：{} 屏无变化", plans.len());
+        }
+
         // —— 抑制：settling 段熄「将被拆除」的窗；重申目标（几何过时）通常
         //   已被 30ms 清扫提前熄灭、由桥接帧兜底，此处不重复处理——它们的
         //   几何延迟到拓扑稳定后原子施加。非 settling（启动/托盘/巡检，稳定
-        //   语境）维持先熄后显的老纪律。 ——
+        //   语境）维持先熄后显的老纪律。缺席未到确认轮数的会话不熄窗
+        //   （拆除去抖：窗口大概率仍在原屏上，熄了再点亮就是无谓闪动）。 ——
         for (id, act) in &plans {
             let suppress = match act {
-                ConvergeAct::Remove => true,
+                ConvergeAct::Remove => self
+                    .sessions
+                    .get(id)
+                    .is_some_and(|s| s.absent_streak >= REMOVE_ABSENT_ROUNDS),
                 ConvergeAct::Reassert => !settling,
                 ConvergeAct::Keep => false,
             };
@@ -552,8 +620,19 @@ impl SessionManager {
                     }
                 }
                 ConvergeAct::Remove => {
+                    let streak = self
+                        .sessions
+                        .get(&id)
+                        .map(|s| s.absent_streak)
+                        .unwrap_or_default();
+                    if streak < REMOVE_ABSENT_ROUNDS {
+                        // 缺席未确认：多半是单轮枚举异常，保留窗口原地不动
+                        //（拆了重建 webview 就是 0.5s 闪屏）
+                        println!("[session] {id} 枚举缺席（连续 {streak} 轮），暂缓拆除（等确认）");
+                        continue;
+                    }
                     self.sessions.remove(&id);
-                    println!("[session] 显示器 {id} 已断开，会话拆除（配置保留）");
+                    println!("[session] 显示器 {id} 已断开（连续 {streak} 轮缺席确认），会话拆除（配置保留）");
                 }
                 ConvergeAct::Reassert => {
                     // 拓扑未稳：不上几何。窗口多半已被 30ms 清扫熄灭（桥接帧
@@ -616,10 +695,11 @@ impl SessionManager {
 
         // —— 复显：非拓扑段立即点亮全部隐藏会话（几何已落位才可见）；拓扑
         //   段仅在跨采样稳定（enum_stable）时点亮新补建的窗——不稳定采样建
-        //   的窗压在隐藏态，等稳定轮确认同一几何后才可见 ——
+        //   的窗压在隐藏态，等稳定轮确认同一几何后才可见。缺席去抖中的会话
+        //   不点亮（显示器真断了，30ms 清扫熄掉的窗不能在这里变回幽灵窗）。 ——
         if !settling || enum_stable {
             for s in self.sessions.values_mut() {
-                if !s.visible {
+                if !s.visible && now.contains(&s.monitor.id) {
                     if let Some(w) = s.window.as_mut() {
                         w.set_visible(true);
                     }
@@ -745,6 +825,7 @@ impl SessionManager {
             downscaled: false,
             mouse_last: None,
             idle_down: false,
+            absent_streak: 0,
         })
     }
 
@@ -1547,6 +1628,13 @@ fn rand_below(n: usize) -> usize {
 fn video_diag_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("GESSO_VIDEO_DIAG").is_ok_and(|v| v != "0"))
+}
+
+/// 巡检心跳开关：GESSO_PATROL_HEARTBEAT=1 时深巡检「无变化」也落日志。
+/// 闪屏归因用——静默期需要一条「引擎活着且无动作」的时间戳反证。
+fn patrol_heartbeat_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("GESSO_PATROL_HEARTBEAT").is_ok_and(|v| v != "0"))
 }
 
 #[cfg(test)]
