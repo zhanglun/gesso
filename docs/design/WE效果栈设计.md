@@ -133,14 +133,19 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
 `frames: 100` 是**时间帧序列**（每帧时长 = duration/frames = 10ms）。
 
 - 触发：材质 `combos.spritesheet = 1` 且 tex-json `frames > 1`；
-- 实现：WebCodecs `ImageDecoder` 异步预取当前帧 ±2 的 VideoFrame，显示帧
-  号由时钟决定（`floor(t/frameDur) % count`），`texImage2D(VideoFrame)`
-  上传；滑动窗口缓存（环距离 > 4 驱逐、跳过解码失败占位、显示帧不逐）；
-- 实测教训（两次推翻初版）：① DOM 动画时钟不适用于游离/不可见图片（时钟
-  不推进，drawImage 恒为第 0 帧）；② VideoFrame.duration 与 GIF GCE 延时
-  实测不一致（1s vs 80ms）——**节拍以 tex-json duration/frames 为权威**；
-  ③ 解码失败帧以 null 占位防重试风暴，驱逐循环必须跳过 null（否则每帧
-  TypeError 杀死渲染循环 = 灰屏）；
+- 实现（实测第四版）：**纯 JS GIF 解码器**（LZW + GCT/LCT 调色板 + 透明
+  索引 + interlace 还原 + disposal 0-2 合成，约 200 行宿主页内嵌）——壁纸
+  页面 origin（http://gesso.steam workaround）非安全上下文，WebCodecs
+  ImageDecoder 不可用（实测 WebView2 157 中 undefined）；显示帧号由时钟
+  决定（floor(t/frameDur) % count），渲染循环按序合成（GIF 帧间有增量
+  依赖不能跳帧），每渲染帧把合成画布重传到 GPU；
+- 实测教训（自测环境逐项抓出）：① DOM 动画时钟不适用于游离/不可见图片
+  （drawImage 恒为第 0 帧）；② VideoFrame.duration 与 GIF GCE 延时实测
+  不一致——**节拍以 tex-json duration/frames 为权威**；③ 解码失败帧的
+  null 占位必须被缓存驱逐跳过（否则每帧 TypeError 杀死渲染循环 = 灰屏）；
+  ④ **WebCodecs 仅存在于安全上下文**——壁纸 origin（http://gesso.steam）
+  非安全上下文，ImageDecoder undefined（自测环境 127.0.0.1 有 localhost
+  豁免，曾掩盖该差异）；⑤ GIF 子块带长度前缀不连续，LZW 输入须先拼接；
 - Cyberpunk：100 帧 / 1s 循环（10ms/帧）；
 - **边界**：帧信息仅 repkg 解包产物携带；散装条目维持静态首帧；真正空间
   网格式 spritesheet（如存在）属阶段 C 评估；音频响应（fire 的

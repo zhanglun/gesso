@@ -8,7 +8,7 @@ All notable changes to Gesso are documented here. Format: [Keep a Changelog](htt
 
 - **Wallpaper Engine scene 一期（基础场景实时渲染）**：WE 的 scene 工坊条目（`project.json` + `scene.json` 分层图片场景，此前一律拒绝导入）现在可以导入并在壁纸上实时渲染——基础图片层合成（位置/对齐/缩放/旋转/颜色/亮度/混合模式）、alpha 关键帧动画（循环/往复/单次）、鼠标视差与 zoom，宿主页 WebGL2 渲染，保留交互。不支持的效果链、粒子、文本、音频、3D 在**导入时 toast 如实告知**哪些内容不会显示；puppet 角色场景、3D 相机场景仍拒绝导入；`.pkg` 打包条目给出解包指引（见下一条）。渲染格式约定（坐标原点在画布左下、Y 轴向上、图层按数组顺序绘制、尺寸取值优先级、混合模式归属材质）已对照开源参考实现 wallpaper-scene-renderer 逐项核对，顺带修正了两处离线审查发现的真问题（坐标系上下镜像、视差字段名错误导致视差从不生效）。库筛选条新增「场景」分类，对话告知引擎侧导入失败的反馈缺口一并补齐；设计规格筛选条/原型与 WALLPAPER-ENGINE.md 同步。
 - **Wallpaper Engine 打包条目解包路线落地**：`.pkg` 打包的场景条目（`scene.json` 与贴图都在包内）Gesso 不内置解包——导入这类条目时给出明确指引（先用 RePKG 等工具解包，再导入含 `project.json` 的输出目录），不再笼统报「不支持」；材质 json 引用的 `.tex` 贴图（RePKG 解包产物常态，webview 不可解码）自动回落同名 `.png`/`.gif` 加载，导入扫描与渲染两侧语义一致。已知退化如实声明：动图贴图转 gif 后按静态首帧渲染；视频贴图（转 mp4）一期不渲染，对应图层缺失。路线决策与解包命令见 WALLPAPER-ENGINE.md「打包条目指引」。
-- **Wallpaper Engine 动图贴图播放（效果栈阶段 A）**：材质声明为 spritesheet 且解包产物携带帧元数据（帧数 > 1）的动图贴图——repkg 把动图纹理转成 GIF 动图（扩展名仍为引用名）——渲染循环逐帧把浏览器解码的当前帧重传到 GPU，LED 类条目（如 Cyberpunk city）开始播放动画而非静态首帧；散装条目无帧元数据时维持静态，效果栈管线（FBO pass 链）与翻译器属阶段 B。设计见 `docs/design/WE效果栈设计.md`。
+- **Wallpaper Engine 动图贴图播放（效果栈阶段 A）**：材质声明为 spritesheet 且解包产物携带帧元数据（帧数 > 1）的动图贴图——repkg 把动图纹理转成 GIF 动图（扩展名仍为引用名）——宿主页内置纯 JS GIF 解码器（LZW + 帧合成，壁纸 origin 非安全上下文故 WebCodecs 不可用），按 tex-json 帧节拍逐帧重传合成结果到 GPU，LED 类条目（如 Cyberpunk city）开始播放动画而非静态首帧；散装条目无帧元数据时维持静态，效果栈管线（FBO pass 链）与翻译器属阶段 B。设计见 `docs/design/WE效果栈设计.md`。
 
 ### Fixed
 
