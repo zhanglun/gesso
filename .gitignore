@@ -14,3 +14,7 @@
 
 # 官网设计工作目录（taste-skill 检查产物与诊断脚本）
 /.taste-skill/
+
+# ZCode 会话与冒烟测试产物
+.zcode/
+target-smoke/
