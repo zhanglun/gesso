@@ -31,7 +31,6 @@
 <div id="msg"></div>
 <script>
 (function () {
-  window.__logs=[];(function(){var _l=console.log;var _e=console.error;console.log=function(){window.__logs.push("LOG "+Array.prototype.slice.call(arguments).join(" "));_l.apply(console,arguments);};console.error=function(){window.__logs.push("ERR "+Array.prototype.slice.call(arguments).join(" "));_e.apply(console,arguments);};})();window.addEventListener("error",function(ev){window.__logs.push("UNCAUGHT "+ev.message+" @"+ev.lineno);});
   const q = new URLSearchParams(location.search);
   const v = document.getElementById("media");
   const img = document.getElementById("imgmedia");
@@ -1005,7 +1004,6 @@
                 var prog = sceneCompileProgram(vs, fs);
                 var pass = sceneBuildPassFromParts(prog, meta, slotTex, instParams, srcs[0], srcs[1]);
                 chain.push(pass);
-                console.log("[scene] 效果实例 OK:", name, "samplers=", pass.samplers.length, "params=", Object.keys(pass.paramValues).length);
                 return null;
               });
             });
@@ -1125,26 +1123,6 @@
     gl2.enableVertexAttribArray(rt.aUV);
     gl2.vertexAttribPointer(rt.aUV, 2, gl2.FLOAT, false, 16, 8);
   }
-
-  // TEMP-DEBUG: 诊断悬浮层（验证后移除）
-  (function () {
-    var el = document.createElement("div");
-    el.style.cssText = "position:fixed;top:4px;left:4px;z-index:9999;color:#0f0;font:bold 13px monospace;background:rgba(0,0,0,.75);padding:4px 6px;white-space:pre;max-width:1100px;";
-    document.body.appendChild(el);
-    var NL = String.fromCharCode(10);
-    setInterval(function () {
-      var rt = sceneRt;
-      var L = rt && rt.layers && rt.layers[0];
-      var chain = L && L.effectChain;
-      var t = "ready=" + (window.__gessoReady === true) +
-        " layers=" + (rt && rt.layers ? rt.layers.length : "?") +
-        " tex=" + (L ? !!L.tex : "?") +
-        " chain=" + (L ? (chain === undefined ? "undef" : chain === null ? "null" : chain.length) : "?") +
-        " srcW=" + (L && L.srcW ? L.srcW : "?");
-      var logs = (window.__logs || []).slice(-8);
-      el.textContent = t + NL + logs.join(NL);
-    }, 400);
-  })();
 
   function startSceneLoop() {
     if (!sceneRt || sceneRt.running) return;
