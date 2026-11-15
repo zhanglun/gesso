@@ -216,3 +216,9 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
   console 记录（后续按需扩）；快扫不再把 particles 列为不支持项；
 - 验收 = PixelFuture 16 组鸟群（birds.json：30 粒、球形出生、寿命 25s、
   双吸引点绕行、16 帧扇翅精灵图 sequencemultiplier 30）。
+  实测边界（2026-11-15）：repkg 把 birds 的动图纹理转成 GIF 时丢失全部
+  alpha 与图案（16 帧全为纯白不透明）——该粒子贴图从转换件无法渲染，运行时
+  逐帧采样检测全白帧并跳过该系统（不再渲染白方块）；预设类粒子贴图
+  （particle/smoke、fog 等）属于 WE 本体安装资源、不在工坊包内，转换件同样
+  缺失 → 跳过。结论：工坊包自带贴图的 sprite 粒子可渲染，依赖 WE 本体资源
+  的预设粒子需要用户自行解包 WE 安装目录或后续提供垫片。

@@ -1182,6 +1182,8 @@
               var parsed = gifParse(new Uint8Array(buf));
               var frameTex = null;
               var frameDelays = null;
+              var anyBlank = false;
+              var anyContent = false;
               if (parsed && parsed.frames.length > 1) {
                 var comp = document.createElement("canvas");
                 comp.width = parsed.width; comp.height = parsed.height;
@@ -1216,7 +1218,23 @@
                   cctx.drawImage(fcvs, fk.left, fk.top);
                   var snap = document.createElement("canvas");
                   snap.width = parsed.width; snap.height = parsed.height;
-                  snap.getContext("2d").drawImage(comp, 0, 0);
+                  var sctx = snap.getContext("2d");
+                  sctx.drawImage(comp, 0, 0);
+                  // 帧内容检测：repkg 对部分贴图（如 birds）的 GIF 转换会
+                  // 丢失 alpha 与图案（整帧纯白）——渲染出来就是白块。逐帧
+                  // 采样，全部帧均为单一颜色 → 判定转换件不可用
+                  var idata = sctx.getImageData(0, 0, parsed.width, parsed.height).data;
+                  var uniform = true;
+                  var ref = [idata[0], idata[1], idata[2], idata[3]];
+                  for (var si = 0; si < idata.length; si += 404) {
+                    if (Math.abs(idata[si] - ref[0]) > 2 || Math.abs(idata[si + 1] - ref[1]) > 2 ||
+                        Math.abs(idata[si + 2] - ref[2]) > 2 || Math.abs(idata[si + 3] - ref[3]) > 2) {
+                      uniform = false;
+                      break;
+                    }
+                  }
+                  if (uniform) { anyBlank = true; }
+                  else { anyContent = true; }
                   var t = gl2.createTexture();
                   gl2.bindTexture(gl2.TEXTURE_2D, t);
                   gl2.pixelStorei(gl2.UNPACK_FLIP_Y_WEBGL, true);
@@ -1229,6 +1247,11 @@
                   frameTex.push(t);
                   frameDelays.push(fk.delay || 0.1);
                 }
+              }
+              if (anyBlank && !anyContent) {
+                console.log("[scene] 粒子系统跳过:", obj.particle,
+                  "贴图转换件（GIF）全帧无有效内容（透明信息丢失）");
+                return null;
               }
               var origin = sceneVec(obj.origin);
               var scale = sceneVec(obj.scale);
