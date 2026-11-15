@@ -82,6 +82,7 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
   … → 合成阶段用**最终 RT** 当作该层的 `tex`。两块 FBO 交替复用（效果串行，
   ping-pong 足够）；
 - RT 尺寸 = 层贴图尺寸（经一期缩放预算后的实际尺寸），RGBA8 + 深度关；
+  4K 层两块 RT 约百余 MB 显存，桌面可接受；
 - **无效果图层走现有直绘路径，完全不变**（零回归原则）；
 - 每效果每帧一次 pass draw：PixelFuture 5 个实例 = 每帧 5 次额外 draw +
   RT 读写，4K 下带宽可控；fps_cap 兜底照旧；
@@ -93,10 +94,10 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
 | # | 规则 | 说明 |
 |---|---|---|
 | 1 | `#include "common*.h"` → 内嵌 shim 源码 | 三个头各自平移所需子集（3.3） |
-| 2 | COMBO 静态求值 | 收集注释声明的 combo（default）→ 实例 `combos` 覆盖 → 对 `#if/#elif/#else/#endif` 块求值；表达式只见过 `==` 与裸名，按白名单求值；未知 combo = 0 |
+| 2 | COMBO 静态求值 | 收集注释声明的 combo（default）→ 实例 `combos` 覆盖 → 对 `#if/#elif/#else/#endif` 块求值；表达式只见过 `==` 与裸名，按白名单求值；未知 combo = 0；**表达式无法按白名单求值 → 整个效果实例跳过**（误选分支会静默出错画面，宁可跳过并计数） |
 | 3 | `texSample2D` → `texture2D` | `#define texSample2D texture2D` 即可 |
-| 4 | `mul` / `saturate` / `frac` / `rotateVec2` / `squareToQuad` / `inverse` | shim 函数（ES 1.00 支持重载；`inverse(mat3)` 需自写 3×3 求逆） |
-| 5 | 注入 `precision mediump float;` | ES 1.00 fragment 必需 |
+| 4 | `mul` / `saturate` / `frac` / `rotateVec2` / `squareToQuad` / `inverse` | shim 函数（ES 1.00 支持重载；`inverse(mat3)` 需自写 3×3 求逆）。注意 `mul(v, M)` 是行向量约定，shim 按 v·M 实现，MVP 的行列布局以 catsout 参考实现为准并在实现期与真实效果逐像素比对核实 |
+| 5 | 注入 `precision highp float;` | ES 1.00 fragment 必需；桌面 GPU 全支持 highp——水波/透视分支的大数值 UV 计算在 mediump 下有精度风险 |
 | 6 | uniform 值运行时供给 | 非源变换，见 3.4 |
 
 - 翻译产物按 `(shader路径, combos序列化)` 缓存——PixelFuture 的 5 个实例
@@ -119,8 +120,10 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
 - `constantshadervalues`：按 shader 注释 `"material"` 名匹配注入；声明了
   而实例未提供的 → 取注释 `default`；均无 → 0；
 - 贴图槽：实例 `textures[i]` 覆盖优先；`null` 槽语义——slot0 = 当前输入
-  （链上一 pass 输出或层贴图）、slot1 = opacity mask（无贴图则该贴图槽绑
-  白纹理且对应 combo 按 0）、其余槽 = 效果自带贴图（裸名候选链解析）。
+  （链上一 pass 输出或层贴图）、其余槽 = 效果自带贴图（裸名候选链解析）；
+  **联动规则**：注释带 `"mode":"opacitymask"` + `combo` 的槽，该 combo 取值
+  由槽是否提供贴图决定（有 → 1，无 → 0）——PixelFuture 的水波实例提供
+  mask 贴图，联动做错遮罩会整体失效。
 
 ## 4. 搭车项：spritesheet 逐帧动画
 
@@ -134,24 +137,29 @@ effect.json 的 `passes[].material` 指向一个**与图层材质同构**的材�
   取加载后纹理），行数同理；UV 按比例采样，与一期的整图缩放预算兼容；
 - 动画帧号 = `floor(t / (duration / frames)) % frames`；
 - 实现：现有顶点着色器加 `u_TexShift` / `u_TexScale`，每帧更新——改动极小；
-- Cyberpunk：100 帧 / duration 1s = 全速轮播（帧率上限内取整）。
+- Cyberpunk：100 帧 / duration 1s = 全速轮播（帧率上限内取整）；
+- **边界**：帧信息仅 repkg 解包产物（`.tex-json`）携带；散装条目的 png 没有
+  帧信息 → 维持整图静态（如实告知不变）；`duration` 的语义（整段时长 vs
+  单帧时长）按整段实现，实机与 WE 观感比对后修正。
 
 ## 5. 支持矩阵与退化
 
 | 构件 | 处置 |
 |---|---|
 | 首批 4 效果（waterripple / foliagesway / fire / shake） | 实现（PixelFuture 全部 5 实例为验收金标准） |
-| 未知效果文件 / 未知 combo 结构 / pass 数 > 2 | 跳过该效果实例 + omission 计数（`effects-unsupported`） |
+| 未知效果文件 / 未知 combo 结构 / 无法求值的 #if 表达式 | 跳过该效果实例 + omission 计数（`effects-unsupported`） |
+| 效果的多 pass（effect.json passes 数组） | 逐 pass 串行渲染，数量不限（管线天然支持；首批真实样本均为单 pass） |
 | `g_AudioSpectrum*` | 零数组供给（音频响应三期），差异如实记录 |
 | 粒子 / 文本 / 音频 / 3D / puppet | 维持明确不做（现状） |
 | 效果 shader 编译失败 | 该实例跳过 + 计数，场景其余部分照常 |
 
 ## 6. 分阶段实施
 
-- **阶段 A（管线 + spritesheet）**：FBO 池与 pass 链骨架、合成阶段接缝、
-  UV shift——验收 = Cyberpunk LED 动画播放、PixelFuture 静态底图无回归；
-- **阶段 B（翻译器 + 首批效果）**：shim 库、COMBO 求值、uniform 供给、
-  4 效果全实例——验收 = PixelFuture 水波/火焰可见且动；
+- **阶段 A（spritesheet 逐帧）**：UV shift + 帧元数据——验收 = Cyberpunk
+  LED 动画播放、PixelFuture 静态底图无回归。不含 FBO（无消费者代码不入库）；
+- **阶段 B（FBO 管线 + 翻译器 + 首批效果）**：FBO 池与 pass 链、shim 库、
+  COMBO 求值、uniform 供给、4 效果全实例——验收 = PixelFuture 水波/火焰
+  可见且动；
 - **阶段 C（泛化）**：按真实条目逐个扩效果、组合兜底策略。
 - 每阶段独立提交、独立验收；PixelFuture / Cyberpunk 为常备回归金标准。
 
