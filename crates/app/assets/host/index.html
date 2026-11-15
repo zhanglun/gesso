@@ -31,6 +31,7 @@
 <div id="msg"></div>
 <script>
 (function () {
+  window.__logs=[];(function(){var _l=console.log;var _e=console.error;console.log=function(){window.__logs.push("LOG "+Array.prototype.slice.call(arguments).join(" "));_l.apply(console,arguments);};console.error=function(){window.__logs.push("ERR "+Array.prototype.slice.call(arguments).join(" "));_e.apply(console,arguments);};})();window.addEventListener("error",function(ev){window.__logs.push("UNCAUGHT "+ev.message+" @"+ev.lineno);});
   const q = new URLSearchParams(location.search);
   const v = document.getElementById("media");
   const img = document.getElementById("imgmedia");
@@ -576,6 +577,588 @@
     an.ctx.drawImage(an.frameCvs, fr.left, fr.top);
   }
 
+  // ============ WE 效果栈（阶段 B）：着色器翻译 + FBO pass 链 ============
+  // 支持子集与实测语义见 docs/design/WE效果栈设计.md。着色器源来自工坊
+  // 文件 = 不可信输入：翻译器只做白名单内的源变换，COMBO 求值失败即跳过
+  // 整个效果实例（不崩场景）。
+  var WE_COMMON_GLSL = [
+    "#define texSample2D texture2D",
+    "#define texSample2DLod(t, uv, lod) texture2D(t, uv)",
+    "#define saturate(x) clamp((x), 0.0, 1.0)",
+    "#define frac(x) fract((x))",
+    "#define mul(a, b) ((a) * (b))",
+    "#define CAST2(x) vec2((x))",
+    "#define CAST4(x) vec4((x))",
+    "#define M_PI 3.14159265358979",
+    "#define M_PI_2 1.5707963267949",
+    "vec2 rotateVec2(vec2 v, float a) { float c = cos(a); float s = sin(a); return vec2(v.x * c - v.y * s, v.x * s + v.y * c); }",
+    "mat3 squareToQuad(vec2 p0, vec2 p1, vec2 p2, vec2 p3) {",
+    "  float sx = p0.x - p1.x + p2.x - p3.x;",
+    "  float sy = p0.y - p1.y + p2.y - p3.y;",
+    "  if (abs(sx) < 1e-7 && abs(sy) < 1e-7) {",
+    "    return mat3(p1.x - p0.x, p1.y - p0.y, 0.0, p3.x - p0.x, p3.y - p0.y, 0.0, p0.x, p0.y, 1.0);",
+    "  }",
+    "  float dx1 = p1.x - p2.x, dx2 = p3.x - p2.x, dy1 = p1.y - p2.y, dy2 = p3.y - p2.y;",
+    "  float wq = dx1 * dy2 - dx2 * dy1;",
+    "  float gq = (sx * dy2 - sy * dx2) / wq;",
+    "  float hq = (dx1 * sy - dy1 * sx) / wq;",
+    "  return mat3(p1.x - p0.x + gq * p1.x, p1.y - p0.y + gq * p1.y, gq, p3.x - p0.x + hq * p3.x, p3.y - p0.y + hq * p3.y, hq, p0.x, p0.y, 1.0);",
+    "}",
+    "mat3 inverseMat3(mat3 m) {",
+    "  float a00 = m[0][0], a01 = m[0][1], a02 = m[0][2];",
+    "  float a10 = m[1][0], a11 = m[1][1], a12 = m[1][2];",
+    "  float a20 = m[2][0], a21 = m[2][1], a22 = m[2][2];",
+    "  float b01 = a22 * a11 - a12 * a21;",
+    "  float b11 = -a22 * a10 + a12 * a20;",
+    "  float b21 = a21 * a10 - a11 * a20;",
+    "  float det = a00 * b01 + a01 * b11 + a02 * b21;",
+    "  return mat3(b01 / det, (-a22 * a01 + a02 * a21) / det, (a12 * a01 - a02 * a11) / det, b11 / det, (a22 * a00 - a02 * a20) / det, (-a12 * a00 + a02 * a10) / det, b21 / det, (-a21 * a00 + a01 * a20) / det, (a11 * a00 - a01 * a10) / det);",
+    "}",
+    "#define inverse(m) inverseMat3(m)",
+    "vec3 ApplyBlending(int mode, vec3 base, vec3 over, float alpha) {",
+    "  if (mode == 1) return base + over * alpha;",
+    "  if (mode == 2) return base - over * alpha;",
+    "  return mix(base, over, alpha);",
+    "}"
+  ].join("\n");
+  var WE_SUPPORTED_EFFECTS = ["waterripple", "foliagesway", "fire", "shake"];
+  var WE_TEX_CACHE = new Map();
+
+  function weCollectCombos(src) {
+    var combos = {};
+    var re = /\[COMBO(?:_OFF)?\]\s*(\{[^\n]*\})/g;
+    var m;
+    while ((m = re.exec(src)) !== null) {
+      try {
+        var meta = JSON.parse(m[1]);
+        if (meta.combo) combos[meta.combo] = typeof meta.default === "number" ? meta.default : 0;
+      } catch (e) { /* 无法解析的声明：忽略 */ }
+    }
+    return combos;
+  }
+
+  // 白名单递归下降求值：NAME、数字、==/!=/</>/<=/>=、&&/||、!、括号、+-*
+  // 求值失败（未知结构）返回 null → 调用方跳过整个效果实例
+  function weEvalComboExpr(expr, combos) {
+    var tokens = expr.match(/[A-Za-z_][A-Za-z0-9_]*|[0-9]+|==|!=|<=|>=|&&|\|\||[!()<>+\-*]/g);
+    if (!tokens) return null;
+    var pos = 0;
+    function val(t) {
+      if (/^[0-9]+$/.test(t)) return parseInt(t, 10);
+      if (combos[t] !== undefined) return combos[t];
+      return 0;
+    }
+    function parsePrimary() {
+      var t = tokens[pos++];
+      if (t === undefined) return null;
+      if (t === "(") { var v = parseOr(); if (tokens[pos - 1] !== ")") return null; return v; }
+      if (t === "!") { var n = parsePrimary(); return n === null ? null : (n !== 0 ? 0 : 1); }
+      if (t === "-") { var m = parsePrimary(); return m === null ? null : -m; }
+      return val(t);
+    }
+    function parseMul() {
+      var v = parsePrimary();
+      while (tokens[pos] === "*" || tokens[pos] === "/") {
+        var op = tokens[pos++]; var r = parsePrimary();
+        if (v === null || r === null) return null;
+        v = op === "*" ? v * r : (r !== 0 ? v / r : 0);
+      }
+      return v;
+    }
+    function parseAdd() {
+      var v = parseMul();
+      while (tokens[pos] === "+" || tokens[pos] === "-") {
+        var op = tokens[pos++]; var r = parseMul();
+        if (v === null || r === null) return null;
+        v = op === "+" ? v + r : v - r;
+      }
+      return v;
+    }
+    function parseCmp() {
+      var v = parseAdd();
+      while (tokens[pos] === "==" || tokens[pos] === "!=" || tokens[pos] === "<" || tokens[pos] === ">" || tokens[pos] === "<=" || tokens[pos] === ">=") {
+        var op = tokens[pos++]; var r = parseAdd();
+        if (v === null || r === null) return null;
+        v = op === "==" ? (v === r ? 1 : 0) : op === "!=" ? (v !== r ? 1 : 0) : op === "<" ? (v < r ? 1 : 0) : op === ">" ? (v > r ? 1 : 0) : op === "<=" ? (v <= r ? 1 : 0) : (v >= r ? 1 : 0);
+      }
+      return v;
+    }
+    function parseAnd() {
+      var v = parseCmp();
+      while (tokens[pos] === "&&") { tokens[pos++]; var r = parseCmp(); if (v === null || r === null) return null; v = (v !== 0 && r !== 0) ? 1 : 0; }
+      return v;
+    }
+    function parseOr() {
+      var v = parseAnd();
+      while (tokens[pos] === "||") { tokens[pos++]; var r = parseAnd(); if (v === null || r === null) return null; v = (v !== 0 || r !== 0) ? 1 : 0; }
+      return v;
+    }
+    var result = parseOr();
+    if (pos !== tokens.length) return null; // 残余 token → 无法完全求值
+    return result;
+  }
+
+  function wePreprocess(src, combos) {
+    var lines = src.split("\n");
+    var out = [];
+    var stack = []; // {active, taken, parentActive}
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b\s*(.*)$/);
+      if (!m) {
+        var activeAll = true;
+        for (var si = 0; si < stack.length; si++) if (!stack[si].active) activeAll = false;
+        if (activeAll) out.push(lines[i]);
+        continue;
+      }
+      var dir = m[1], rest = m[2].replace(/\s+$/, "");
+      var parentActive = true;
+      for (var pi = 0; pi < stack.length; pi++) if (!stack[pi].active) parentActive = false;
+      if (dir === "if") {
+        var v = weEvalComboExpr(rest, combos);
+        if (v === null) throw new Error("COMBO-EVAL: " + rest);
+        stack.push({ active: parentActive && v !== 0, taken: v !== 0, parentActive: parentActive });
+      } else if (dir === "ifdef" || dir === "ifndef") {
+        var has = combos[rest] !== undefined;
+        var vv = dir === "ifdef" ? (has ? 1 : 0) : (has ? 0 : 1);
+        stack.push({ active: parentActive && vv !== 0, taken: vv !== 0, parentActive: parentActive });
+      } else if (dir === "elif") {
+        var top = stack[stack.length - 1];
+        if (!top) throw new Error("COMBO-EVAL: #elif 无匹配");
+        if (!top.parentActive || top.taken) { top.active = false; }
+        else {
+          var ev = weEvalComboExpr(rest, combos);
+          if (ev === null) throw new Error("COMBO-EVAL: " + rest);
+          top.active = ev !== 0;
+          top.taken = top.taken || ev !== 0;
+        }
+      } else if (dir === "else") {
+        var top2 = stack[stack.length - 1];
+        if (!top2) throw new Error("COMBO-EVAL: #else 无匹配");
+        top2.active = top2.parentActive && !top2.taken;
+        top2.taken = true;
+      } else if (dir === "endif") {
+        stack.pop();
+      }
+    }
+    if (stack.length) throw new Error("COMBO-EVAL: #if 未闭合");
+    return out.join("\n");
+  }
+
+  function weTranslateShader(src, instanceCombos, isFragment) {
+    // CRLF 剥离：CR 会卡在指令行的 (.*)$ 之间使 #if/#else 匹配失败
+    src = src.replace(/\r/g, "");
+    var combos = weCollectCombos(src);
+    for (var k in instanceCombos) if (instanceCombos[k] !== undefined) combos[k] = instanceCombos[k];
+    var out = wePreprocess(src, combos);
+    // shim 无条件前置（fire/shake 的 vert 无 include 行也要拿到 mul 等
+    // 定义）；include 行仅做清除（防残留指令），shim 不会重复定义
+    out = WE_COMMON_GLSL + "\n" + out.replace(/^\s*#include\s+"common[^"]*"\s*$/gm, "");
+    if (isFragment) out = "precision highp float;\n" + out;
+    return out;
+  }
+
+  // uniform 尾注释元数据提取（{"material":..., "combo":..., "default":...}）
+  function weUniformMeta(src) {
+    var meta = {};
+    var re = /uniform\s+\w+\s+(\w+)(\[[0-9]+\])?\s*;\s*\/\/\s*(\{[^\n]*\})/g;
+    var m;
+    while ((m = re.exec(src)) !== null) {
+      try { meta[m[1]] = JSON.parse(m[3]); } catch (e) { /* 忽略 */ }
+    }
+    return meta;
+  }
+
+  function sceneEffectMVP() {
+    // 正交投影：quad 位置 [0,1]² → 裁剪空间；列布局配 mul(v, M) 行向量约定
+    return new Float32Array([2, 0, 0, -1, 0, 2, 0, -1, 0, 0, 1, 0, 0, 0, 0, 1]);
+  }
+
+  var WE_EFFECT_QUAD = null;
+  function sceneEffectQuad(gl2) {
+    if (!WE_EFFECT_QUAD) {
+      WE_EFFECT_QUAD = gl2.createBuffer();
+      gl2.bindBuffer(gl2.ARRAY_BUFFER, WE_EFFECT_QUAD);
+      // a_Position(vec3) + a_TexCoord(vec2)，20 字节 stride
+      gl2.bufferData(gl2.ARRAY_BUFFER,
+        new Float32Array([0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1]),
+        gl2.STATIC_DRAW);
+    }
+    gl2.bindBuffer(gl2.ARRAY_BUFFER, WE_EFFECT_QUAD);
+    return WE_EFFECT_QUAD;
+  }
+
+  function sceneEffectRT(gl2, w, h) {
+    var tex = gl2.createTexture();
+    gl2.bindTexture(gl2.TEXTURE_2D, tex);
+    gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, w, h, 0, gl2.RGBA, gl2.UNSIGNED_BYTE, null);
+    gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_S, gl2.CLAMP_TO_EDGE);
+    gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_WRAP_T, gl2.CLAMP_TO_EDGE);
+    gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MIN_FILTER, gl2.LINEAR);
+    gl2.texParameteri(gl2.TEXTURE_2D, gl2.TEXTURE_MAG_FILTER, gl2.LINEAR);
+    var fb = gl2.createFramebuffer();
+    gl2.bindFramebuffer(gl2.FRAMEBUFFER, fb);
+    gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, tex, 0);
+    gl2.bindFramebuffer(gl2.FRAMEBUFFER, null);
+    return { fb: fb, tex: tex, w: w, h: h };
+  }
+
+  // WE 内建工具贴图（工坊条目不携带）：white / noflow / noise|clouds
+  function weUtilityCanvas(ref) {
+    var c = document.createElement("canvas");
+    var kind = ref.replace(/^.*\//, "");
+    if (kind === "white") {
+      c.width = 4; c.height = 4;
+      var g1 = c.getContext("2d");
+      g1.fillStyle = "rgb(255,255,255)"; g1.fillRect(0, 0, 4, 4);
+      return c;
+    }
+    if (kind === "noflow") {
+      c.width = 4; c.height = 4;
+      var g2 = c.getContext("2d");
+      g2.fillStyle = "rgb(127,127,127)"; g2.fillRect(0, 0, 4, 4); // rg=0.498 中性流向
+      return c;
+    }
+    // noise / clouds：多八度值噪声（确定性伪随机，观感稳定）
+    c.width = 256; c.height = 256;
+    var g3 = c.getContext("2d");
+    var img = g3.createImageData(256, 256);
+    var seed = 7;
+    function rnd() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+    function grid(n) { var a = new Float32Array(n * n); for (var i = 0; i < a.length; i++) a[i] = rnd(); return a; }
+    function sample(g, n, x, y) {
+      var x0 = Math.floor(x) % n, y0 = Math.floor(y) % n;
+      var x1 = (x0 + 1) % n, y1 = (y0 + 1) % n;
+      var fx = x - Math.floor(x), fy = y - Math.floor(y);
+      return g[y0 * n + x0] * (1 - fx) * (1 - fy) + g[y0 * n + x1] * fx * (1 - fy) +
+             g[y1 * n + x0] * (1 - fx) * fy + g[y1 * n + x1] * fx * fy;
+    }
+    var g16 = grid(16), g32 = grid(32), g64 = grid(64);
+    for (var y = 0; y < 256; y++) {
+      for (var x = 0; x < 256; x++) {
+        var v = 0.5 * sample(g16, 16, x / 16, y / 16) + 0.3 * sample(g32, 32, x / 8, y / 8) + 0.2 * sample(g64, 64, x / 4, y / 4);
+        var b = Math.round(v * 255);
+        var o = (y * 256 + x) * 4;
+        img.data[o] = b; img.data[o + 1] = b; img.data[o + 2] = b; img.data[o + 3] = 255;
+      }
+    }
+    g3.putImageData(img, 0, 0);
+    return c;
+  }
+
+  // 效果贴图解析：多基准（场景根/材质目录/材质父目录）× 多扩展名候选，
+  // 逐个 fetch 探测；全部失败且 basename 命中 WE 内建（util/*）→ 生成垫片
+  function sceneResolveSlotTexture(ref, matDir) {
+    if (ref === null || ref === undefined) return Promise.resolve(null);
+    var key = "slot:" + matDir + ":" + ref;
+    if (WE_TEX_CACHE.has(key)) return Promise.resolve(WE_TEX_CACHE.get(key));
+    var up = matDir.replace(/[^/]+\/$/, "");
+    var exts = /\.(png|jpe?g|gif|webp)$/i.test(ref) ? [""] : [".png", ".jpg", ".gif", ".webp"];
+    var urls = [];
+    for (var bi = 0; bi < 3; bi++) {
+      var base = bi === 0 ? "" : bi === 1 ? matDir : up;
+      for (var ei = 0; ei < exts.length; ei++) urls.push(base + ref + exts[ei]);
+    }
+    function attempt(i) {
+      if (i >= urls.length) {
+        if (/^util\//.test(ref)) {
+          var c = weUtilityCanvas(ref);
+            // 用生成的垫片画布重建纹理（sceneLoadTexture 对不存在文件会失败）
+            var t = sceneGlForEffects.createTexture();
+            sceneGlForEffects.bindTexture(sceneGlForEffects.TEXTURE_2D, t);
+            sceneGlForEffects.pixelStorei(sceneGlForEffects.UNPACK_FLIP_Y_WEBGL, true);
+            sceneGlForEffects.texImage2D(sceneGlForEffects.TEXTURE_2D, 0, sceneGlForEffects.RGBA, sceneGlForEffects.RGBA, sceneGlForEffects.UNSIGNED_BYTE, c);
+            sceneGlForEffects.pixelStorei(sceneGlForEffects.UNPACK_FLIP_Y_WEBGL, false);
+            sceneGlForEffects.texParameteri(sceneGlForEffects.TEXTURE_2D, sceneGlForEffects.TEXTURE_WRAP_S, sceneGlForEffects.CLAMP_TO_EDGE);
+            sceneGlForEffects.texParameteri(sceneGlForEffects.TEXTURE_2D, sceneGlForEffects.TEXTURE_WRAP_T, sceneGlForEffects.CLAMP_TO_EDGE);
+            sceneGlForEffects.texParameteri(sceneGlForEffects.TEXTURE_2D, sceneGlForEffects.TEXTURE_MIN_FILTER, sceneGlForEffects.LINEAR);
+            sceneGlForEffects.texParameteri(sceneGlForEffects.TEXTURE_2D, sceneGlForEffects.TEXTURE_MAG_FILTER, sceneGlForEffects.LINEAR);
+            entry = { tex: t, w: c.width, h: c.height };
+            WE_TEX_CACHE.set(key, entry);
+            var entry = { tex: t, w: c.width, h: c.height };
+            WE_TEX_CACHE.set(key, entry);
+            return entry;
+        }
+        return Promise.resolve(null);
+      }
+      return sceneLoadTexture([urls[i]]).then(function (r) {
+        if (r) { WE_TEX_CACHE.set(key, r); return r; }
+        return attempt(i + 1);
+      });
+    }
+    var promise = attempt(0).then(function (r) { WE_TEX_CACHE.set(key, r); return r; });
+    WE_TEX_CACHE.set(key, promise);
+    return promise;
+  }
+
+  var sceneGlForEffects = null; // initScene 注入（效果贴图垫片生成用）
+
+  function sceneFetchText(rel) {
+    return fetch(sceneUrl(rel)).then(function (r) {
+      if (!r.ok) throw new Error(rel + " -> " + r.status);
+      return r.text();
+    });
+  }
+
+  function sceneBuildPass(vsSrc, fsSrc, slotTex, params, matMeta) {
+    var vs = weTranslateShader(vsSrc, {}, false);
+    var fs = weTranslateShader(fsSrc, {}, true);
+    var prog = sceneCompileProgram(vs, fs);
+    // 枚举活跃 uniform 并分类
+    var uniforms = {};
+    var list = [];
+    var n = sceneGlForEffects.getProgramParameter(prog, sceneGlForEffects.ACTIVE_UNIFORMS);
+    for (var i = 0; i < n; i++) {
+      var info = sceneGlForEffects.getActiveUniform(prog, i);
+      var name = info.name.replace("\[0\]", "");
+      var u = { name: name, loc: sceneGlForEffects.getUniformLocation(prog, info.name), type: info.type, array: info.size > 1 };
+      uniforms[name] = u;
+      list.push(u);
+    }
+    var meta = weUniformMeta(vsSrc + "\n" + fsSrc);
+    // 逐 uniform 分类与取值
+    var samplers = [], resolutions = [], mvp = null, timeU = null, audio = [], paramValues = {};
+    for (var name2 in uniforms) {
+      var uu = uniforms[name2];
+      var m2 = meta[name2] || {};
+      if (/^g_Texture\d*$/.test(name2)) {
+        var slot = parseInt(name2.replace("g_Texture", ""), 10) || 0;
+        samplers.push({ slot: slot, loc: uu.loc, tex: slotTex[slot] || null });
+      } else if (/^g_Texture\d+Resolution$/.test(name2)) {
+        var s2 = parseInt(name2.replace("g_Texture", "").replace("Resolution", ""), 10) || 0;
+        resolutions.push({ loc: uu.loc, slot: s2 });
+      } else if (name2 === "g_ModelViewProjectionMatrix") {
+        mvp = uu.loc;
+      } else if (name2 === "g_Time") {
+        timeU = uu.loc;
+      } else if (/^g_AudioSpectrum/.test(name2)) {
+        audio.push({ loc: uu.loc, type: uu.type });
+      } else {
+        var key = m2.material;
+        var v = key && params[key] !== undefined ? params[key] : m2.default;
+        if (v !== undefined && typeof v !== "number") v = weSceneVecStr(v);
+        paramValues[name2] = { loc: uu.loc, type: uu.type, value: v };
+      }
+    }
+    return {
+      prog: prog, uniforms: uniforms, list: list,
+      mvp: mvp, timeU: timeU, samplers: samplers, resolutions: resolutions,
+      audio: audio, paramValues: paramValues
+    };
+  }
+
+  function weSceneVecStr(v) {
+    if (typeof v === "string") v = v.trim().split(/\s+/);
+    return Array.isArray(v) ? v.map(Number).filter(Number.isFinite) : [];
+  }
+
+  function sceneCompileProgram(vsSrc, fsSrc) {
+    function sh(type, text) {
+      var s = sceneGlForEffects.createShader(type);
+      sceneGlForEffects.shaderSource(s, text);
+      sceneGlForEffects.compileShader(s);
+      if (!sceneGlForEffects.getShaderParameter(s, sceneGlForEffects.COMPILE_STATUS)) {
+        throw new Error("effect shader: " + (sceneGlForEffects.getShaderInfoLog(s) || "?").slice(0, 400));
+      }
+      return s;
+    }
+    var prog = sceneGlForEffects.createProgram();
+    sceneGlForEffects.attachShader(prog, sh(sceneGlForEffects.VERTEX_SHADER, vsSrc));
+    sceneGlForEffects.attachShader(prog, sh(sceneGlForEffects.FRAGMENT_SHADER, fsSrc));
+    sceneGlForEffects.linkProgram(prog);
+    if (!sceneGlForEffects.getProgramParameter(prog, sceneGlForEffects.LINK_STATUS)) {
+      throw new Error("effect link: " + (sceneGlForEffects.getProgramInfoLog(prog) || "?").slice(0, 400));
+    }
+    return prog;
+  }
+
+  function sceneBuildEffectChain(instances, layer, texW, texH, gl2) {
+    sceneGlForEffects = gl2;
+    var rtW = Math.min(2048, texW);
+    var rtH = Math.max(1, Math.round(texH * rtW / texW));
+    var effectRT = [sceneEffectRT(gl2, rtW, rtH), sceneEffectRT(gl2, rtW, rtH)];
+    var chain = [];
+    var p = Promise.resolve();
+    instances.forEach(function (inst) {
+      p = p.then(function () {
+        var file = inst.file || "";
+        var name = (file.split("/")[1] || "").toLowerCase();
+        if (WE_SUPPORTED_EFFECTS.indexOf(name) < 0) return null; // 不支持：快扫已计数
+        var instPass = (inst.passes || [])[0] || {};
+        var instParams = instPass.constantshadervalues || {};
+        var instCombos = instPass.combos || {};
+        var instTex = instPass.textures || null;
+        return sceneFetchJson(inst.file).then(function (eff) {
+          var matRef = eff.passes && eff.passes[0] && eff.passes[0].material;
+          if (typeof matRef !== "string") return null;
+          var matDir = matRef.slice(0, matRef.lastIndexOf("/") + 1);
+          return sceneFetchJson(matRef).then(function (mat) {
+            var matPass = (mat.passes || [])[0] || {};
+            var shaderRef = matPass.shader;
+            if (typeof shaderRef !== "string") return null;
+            return Promise.all([
+              sceneFetchText("shaders/" + shaderRef + ".vert"),
+              sceneFetchText("shaders/" + shaderRef + ".frag")
+            ]).then(function (srcs) {
+              var vs = weTranslateShader(srcs[0], instCombos, false);
+              var fs = weTranslateShader(srcs[1], instCombos, true);
+              var prog = sceneCompileProgram(vs, fs);
+              var meta = weUniformMeta(srcs[0] + "\n" + srcs[1]);
+              // 贴图槽：实例覆盖优先，材质兜底
+              var slotRefs = [];
+              var maxSlot = Math.max(matPass.textures ? matPass.textures.length : 0, instTex ? instTex.length : 0);
+              for (var si = 0; si < maxSlot; si++) {
+                var v1 = instTex && si < instTex.length ? instTex[si] : undefined;
+                if (v1 === undefined && matPass.textures && si < matPass.textures.length) v1 = matPass.textures[si];
+                slotRefs.push(v1 === undefined ? null : v1);
+              }
+              var slotPromises = slotRefs.map(function (ref) {
+                return sceneResolveSlotTexture(ref, matDir);
+              });
+              return Promise.all(slotPromises).then(function (slotTex) {
+                // null 槽 = 输入纹理（渲染期绑定）——mask/normal 槽的透明索引等
+                // 由 shader 自行处理
+                var pass = sceneBuildPassFromParts(prog, meta, slotTex, instParams, vsSrc, fsSrc);
+                chain.push(pass);
+                console.log("[scene] 效果实例 OK:", name, "samplers=", pass.samplers.length, "params=", Object.keys(pass.paramValues).length);
+                return null;
+              });
+            });
+          });
+        }).catch(function (e) {
+          console.log("[scene] 效果实例跳过:", name, e && e.message ? e.message : e);
+          return null;
+        });
+      });
+    });
+    return p.then(function () {
+      layer.effectChain = chain;
+      layer.effectRT = effectRT;
+      return null;
+    });
+  }
+
+  function sceneBuildPassFromParts(prog, meta, slotTex, params, vsSrc, fsSrc) {
+    var gl2 = sceneGlForEffects;
+    var uniforms = {};
+    var list = [];
+    var n = gl2.getProgramParameter(prog, gl2.ACTIVE_UNIFORMS);
+    for (var i = 0; i < n; i++) {
+      var info = gl2.getActiveUniform(prog, i);
+      var name = info.name.replace("\[0\]", "");
+      var u = { name: name, loc: gl2.getUniformLocation(prog, info.name), type: info.type };
+      uniforms[name] = u;
+      list.push(u);
+    }
+    var samplers = [], resolutions = [], mvp = null, timeU = null, audio = [], paramValues = {};
+    for (var name2 in uniforms) {
+      var uu = uniforms[name2];
+      var m2 = meta[name2] || {};
+      if (/^g_Texture\d*$/.test(name2)) {
+        var slot = parseInt(name2.replace("g_Texture", ""), 10) || 0;
+        samplers.push({ slot: slot, loc: uu.loc, entry: slotTex[slot] || null });
+      } else if (/^g_Texture\d+Resolution$/.test(name2)) {
+        var s2 = parseInt(name2.replace("g_Texture", "").replace("Resolution", ""), 10) || 0;
+        resolutions.push({ loc: uu.loc, slot: s2 });
+      } else if (name2 === "g_ModelViewProjectionMatrix") {
+        mvp = uu.loc;
+      } else if (name2 === "g_Time") {
+        timeU = uu.loc;
+      } else if (/^g_AudioSpectrum/.test(name2)) {
+        audio.push({ loc: uu.loc });
+      } else {
+        var key = m2.material;
+        var v = key && params[key] !== undefined ? params[key] : m2.default;
+        if (v !== undefined && typeof v !== "number") v = weSceneVecStr(v);
+        paramValues[name2] = { loc: uu.loc, type: uu.type, value: v, dims: (m2.type === "color" || /vec[234]/.test("")) ? null : null };
+      }
+    }
+    var aPos = gl2.getAttribLocation(prog, "a_Position");
+    var aUV = gl2.getAttribLocation(prog, "a_TexCoord");
+    return {
+      prog: prog, uniforms: uniforms, list: list,
+      mvp: mvp, timeU: timeU, samplers: samplers, resolutions: resolutions,
+      audio: audio, paramValues: paramValues, aPos: aPos, aUV: aUV
+    };
+  }
+
+  var WE_EFFECT_MVP = null;
+  function sceneRunEffectChain(L, gl2, rt, tSec) {
+    var chain = L.effectChain;
+    var srcEntry = { tex: L.tex, w: L.srcW, h: L.srcH };
+    for (var i = 0; i < chain.length; i++) {
+      var pass = chain[i];
+      var dst = L.effectRT[i % 2];
+      gl2.bindFramebuffer(gl2.FRAMEBUFFER, dst.fb);
+      gl2.viewport(0, 0, dst.w, dst.h);
+      gl2.useProgram(pass.prog);
+      gl2.bindBuffer(gl2.ARRAY_BUFFER, sceneEffectQuad(gl2));
+      if (pass.aPos >= 0) { gl2.enableVertexAttribArray(pass.aPos); gl2.vertexAttribPointer(pass.aPos, 3, gl2.FLOAT, false, 20, 0); }
+      if (pass.aUV >= 0) { gl2.enableVertexAttribArray(pass.aUV); gl2.vertexAttribPointer(pass.aUV, 2, gl2.FLOAT, false, 20, 12); }
+      if (!WE_EFFECT_MVP) WE_EFFECT_MVP = sceneEffectMVP();
+      if (pass.mvp !== null) gl2.uniformMatrix4fv(pass.mvp, false, WE_EFFECT_MVP);
+      if (pass.timeU !== null) gl2.uniform1f(pass.timeU, tSec);
+      // 贴图槽 + 分辨率
+      for (var si = 0; si < pass.samplers.length; si++) {
+        var sm = pass.samplers[si];
+        var entry = sm.entry || (si === 0 ? srcEntry : null);
+        if (!entry || !entry.tex) continue;
+        gl2.activeTexture(gl2.TEXTURE0 + sm.slot);
+        gl2.bindTexture(gl2.TEXTURE_2D, entry.tex);
+        gl2.uniform1i(sm.loc, sm.slot);
+        for (var ri = 0; ri < pass.resolutions.length; ri++) {
+          if (pass.resolutions[ri].slot === sm.slot) {
+            gl2.uniform4f(pass.resolutions[ri].loc, 1 / entry.w, 1 / entry.h, entry.w, entry.h);
+          }
+        }
+      }
+      // 参数 uniform（float / vec2-4）
+      for (var name in pass.paramValues) {
+        var pv = pass.paramValues[name];
+        if (pv.value === undefined || pv.value === null) continue;
+        if (pv.type === gl2.FLOAT) gl2.uniform1f(pv.loc, pv.value);
+        else if (pv.type === gl2.FLOAT_VEC2) gl2.uniform2f(pv.loc, pv.value[0] || 0, pv.value[1] || 0);
+        else if (pv.type === gl2.FLOAT_VEC3) gl2.uniform3f(pv.loc, pv.value[0] || 0, pv.value[1] || 0, pv.value[2] || 0);
+        else if (pv.type === gl2.FLOAT_VEC4) gl2.uniform4f(pv.loc, pv.value[0] || 0, pv.value[1] || 0, pv.value[2] || 0, pv.value[3] || 0);
+      }
+      for (var ai = 0; ai < pass.audio.length; ai++) {
+        gl2.uniform1fv(pass.audio[ai].loc, new Float32Array(16));
+      }
+      gl2.drawArrays(gl2.TRIANGLE_STRIP, 0, 4);
+      srcEntry = { tex: dst.tex, w: dst.w, h: dst.h };
+    }
+    L.finalTex = srcEntry.tex;
+    // 恢复合成状态
+    gl2.bindFramebuffer(gl2.FRAMEBUFFER, null);
+    gl2.viewport(0, 0, cvs.width, cvs.height);
+    gl2.useProgram(rt.prog);
+    gl2.activeTexture(gl2.TEXTURE0);
+    gl2.bindBuffer(gl2.ARRAY_BUFFER, rt.quadBuf);
+    gl2.enableVertexAttribArray(rt.aPos);
+    gl2.vertexAttribPointer(rt.aPos, 2, gl2.FLOAT, false, 16, 0);
+    gl2.enableVertexAttribArray(rt.aUV);
+    gl2.vertexAttribPointer(rt.aUV, 2, gl2.FLOAT, false, 16, 8);
+  }
+
+  // TEMP-DEBUG: 诊断悬浮层（验证后移除）
+  (function () {
+    var el = document.createElement("div");
+    el.style.cssText = "position:fixed;top:4px;left:4px;z-index:9999;color:#0f0;font:bold 13px monospace;background:rgba(0,0,0,.75);padding:4px 6px;white-space:pre;max-width:1100px;";
+    document.body.appendChild(el);
+    var NL = String.fromCharCode(10);
+    setInterval(function () {
+      var rt = sceneRt;
+      var L = rt && rt.layers && rt.layers[0];
+      var chain = L && L.effectChain;
+      var t = "ready=" + (window.__gessoReady === true) +
+        " layers=" + (rt && rt.layers ? rt.layers.length : "?") +
+        " tex=" + (L ? !!L.tex : "?") +
+        " chain=" + (L ? (chain === undefined ? "undef" : chain === null ? "null" : chain.length) : "?") +
+        " srcW=" + (L && L.srcW ? L.srcW : "?");
+      var logs = (window.__logs || []).slice(-8);
+      el.textContent = t + NL + logs.join(NL);
+    }, 400);
+  })();
+
   function startSceneLoop() {
     if (!sceneRt || sceneRt.running) return;
     sceneRt.running = true;
@@ -610,6 +1193,7 @@
     for (var i = 0; i < rt.layers.length; i++) {
       var L = rt.layers[i];
       if (!L.tex) continue; // 贴图缺失：跳过该层（露出背景色）
+      if (L.effectChain && L.effectChain.length) sceneRunEffectChain(L, gl2, rt, tSec);
       var ox = L.placement.origin[0] - rt.design.w / 2;
       var oy = L.placement.origin[1] - rt.design.h / 2;
       var sx = (ox + mvx * rt.design.w) * L.pdepth[0] * pd.amount;
@@ -629,7 +1213,7 @@
       gl2.uniform3f(rt.u.color, L.color[0], L.color[1], L.color[2]);
       gl2.uniform1f(rt.u.alpha, sceneAnimEval(L.alpha, tSec));
       gl2.uniform1f(rt.u.bright, L.brightness);
-      gl2.bindTexture(gl2.TEXTURE_2D, L.tex);
+      gl2.bindTexture(gl2.TEXTURE_2D, L.finalTex || L.tex);
       if (L.blend === "additive") {
         // 加色混合（因子对齐参考实现：颜色/alpha 均 SRC_ALPHA → ONE）
         gl2.enable(gl2.BLEND);
@@ -780,11 +1364,17 @@
               return texRel ? sceneLoadTexture(gl2, sceneTextureCandidates(model.material, texRel)).then(function (r) {
                 if (!r) return null;
                 layer.tex = r.tex;
+                layer.srcW = r.w;
+                layer.srcH = r.h;
+                // 效果链（阶段 B）：与动图分支独立构建——非 spritesheet 的
+                // 层同样可挂效果链
+                var fx = (obj.effects && obj.effects.length) ?
+                  sceneBuildEffectChain(obj.effects, layer, r.w, r.h, gl2) : null;
                 // 动图贴图（效果栈阶段 A）：repkg 把动图纹理转成 GIF 动图
                 // （扩展名仍可能是 .png）。逐帧解码与合成走纯 JS GIF 解码器
                 // （壁纸页面 origin 非安全上下文，WebCodecs 不可用），静贴图
                 // 不进此分支。
-                if (!(p0.combos && p0.combos.spritesheet === 1)) return null;
+                if (!(p0.combos && p0.combos.spritesheet === 1)) return fx;
                 var tj = r.src.replace(/\.(png|jpe?g|gif)$/i, ".tex-json");
                 return sceneFetchJson(tj).then(function (meta) {
                   var seq = (meta.spritesheetsequences || [])[0];
@@ -812,6 +1402,7 @@
                     };
                     animCompositeFrame(layer.anim, 0); // 初始合成第 0 帧
                     console.log("[scene] 动图贴图:", parsed.frames.length, "帧, 帧延时(ms)=", Math.round(parsed.frames[0].delay * 1000), "（纯 JS GIF 解码）");
+                    return fx;
                   });
                 });
               }).catch(function (e) {
@@ -902,7 +1493,7 @@
           bright: gl2.getUniformLocation(prog, "uBrightness")
         };
         return { gl: gl2, prog: prog, u: u, layers: layers, design: design,
-                 clear: clear, parallax: parallax };
+layers: layers, design: design, clear: clear, parallax: parallax, aPos: aPos, aUV: aUV, quadBuf: buf }
       });
     }).then(function (rt) {
       sceneRt = rt;
@@ -1045,7 +1636,22 @@
     } catch (e) {}
     postToFrame({ __gesso: "mouse", x: gMouse.dx, y: gMouse.dy, buttons: buttons, present: !!present });
   };
+  window.__sceneDbg = function () {
+    var rt = sceneRt;
+    var L = rt && rt.layers && rt.layers[0];
+    return {
+      ready: window.__gessoReady === true,
+      layers: rt && rt.layers ? rt.layers.length : -1,
+      tex: L ? !!L.tex : null,
+      srcW: L && L.srcW ? L.srcW : null,
+      anim: L && L.anim ? "set(" + L.anim.frames.length + ")" : "none",
+      chain: L ? (L.effectChain === undefined ? "undef" : L.effectChain === null ? "null" : L.effectChain.length) : "?",
+      passes: L && L.effectChain ? L.effectChain.map(function (p) { return p.samplers.length + "tex/" + Object.keys(p.paramValues).length + "p"; }) : null,
+      logs: (window.__logs || []).slice(-6)
+    };
+  };
 })();
 </script>
+<script src="debug-overlay.js"></script>
 </body>
 </html>
